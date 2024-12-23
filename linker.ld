@@ -54,9 +54,9 @@ SECTIONS
     PROVIDE(_stack_end = .);
   } >ram AT>ram
 
-  .cpu_specific_memory : {
-    PROVIDE( _cpu_specific_memory = . );
-    . = . + 16; # 4つのCPU用に16バイト確保（必要に応じて調整）
-  } >ram AT>ram
+  #.cpu_specific_memory : {
+  #  PROVIDE( _cpu_specific_memory = . );
+  #  . = . + 16*1; # Reserve 16 bytes per CPU (adjust as needed)
+  #} >ram AT>ram
 }
 
