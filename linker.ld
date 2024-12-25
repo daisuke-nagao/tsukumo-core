@@ -1,3 +1,5 @@
+/* SPDX-FileCopyrightText: 2024 Daisuke Nagao */
+/* SPDX-License-Identifier: MIT */
 OUTPUT_ARCH("riscv")
 
 ENTRY(_start)
@@ -54,9 +56,12 @@ SECTIONS
     PROVIDE(_stack_end = .);
   } >ram AT>ram
 
-  #.cpu_specific_memory : {
-  #  PROVIDE( _cpu_specific_memory = . );
-  #  . = . + 16*1; # Reserve 16 bytes per CPU (adjust as needed)
-  #} >ram AT>ram
+  /* Reserve 16 bytes per CPU (adjust as needed) */
+  /*
+  .cpu_specific_memory : {
+    PROVIDE( _cpu_specific_memory = . );
+    . = . + 16*1;
+  } >ram AT>ram
+  */
 }
 
