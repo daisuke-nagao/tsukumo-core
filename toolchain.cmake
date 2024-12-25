@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2024 Daisuke Nagao
+# SPDX-License-Identifier: MIT
 # RISC-V Bare-metal Toolchain File for Windows using Clang
 
 # Set system name and processor
