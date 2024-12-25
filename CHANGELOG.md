@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Introduced the `tkmc_start` function in `main.c` as a placeholder for transitioning to the C runtime.
+- Added initialization for the global pointer (`gp`) and stack pointer (`sp`) in the assembly startup routine in `start.s`.
+- Integrated a call to `tkmc_start` in the assembly startup routine to enable the transition from assembly to C code.
+- Included SPDX license headers to ensure compliance with project licensing standards.
 - Added an assembly file `start.s` for initialization, providing basic setup for the RISC-V target.
 - Added `main.c` as the entry point of the project.
 - Added `CMakeLists.txt` to support building for the RISC-V bare-metal environment:
@@ -19,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Clang toolchain file `toolchain.cmake` for the RISC-V bare-metal environment.
 
 ### Changed
-- None.
+- Updated `start.s` to use `.option norelax` and `.option relax` directives for proper handling of the `gp` initialization.
 
 ### Fixed
 - None.
