@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2024 Daisuke Nagao
+# SPDX-License-Identifier: MIT
 # CMakeLists.txt for RISC-V Bare-metal Project
 cmake_minimum_required(VERSION 3.22)
 
