@@ -6,6 +6,7 @@ _start:
   .option norelax
   la gp, __global_pointer$
   .option relax
+  la sp, _stack_end
 1:
   wfi
   j 1b
