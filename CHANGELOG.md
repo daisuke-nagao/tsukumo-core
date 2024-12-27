@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added a new static function `clear_bss` in `main.c` to clear the `.bss` section during initialization.
+- Integrated a call to the `clear_bss` function within `tkmc_start` to ensure uninitialized variables are properly set to zero.
 - Introduced the `tkmc_start` function in `main.c` as a placeholder for transitioning to the C runtime.
 - Added initialization for the global pointer (`gp`) and stack pointer (`sp`) in the assembly startup routine in `start.s`.
 - Integrated a call to `tkmc_start` in the assembly startup routine to enable the transition from assembly to C code.
