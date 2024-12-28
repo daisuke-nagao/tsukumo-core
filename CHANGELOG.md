@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Included a `.clang-format` file to standardize code formatting, based on the LLVM style:
+  - Added SPDX license headers to comply with CC0-1.0 license requirements.
 - Added a new static function `clear_bss` in `main.c` to clear the `.bss` section during initialization.
 - Integrated a call to the `clear_bss` function within `tkmc_start` to ensure uninitialized variables are properly set to zero.
 - Introduced the `tkmc_start` function in `main.c` as a placeholder for transitioning to the C runtime.
@@ -25,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Clang toolchain file `toolchain.cmake` for the RISC-V bare-metal environment.
 
 ### Changed
+- Updated `CMakeLists.txt` to include additional spacing for SPDX license header clarity.
 - Updated `start.s` to use `.option norelax` and `.option relax` directives for proper handling of the `gp` initialization.
 
 ### Fixed
