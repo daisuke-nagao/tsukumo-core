@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added `README.md` to provide project details, including:
+  - Project description, current status, requirements, and next steps.
+  - Instructions for running the RTOS on QEMU using a RISC-V processor.
 - Included a `.clang-format` file to standardize code formatting, based on the LLVM style:
   - Added SPDX license headers to comply with CC0-1.0 license requirements.
 - Added a new static function `clear_bss` in `main.c` to clear the `.bss` section during initialization.
