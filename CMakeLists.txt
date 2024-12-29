@@ -17,7 +17,7 @@ set(COMMON_FLAGS -ffreestanding -nostdlib)
 # Specify the executable
 add_executable(${EXECUTABLE})
 
-target_sources(${EXECUTABLE} PRIVATE start.s main.c)
+target_sources(${EXECUTABLE} PRIVATE start.s main.c task1.c)
 
 # Set CMake compilation flags
 target_compile_options(
