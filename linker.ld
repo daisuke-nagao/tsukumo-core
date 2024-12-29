@@ -1,5 +1,8 @@
-/* SPDX-FileCopyrightText: 2024 Daisuke Nagao */
-/* SPDX-License-Identifier: MIT */
+/*
+ * SPDX-FileCopyrightText: 2024 Daisuke Nagao
+ *
+ * SPDX-License-Identifier: MIT
+ */
 OUTPUT_ARCH("riscv")
 
 ENTRY(_start)
