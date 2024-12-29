@@ -3,6 +3,8 @@
 
 static void clear_bss(void);
 
+extern void task1(void);
+
 void tkmc_start(int a0, int a1) {
   clear_bss();
   return;
