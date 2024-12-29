@@ -10,6 +10,7 @@ extern void task1(void);
 
 void tkmc_start(int a0, int a1) {
   clear_bss();
+  task1();
   return;
 }
 
