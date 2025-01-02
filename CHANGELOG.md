@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Included `launch_task.s` to implement the `tkmc_launch_task` assembly routine for launching tasks.
+- Added `task1.c` to define a basic task that outputs "Hello, world." to the UART0 interface.
+- Updated `main.c` to:
+  - Declare the `task1` function and its stack.
+  - Call `tkmc_launch_task` to launch `task1` during initialization.
+- Added `launch_task.s` and `task1.c` as sources in `CMakeLists.txt`.
+- Updated `linker.ld`:
+  - Refined the license header formatting.
+- Updated license headers across all source files for consistent style and clarity.
 - Added `README.md` to provide project details, including:
   - Project description, current status, requirements, and next steps.
   - Instructions for running the RTOS on QEMU using a RISC-V processor.
