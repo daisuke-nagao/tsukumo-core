@@ -10,37 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Included `launch_task.s` to implement the `tkmc_launch_task` assembly routine for launching tasks.
 - Added `task1.c` to define a basic task that outputs "Hello, world." to the UART0 interface.
-- Updated `main.c` to:
-  - Declare the `task1` function and its stack.
-  - Call `tkmc_launch_task` to launch `task1` during initialization.
-- Added `launch_task.s` and `task1.c` as sources in `CMakeLists.txt`.
-- Updated `linker.ld`:
-  - Refined the license header formatting.
-- Updated license headers across all source files for consistent style and clarity.
-- Added `README.md` to provide project details, including:
-  - Project description, current status, requirements, and next steps.
+- Updated `main.c` to declare the `task1` function and its stack, and call `tkmc_launch_task` to initialize and launch `task1`.
+- Added `README.md` with project details, including:
+  - Description, current status, and setup requirements.
   - Instructions for running the RTOS on QEMU using a RISC-V processor.
-- Included a `.clang-format` file to standardize code formatting, based on the LLVM style:
-  - Added SPDX license headers to comply with CC0-1.0 license requirements.
-- Added a new static function `clear_bss` in `main.c` to clear the `.bss` section during initialization.
-- Integrated a call to the `clear_bss` function within `tkmc_start` to ensure uninitialized variables are properly set to zero.
-- Introduced the `tkmc_start` function in `main.c` as a placeholder for transitioning to the C runtime.
-- Added initialization for the global pointer (`gp`) and stack pointer (`sp`) in the assembly startup routine in `start.s`.
-- Integrated a call to `tkmc_start` in the assembly startup routine to enable the transition from assembly to C code.
-- Included SPDX license headers to ensure compliance with project licensing standards.
-- Added an assembly file `start.s` for initialization, providing basic setup for the RISC-V target.
-- Added `main.c` as the entry point of the project.
-- Added `CMakeLists.txt` to support building for the RISC-V bare-metal environment:
-  - Configured for Clang compiler usage.
-  - Integrated custom linker script (`linker.ld`).
-  - Added custom build step to generate a binary file using `objcopy`.
-  - Included a custom target to display binary size in Berkeley format.
-- Added `linker.ld` to define memory layout and section settings.
-- Added Clang toolchain file `toolchain.cmake` for the RISC-V bare-metal environment.
+- Included a `.clang-format` file to standardize code formatting, based on the LLVM style.
+- Enhanced runtime initialization in `main.c` with a static function `clear_bss` to clear the `.bss` section.
+- Integrated `start.s` for RISC-V environment initialization, with a call to `tkmc_start` for transitioning from assembly to C runtime.
+- Added `CMakeLists.txt` for RISC-V bare-metal development, including:
+  - Clang compiler setup, linker script integration, and custom build steps.
+  - A custom target to display binary size in Berkeley format.
+- Added `toolchain.cmake` for managing the RISC-V bare-metal toolchain.
+- Included `linker.ld` to define memory layout and section settings.
 
 ### Changed
-- Updated `CMakeLists.txt` to include additional spacing for SPDX license header clarity.
-- Updated `start.s` to use `.option norelax` and `.option relax` directives for proper handling of the `gp` initialization.
+- Updated all source files with consistent SPDX license header formatting.
+- Updated `start.s` to include `.option norelax` and `.option relax` for proper global pointer (`gp`) handling.
 
 ### Fixed
 - None.
