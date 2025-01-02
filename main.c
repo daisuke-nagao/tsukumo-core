@@ -1,10 +1,20 @@
-/* SPDX-FileCopyrightText: 2024 Daisuke Nagao */
-/* SPDX-License-Identifier: MIT */
+/*
+ * SPDX-FileCopyrightText: 2024 Daisuke Nagao
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 static void clear_bss(void);
 
+extern void task1(void);
+
+static unsigned int task1_stack[1024];
+extern void tkmc_launch_task(unsigned int *sp_end, void (*f)(void));
+
 void tkmc_start(int a0, int a1) {
   clear_bss();
+  tkmc_launch_task(task1_stack + sizeof(task1_stack) / sizeof(task1_stack[0]),
+                   task1);
   return;
 }
 

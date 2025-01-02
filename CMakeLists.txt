@@ -17,12 +17,12 @@ set(COMMON_FLAGS -ffreestanding -nostdlib)
 # Specify the executable
 add_executable(${EXECUTABLE})
 
-target_sources(${EXECUTABLE} PRIVATE start.s main.c)
+target_sources(${EXECUTABLE} PRIVATE start.s main.c launch_task.s task1.c)
 
 # Set CMake compilation flags
 target_compile_options(
   ${EXECUTABLE} PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS}>
-                        $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
+  $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
 
 # Set required standards
 target_compile_features(${EXECUTABLE} PRIVATE c_std_11 cxx_std_20)
