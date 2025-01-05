@@ -48,3 +48,26 @@ else()
   message(
     WARNING "Size command not found. Size information will not be available.")
 endif()
+
+# Define options
+option(TK_HAS_DOUBLEWORD "Enable 64-bit types" ON)
+option(TK_SUPPORT_USEC "Enable microsecond-related types" ON)
+
+# Include external script
+include(DetermineTypes.cmake)
+
+# Generate typedef.h
+configure_file(
+    typedef.h.in
+    ${CMAKE_BINARY_DIR}/typedef.h
+    @ONLY
+)
+
+# Add compile definitions based on options
+if(TK_HAS_DOUBLEWORD)
+    target_compile_definitions(${EXECUTABLE} PUBLIC TK_HAS_DOUBLEWORD)
+endif()
+
+if(TK_SUPPORT_USEC)
+    target_compile_definitions(${EXECUTABLE} PUBLIC TK_SUPPORT_USEC)
+endif()
