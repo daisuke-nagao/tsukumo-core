@@ -1,0 +1,95 @@
+/*
+ * SPDX-FileCopyrightText: 2025 Daisuke Nagao
+ *
+ * SPDX-License-Identifier: MIT
+ */
+#ifndef UUID_0194370D_742D_7D13_B112_8F22EEDAC061
+#define UUID_0194370D_742D_7D13_B112_8F22EEDAC061
+
+#if defined CHAR_BIT
+_Static_assert(CHAR_BIT == 8, "CHAR_BIT is not 8. The implementation requires CHAR_BIT to be exactly 8 for proper operation.");
+#elif defined __CHAR_BIT__
+_Static_assert(__CHAR_BIT__ == 8, "__CHAR_BIT__ is not 8. The implementation requires __CHAR_BIT__ to be exactly 8 for proper operation.");
+#else
+#error "CHAR_BIT or __CHAR_BIT__ is not defined. A definition of the bit-width of a char is required for this implementation."
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
+/* Basic data types */
+typedef @TYPE_8BIT_SIGNED@    B;   /* Signed 8-bit integer */
+typedef @TYPE_16BIT_SIGNED@   H;   /* Signed 16-bit integer */
+typedef @TYPE_32BIT_SIGNED@   W;   /* Signed 32-bit integer */
+#ifdef TK_HAS_DOUBLEWORD
+typedef @TYPE_64BIT_SIGNED@   D;   /* Signed 64-bit integer */
+#endif
+
+typedef @TYPE_8BIT_UNSIGNED@  UB;  /* Unsigned 8-bit integer */
+typedef @TYPE_16BIT_UNSIGNED@ UH;  /* Unsigned 16-bit integer */
+typedef @TYPE_32BIT_UNSIGNED@ UW;  /* Unsigned 32-bit integer */
+#ifdef TK_HAS_DOUBLEWORD
+typedef @TYPE_64BIT_UNSIGNED@ UD;  /* Unsigned 64-bit integer */
+#endif
+
+/* Bit-width dependent types */
+typedef char                 VB;  /* 8-bit data of unknown type */
+typedef short                VH;  /* 16-bit data of unknown type */
+typedef long                 VW;  /* 32-bit data of unknown type */
+#ifdef TK_HAS_DOUBLEWORD
+typedef long long            VD;  /* 64-bit data of unknown type */
+#endif
+
+/* Volatile types */
+typedef volatile B           _B;  /* Volatile signed 8-bit integer */
+typedef volatile H           _H;  /* Volatile signed 16-bit integer */
+typedef volatile W           _W;  /* Volatile signed 32-bit integer */
+#ifdef TK_HAS_DOUBLEWORD
+typedef volatile D           _D;  /* Volatile signed 64-bit integer */
+#endif
+
+typedef volatile UB          _UB; /* Volatile unsigned 8-bit integer */
+typedef volatile UH          _UH; /* Volatile unsigned 16-bit integer */
+typedef volatile UW          _UW; /* Volatile unsigned 32-bit integer */
+#ifdef TK_HAS_DOUBLEWORD
+typedef volatile UD          _UD; /* Volatile unsigned 64-bit integer */
+#endif
+
+/* Application-specific types */
+typedef signed int           INT;  /* Processor-width signed integer */
+typedef unsigned int         UINT; /* Processor-width unsigned integer */
+typedef INT                  SZ;   /* General size type */
+typedef INT                  ID;   /* General ID type */
+typedef W                    MSEC; /* Millisecond time unit */
+typedef void (*FP)();               /* Function pointer */
+typedef INT (*FUNCP)();             /* Function pointer returning INT */
+
+/* Boolean type */
+typedef UINT BOOL;
+#define TRUE  1  /* True */
+#define FALSE 0  /* False */
+
+/* Time-related types */
+typedef W                    TMO;  /* Timeout in milliseconds */
+#ifdef TK_SUPPORT_USEC
+typedef D                    TMO_U;  /* Timeout in microseconds */
+typedef UW                   RELTIM_U; /* Relative time in microseconds */
+typedef struct systim {
+    W       hi;                    /* Higher 32 bits */
+    UW      lo;                    /* Lower 32 bits */
+} SYSTIM;
+typedef D                    SYSTIM_U; /* System time in microseconds */
+#endif
+
+/* Constant definitions */
+#define NULL       0   /* Null pointer */
+#define TA_NULL    0   /* No special attributes */
+#define TMO_POL    0   /* Polling */
+#define TMO_FEVR  (-1) /* Forever wait */
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif /* __cplusplus */
+
+#endif /* UUID_0194370D_742D_7D13_B112_8F22EEDAC061 */

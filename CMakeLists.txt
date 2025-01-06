@@ -28,7 +28,7 @@ target_compile_options(
 target_compile_features(${EXECUTABLE} PRIVATE c_std_11 cxx_std_20)
 
 # Add include directories (if needed)
-target_include_directories(${EXECUTABLE} PRIVATE include)
+target_include_directories(${EXECUTABLE} PRIVATE include ${CMAKE_BINARY_DIR}/include/)
 
 # Convert to BIN file
 add_custom_command(
@@ -47,4 +47,27 @@ if(SIZE_COMMAND)
 else()
   message(
     WARNING "Size command not found. Size information will not be available.")
+endif()
+
+# Define options
+option(TK_HAS_DOUBLEWORD "Enable 64-bit types" ON)
+option(TK_SUPPORT_USEC "Enable microsecond-related types" ON)
+
+# Include external script
+include(DetermineTypes.cmake)
+
+# Generate typedef.h
+configure_file(
+    typedef.h.in
+    ${CMAKE_BINARY_DIR}/include/typedef.h
+    @ONLY
+)
+
+# Add compile definitions based on options
+if(TK_HAS_DOUBLEWORD)
+    target_compile_definitions(${EXECUTABLE} PUBLIC TK_HAS_DOUBLEWORD)
+endif()
+
+if(TK_SUPPORT_USEC)
+    target_compile_definitions(${EXECUTABLE} PUBLIC TK_SUPPORT_USEC)
 endif()
