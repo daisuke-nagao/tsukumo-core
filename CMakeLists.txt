@@ -28,7 +28,7 @@ target_compile_options(
 target_compile_features(${EXECUTABLE} PRIVATE c_std_11 cxx_std_20)
 
 # Add include directories (if needed)
-target_include_directories(${EXECUTABLE} PRIVATE include)
+target_include_directories(${EXECUTABLE} PRIVATE include ${CMAKE_BINARY_DIR}/include/)
 
 # Convert to BIN file
 add_custom_command(
@@ -59,7 +59,7 @@ include(DetermineTypes.cmake)
 # Generate typedef.h
 configure_file(
     typedef.h.in
-    ${CMAKE_BINARY_DIR}/typedef.h
+    ${CMAKE_BINARY_DIR}/include/typedef.h
     @ONLY
 )
 
