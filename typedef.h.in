@@ -14,6 +14,10 @@ _Static_assert(__CHAR_BIT__ == 8, "__CHAR_BIT__ is not 8. The implementation req
 #error "CHAR_BIT or __CHAR_BIT__ is not defined. A definition of the bit-width of a char is required for this implementation."
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplu */
+
 /* Basic data types */
 typedef @TYPE_8BIT_SIGNED@    B;   /* Signed 8-bit integer */
 typedef @TYPE_16BIT_SIGNED@   H;   /* Signed 16-bit integer */
@@ -83,5 +87,9 @@ typedef D                    SYSTIM_U; /* System time in microseconds */
 #define TA_NULL    0   /* No special attributes */
 #define TMO_POL    0   /* Polling */
 #define TMO_FEVR  (-1) /* Forever wait */
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif /* __cplusplu */
 
 #endif /* UUID_0194370D_742D_7D13_B112_8F22EEDAC061 */
