@@ -16,7 +16,7 @@ _Static_assert(__CHAR_BIT__ == 8, "__CHAR_BIT__ is not 8. The implementation req
 
 #ifdef __cplusplus
 extern "C" {
-#endif /* __cplusplu */
+#endif /* __cplusplus */
 
 /* Basic data types */
 typedef @TYPE_8BIT_SIGNED@    B;   /* Signed 8-bit integer */
@@ -90,6 +90,6 @@ typedef D                    SYSTIM_U; /* System time in microseconds */
 
 #ifdef __cplusplus
 } /* extern "C" */
-#endif /* __cplusplu */
+#endif /* __cplusplus */
 
 #endif /* UUID_0194370D_742D_7D13_B112_8F22EEDAC061 */
