@@ -6,6 +6,14 @@
 #ifndef UUID_0194370D_742D_7D13_B112_8F22EEDAC061
 #define UUID_0194370D_742D_7D13_B112_8F22EEDAC061
 
+#if defined CHAR_BIT
+_Static_assert(CHAR_BIT == 8, "CHAR_BIT is not 8. The implementation requires CHAR_BIT to be exactly 8 for proper operation.");
+#elif defined __CHAR_BIT__
+_Static_assert(__CHAR_BIT__ == 8, "__CHAR_BIT__ is not 8. The implementation requires __CHAR_BIT__ to be exactly 8 for proper operation.");
+#else
+#error "CHAR_BIT or __CHAR_BIT__ is not defined. A definition of the bit-width of a char is required for this implementation."
+#endif
+
 /* Basic data types */
 typedef @TYPE_8BIT_SIGNED@    B;   /* Signed 8-bit integer */
 typedef @TYPE_16BIT_SIGNED@   H;   /* Signed 16-bit integer */
