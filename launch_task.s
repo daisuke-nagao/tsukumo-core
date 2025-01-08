@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-.section .text
+  .section .text
   .global tkmc_launch_task, @function
 tkmc_launch_task:
   mv sp, a0

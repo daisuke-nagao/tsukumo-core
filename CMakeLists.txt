@@ -58,16 +58,16 @@ include(DetermineTypes.cmake)
 
 # Generate typedef.h
 configure_file(
-    typedef.h.in
-    ${CMAKE_BINARY_DIR}/include/typedef.h
-    @ONLY
+  typedef.h.in
+  ${CMAKE_BINARY_DIR}/include/typedef.h
+  @ONLY
 )
 
 # Add compile definitions based on options
 if(TK_HAS_DOUBLEWORD)
-    target_compile_definitions(${EXECUTABLE} PUBLIC TK_HAS_DOUBLEWORD)
+  target_compile_definitions(${EXECUTABLE} PUBLIC TK_HAS_DOUBLEWORD)
 endif()
 
 if(TK_SUPPORT_USEC)
-    target_compile_definitions(${EXECUTABLE} PUBLIC TK_SUPPORT_USEC)
+  target_compile_definitions(${EXECUTABLE} PUBLIC TK_SUPPORT_USEC)
 endif()

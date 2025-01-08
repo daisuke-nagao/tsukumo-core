@@ -22,6 +22,26 @@ static TCB tcbs[1] = {
     {NULL},
 };
 
+static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
+  B *stack_begin = (B *)sp;
+  B *stack_end = stack_begin + stksz;
+
+  ID new_id = sizeof(tcbs) / sizeof(tcbs[0]);
+  for (unsigned int i = 0; i < sizeof(tcbs) / sizeof(tcbs[0]); ++i) {
+    if (tcbs[i].sp != NULL) {
+      new_id = i;
+      break;
+    }
+  }
+
+  if (new_id < sizeof(tcbs) / sizeof(tcbs[0])) {
+    TCB *new_tcb = tcbs + new_id;
+    new_tcb->sp = stack_end;
+  }
+
+  return new_id;
+}
+
 void tkmc_start(int a0, int a1) {
   clear_bss();
   tkmc_launch_task(task1_stack + sizeof(task1_stack) / sizeof(task1_stack[0]),
