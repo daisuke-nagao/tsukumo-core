@@ -13,6 +13,15 @@ extern void task1(void);
 static unsigned int task1_stack[1024];
 extern void tkmc_launch_task(unsigned int *sp_end, void (*f)(void));
 
+/* Task Control Block */
+typedef struct TCB {
+  void *sp;
+} TCB;
+
+static TCB tcbs[1] = {
+    {NULL},
+};
+
 void tkmc_start(int a0, int a1) {
   clear_bss();
   tkmc_launch_task(task1_stack + sizeof(task1_stack) / sizeof(task1_stack[0]),
