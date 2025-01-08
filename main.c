@@ -16,6 +16,7 @@ extern void tkmc_launch_task(unsigned int *sp_end, void (*f)(void));
 /* Task Control Block */
 typedef struct TCB {
   void *sp;
+  FP task;
 } TCB;
 
 static TCB tcbs[1] = {
@@ -37,10 +38,13 @@ static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
   if (new_id < sizeof(tcbs) / sizeof(tcbs[0])) {
     TCB *new_tcb = tcbs + new_id;
     new_tcb->sp = stack_end;
+    new_tcb->task = fp;
   }
 
   return new_id;
 }
+
+static ER tkmc_start_task(ID id) { return 0; }
 
 void tkmc_start(int a0, int a1) {
   clear_bss();
