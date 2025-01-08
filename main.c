@@ -20,7 +20,7 @@ typedef struct TCB {
 } TCB;
 
 static TCB tcbs[1] = {
-    {NULL},
+    {NULL, NULL},
 };
 
 static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
@@ -29,7 +29,7 @@ static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
 
   ID new_id = sizeof(tcbs) / sizeof(tcbs[0]);
   for (unsigned int i = 0; i < sizeof(tcbs) / sizeof(tcbs[0]); ++i) {
-    if (tcbs[i].sp != NULL) {
+    if (tcbs[i].sp == NULL) {
       new_id = i;
       break;
     }
@@ -44,12 +44,16 @@ static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
   return new_id;
 }
 
-static ER tkmc_start_task(ID id) { return 0; }
+static ER tkmc_start_task(ID id) {
+  TCB *tcb = tcbs + id;
+  tkmc_launch_task(tcb->sp, tcb->task);
+  return 0;
+}
 
 void tkmc_start(int a0, int a1) {
   clear_bss();
-  tkmc_launch_task(task1_stack + sizeof(task1_stack) / sizeof(task1_stack[0]),
-                   task1);
+  ID task1_id = tkmc_create_task(task1_stack, sizeof(task1_stack), (FP)task1);
+  tkmc_start_task(task1_id);
   return;
 }
 
