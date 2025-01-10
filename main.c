@@ -9,8 +9,10 @@
 static void clear_bss(void);
 
 extern void task1(void);
+extern void task2(void);
 
 static unsigned int task1_stack[1024];
+static unsigned int task2_stack[1024];
 extern void tkmc_launch_task(unsigned int *sp_end, void (*f)(void));
 
 /* Task Control Block */
@@ -19,7 +21,8 @@ typedef struct TCB {
   FP task;
 } TCB;
 
-static TCB tcbs[1] = {
+static TCB tcbs[2] = {
+    {NULL, NULL},
     {NULL, NULL},
 };
 
@@ -53,6 +56,7 @@ static ER tkmc_start_task(ID id) {
 void tkmc_start(int a0, int a1) {
   clear_bss();
   ID task1_id = tkmc_create_task(task1_stack, sizeof(task1_stack), (FP)task1);
+  ID task2_id = tkmc_create_task(task2_stack, sizeof(task2_stack), (FP)task2);
   tkmc_start_task(task1_id);
   return;
 }
