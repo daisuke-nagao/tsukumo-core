@@ -5,6 +5,7 @@
  */
   .section .reset, "ax", @progbits
   .global _start, @function
+  .balign 4
 _start:
   .option norelax
   la gp, __global_pointer$
