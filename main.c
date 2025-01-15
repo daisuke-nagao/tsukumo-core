@@ -27,8 +27,8 @@ static TCB tcbs[2] = {
 };
 
 static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
-  B *stack_begin = (B *)sp;
-  B *stack_end = stack_begin + stksz;
+  UW *stack_begin = (UW *)sp;
+  UW *stack_end = stack_begin + (stksz >> 2);
 
   ID new_id = sizeof(tcbs) / sizeof(tcbs[0]);
   for (unsigned int i = 0; i < sizeof(tcbs) / sizeof(tcbs[0]); ++i) {
