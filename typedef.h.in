@@ -70,6 +70,12 @@ typedef UINT BOOL;
 #define TRUE  1  /* True */
 #define FALSE 0  /* False */
 
+/* Application-specific types for system attributes and functionality */
+typedef INT FN;   /* Function code */
+typedef UW ATR;   /* Object/handler attributes */
+typedef INT ER;   /* Error code */
+typedef INT PRI;  /* Priority */
+
 /* Time-related types */
 typedef W                    TMO;  /* Timeout in milliseconds */
 #ifdef TK_SUPPORT_USEC

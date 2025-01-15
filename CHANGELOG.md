@@ -8,28 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Included `launch_task.s` to implement the `tkmc_launch_task` assembly routine for launching tasks.
-- Added `task1.c` to define a basic task that outputs "Hello, world." to the UART0 interface.
-- Enhanced `CMakeLists.txt` with:
-  - Support for `typedef.h` generation using `typedef.h.in` and `DetermineTypes.cmake`.
-  - New options: `TK_HAS_DOUBLEWORD` (for 64-bit types) and `TK_SUPPORT_USEC` (for microsecond-related types).
-  - Updated include directories to include `${CMAKE_BINARY_DIR}/include/`.
-  - Added conditional compile definitions based on options (`TK_HAS_DOUBLEWORD` and `TK_SUPPORT_USEC`).
-- Added `DetermineTypes.cmake` to dynamically determine data type sizes and generate type definitions.
-- Included `typedef.h.in` to define configurable data types and constants for the project.
-- Updated `main.c`:
-  - Included `typedef.h`.
-  - Declared the `task1` function and its stack.
-  - Integrated a call to `tkmc_launch_task` to initialize and launch `task1`.
-- Added `toolchain.cmake` for managing the RISC-V bare-metal toolchain.
-- Included `linker.ld` to define memory layout and section settings.
+- Included `context_switch.s` to implement context switching with the `__context_switch` and `__launch_task` routines.
+- Added support for task management in `main.c`:
+  - Implemented `tkmc_create_task` for creating tasks with their stacks and entry points.
+  - Added `tkmc_start_task` to mark tasks as ready.
+  - Implemented `tkmc_context_switch` for cooperative multitasking between tasks.
+  - Updated task initialization to create and launch `task1` and `task2`.
+- Introduced `task1.c` and `task2.c` for demonstration tasks:
+  - `task1` outputs "Hello, world." via UART using `putstring`.
+  - `task2` outputs "FizzBuzz" via UART using `putstring`.
+- Added `putstring.h` to provide a helper function for UART-based string output.
+- Enhanced `typedef.h.in` with additional application-specific types:
+  - Attributes (`ATR`), error codes (`ER`), function codes (`FN`), and priorities (`PRI`).
+- Updated `CMakeLists.txt`:
+  - Integrated `context_switch.s`, `task1.c`, `task2.c`, and `putstring.h`.
+  - Enabled the generation of `typedef.h` from `typedef.h.in` using `DetermineTypes.cmake`.
+  - Added new configuration options: `TK_HAS_DOUBLEWORD` for 64-bit support and `TK_SUPPORT_USEC` for microsecond-related types.
 
 ### Changed
-- Updated all source files with consistent SPDX license header formatting.
-- Updated `start.s` to include `.option norelax` and `.option relax` for proper global pointer (`gp`) handling.
+- Refactored `start.s`:
+  - Improved alignment with `.balign 4`.
+  - Updated handling of the global pointer (`gp`) with `.option norelax` and `.option relax`.
+- Replaced the deprecated `tkmc_launch_task` in `launch_task.s` with `__launch_task` from `context_switch.s`.
+- Applied consistent SPDX license header formatting across all source files.
 
 ### Fixed
 - None.
 
 ### Removed
-- None.
+- Deprecated `tkmc_launch_task` from `launch_task.s` as its functionality is now covered by `__launch_task` in `context_switch.s`.
