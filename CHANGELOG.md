@@ -8,8 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added `CMakePresets.json` to define build and configure presets:
+  - Presets include `debug`, `release`, `relwithdebinfo`, and `minsizerel` for different build configurations.
+  - Common settings are inherited from the `base` preset, using the Ninja generator and exporting compile commands.
+  - Supports `CMAKE_TOOLCHAIN_FILE` for RISC-V bare-metal toolchain configuration.
 - Included `context_switch.s` to implement context switching with the `__context_switch` and `__launch_task` routines.
-- Added support for task management in `main.c`:
+- Enhanced task management in `main.c`:
   - Implemented `tkmc_create_task` for creating tasks with their stacks and entry points.
   - Added `tkmc_start_task` to mark tasks as ready.
   - Implemented `tkmc_context_switch` for cooperative multitasking between tasks.
