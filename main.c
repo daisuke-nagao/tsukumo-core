@@ -11,8 +11,8 @@ static void clear_bss(void);
 extern void task1(void);
 extern void task2(void);
 
-static unsigned int task1_stack[1024];
-static unsigned int task2_stack[1024];
+static UW task1_stack[1024];
+static UW task2_stack[1024];
 extern void tkmc_launch_task(unsigned int *sp_end, void (*f)(void));
 
 /* Task Control Block */
