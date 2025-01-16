@@ -18,8 +18,9 @@ set(COMMON_FLAGS -ffreestanding -nostdlib)
 add_executable(${EXECUTABLE})
 
 target_sources(
-  ${EXECUTABLE} PRIVATE kernel/asm/rv32/start.s kernel/asm/rv32/launch_task.s
-                        kernel/asm/rv32/context_switch.s main.c task1.c task2.c)
+  ${EXECUTABLE}
+  PRIVATE kernel/asm/rv32/start.s kernel/asm/rv32/launch_task.s
+          kernel/asm/rv32/context_switch.s kernel/main.c task1.c task2.c)
 
 # Set CMake compilation flags
 target_compile_options(
