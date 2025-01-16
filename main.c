@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <typedef.h>
+#include <tk/typedef.h>
 
 static void clear_bss(void);
 

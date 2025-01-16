@@ -5,7 +5,7 @@
  */
 
 #include "putstring.h"
-#include <typedef.h>
+#include <tk/typedef.h>
 
 extern void tkmc_context_switch(ID tskid);
 

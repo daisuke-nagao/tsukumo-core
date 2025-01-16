@@ -59,7 +59,7 @@ include(DetermineTypes.cmake)
 # Generate typedef.h
 configure_file(
   typedef.h.in
-  ${CMAKE_BINARY_DIR}/include/typedef.h
+  ${CMAKE_BINARY_DIR}/include/tk/typedef.h
   @ONLY
 )
 
