@@ -17,18 +17,22 @@ set(COMMON_FLAGS -ffreestanding -nostdlib)
 # Specify the executable
 add_executable(${EXECUTABLE})
 
-target_sources(${EXECUTABLE} PRIVATE start.s main.c launch_task.s context_switch.s task1.c task2.c)
+target_sources(
+  ${EXECUTABLE}
+  PRIVATE kernel/asm/rv32/start.s kernel/asm/rv32/launch_task.s
+          kernel/asm/rv32/context_switch.s kernel/start.c task1.c task2.c)
 
 # Set CMake compilation flags
 target_compile_options(
   ${EXECUTABLE} PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS}>
-  $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
+                        $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
 
 # Set required standards
 target_compile_features(${EXECUTABLE} PRIVATE c_std_11 cxx_std_20)
 
 # Add include directories (if needed)
-target_include_directories(${EXECUTABLE} PRIVATE include ${CMAKE_BINARY_DIR}/include/)
+target_include_directories(${EXECUTABLE} PRIVATE include
+                                                 ${CMAKE_BINARY_DIR}/include/)
 
 # Convert to BIN file
 add_custom_command(
@@ -57,11 +61,7 @@ option(TK_SUPPORT_USEC "Enable microsecond-related types" ON)
 include(DetermineTypes.cmake)
 
 # Generate typedef.h
-configure_file(
-  typedef.h.in
-  ${CMAKE_BINARY_DIR}/include/tk/typedef.h
-  @ONLY
-)
+configure_file(typedef.h.in ${CMAKE_BINARY_DIR}/include/tk/typedef.h @ONLY)
 
 # Add compile definitions based on options
 if(TK_HAS_DOUBLEWORD)
