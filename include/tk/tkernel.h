@@ -8,6 +8,7 @@
 #define UUID_01946FAC_8E45_7658_B009_C10ED747A05C
 
 #include <tk/typedef.h>
+#include <tk/errno.h>
 
 #include <sys/profile.h>
 
