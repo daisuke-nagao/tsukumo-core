@@ -60,6 +60,8 @@ static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
     stack_end[12] = (UW)fp;
     new_tcb->sp = stack_end;
     new_tcb->task = fp;
+  } else {
+    new_id = (ID)E_LIMIT;
   }
 
   return new_id;
@@ -68,7 +70,7 @@ static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
 static ER tkmc_start_task(ID tskid) {
   TCB *tcb = tcbs + tskid;
   tcb->state = READY;
-  return 0;
+  return E_OK;
 }
 
 static TCB *current = NULL;
