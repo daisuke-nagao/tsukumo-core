@@ -54,8 +54,7 @@ else()
 endif()
 
 # Define options
-option(TK_HAS_DOUBLEWORD "Enable 64-bit types" ON)
-option(TK_SUPPORT_USEC "Enable microsecond-related types" ON)
+#option(TK_HAS_DOUBLEWORD "Enable 64-bit types" ON)
 
 # Include external script
 include(DetermineTypes.cmake)
@@ -64,10 +63,4 @@ include(DetermineTypes.cmake)
 configure_file(typedef.h.in ${CMAKE_BINARY_DIR}/include/tk/typedef.h @ONLY)
 
 # Add compile definitions based on options
-if(TK_HAS_DOUBLEWORD)
-  target_compile_definitions(${EXECUTABLE} PUBLIC TK_HAS_DOUBLEWORD)
-endif()
-
-if(TK_SUPPORT_USEC)
-  target_compile_definitions(${EXECUTABLE} PUBLIC TK_SUPPORT_USEC)
-endif()
+#target_compile_definitions(${EXECUTABLE} PUBLIC TK_HAS_DOUBLEWORD)
