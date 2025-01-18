@@ -22,39 +22,29 @@ extern "C" {
 typedef @TYPE_8BIT_SIGNED@    B;   /* Signed 8-bit integer */
 typedef @TYPE_16BIT_SIGNED@   H;   /* Signed 16-bit integer */
 typedef @TYPE_32BIT_SIGNED@   W;   /* Signed 32-bit integer */
-#ifdef TK_HAS_DOUBLEWORD
 typedef @TYPE_64BIT_SIGNED@   D;   /* Signed 64-bit integer */
-#endif
 
 typedef @TYPE_8BIT_UNSIGNED@  UB;  /* Unsigned 8-bit integer */
 typedef @TYPE_16BIT_UNSIGNED@ UH;  /* Unsigned 16-bit integer */
 typedef @TYPE_32BIT_UNSIGNED@ UW;  /* Unsigned 32-bit integer */
-#ifdef TK_HAS_DOUBLEWORD
 typedef @TYPE_64BIT_UNSIGNED@ UD;  /* Unsigned 64-bit integer */
-#endif
 
 /* Bit-width dependent types */
 typedef char                 VB;  /* 8-bit data of unknown type */
 typedef short                VH;  /* 16-bit data of unknown type */
 typedef long                 VW;  /* 32-bit data of unknown type */
-#ifdef TK_HAS_DOUBLEWORD
 typedef long long            VD;  /* 64-bit data of unknown type */
-#endif
 
 /* Volatile types */
 typedef volatile B           _B;  /* Volatile signed 8-bit integer */
 typedef volatile H           _H;  /* Volatile signed 16-bit integer */
 typedef volatile W           _W;  /* Volatile signed 32-bit integer */
-#ifdef TK_HAS_DOUBLEWORD
 typedef volatile D           _D;  /* Volatile signed 64-bit integer */
-#endif
 
 typedef volatile UB          _UB; /* Volatile unsigned 8-bit integer */
 typedef volatile UH          _UH; /* Volatile unsigned 16-bit integer */
 typedef volatile UW          _UW; /* Volatile unsigned 32-bit integer */
-#ifdef TK_HAS_DOUBLEWORD
 typedef volatile UD          _UD; /* Volatile unsigned 64-bit integer */
-#endif
 
 /* Application-specific types */
 typedef signed int           INT;  /* Processor-width signed integer */
@@ -78,7 +68,8 @@ typedef INT PRI;  /* Priority */
 
 /* Time-related types */
 typedef W                    TMO;  /* Timeout in milliseconds */
-#ifdef TK_SUPPORT_USEC
+#if 0
+#if TK_SUPPORT_USEC
 typedef D                    TMO_U;  /* Timeout in microseconds */
 typedef UW                   RELTIM_U; /* Relative time in microseconds */
 typedef struct systim {
@@ -86,6 +77,7 @@ typedef struct systim {
     UW      lo;                    /* Lower 32 bits */
 } SYSTIM;
 typedef D                    SYSTIM_U; /* System time in microseconds */
+#endif
 #endif
 
 /* Constant definitions */
