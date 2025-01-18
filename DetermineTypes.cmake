@@ -47,13 +47,7 @@ endfunction()
 assign_type(1 TYPE_8BIT_SIGNED TYPE_8BIT_UNSIGNED)
 assign_type(2 TYPE_16BIT_SIGNED TYPE_16BIT_UNSIGNED)
 assign_type(4 TYPE_32BIT_SIGNED TYPE_32BIT_UNSIGNED)
-
-if(TK_HAS_DOUBLEWORD AND LONG_LONG_SIZE GREATER_EQUAL 8)
-    assign_type(8 TYPE_64BIT_SIGNED TYPE_64BIT_UNSIGNED)
-else()
-    set(TYPE_64BIT_SIGNED "/* not available */")
-    set(TYPE_64BIT_UNSIGNED "/* not available */")
-endif()
+assign_type(8 TYPE_64BIT_SIGNED TYPE_64BIT_UNSIGNED)
 
 # Export results to the parent scope
 set(TYPE_8BIT_SIGNED ${TYPE_8BIT_SIGNED} PARENT_SCOPE)
