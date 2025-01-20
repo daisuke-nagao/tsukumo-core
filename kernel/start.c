@@ -19,7 +19,7 @@ static UW task2_stack[1024];
 extern void __launch_task(void **sp_end);
 extern void __context_switch(void **next_sp, void **current_sp);
 
-static TCB tcbs[2] = {
+static TCB tkmc_tcbs[2] = {
     {0, NON_EXISTENT, NULL, NULL},
     {0, NON_EXISTENT, NULL, NULL},
 };
@@ -28,16 +28,16 @@ static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
   UW *stack_begin = (UW *)sp;
   UW *stack_end = stack_begin + (stksz >> 2);
 
-  ID new_id = sizeof(tcbs) / sizeof(tcbs[0]);
-  for (unsigned int i = 0; i < sizeof(tcbs) / sizeof(tcbs[0]); ++i) {
-    if (tcbs[i].sp == NULL) {
+  ID new_id = sizeof(tkmc_tcbs) / sizeof(tkmc_tcbs[0]);
+  for (unsigned int i = 0; i < sizeof(tkmc_tcbs) / sizeof(tkmc_tcbs[0]); ++i) {
+    if (tkmc_tcbs[i].sp == NULL) {
       new_id = i;
       break;
     }
   }
 
-  if (new_id < sizeof(tcbs) / sizeof(tcbs[0])) {
-    TCB *new_tcb = tcbs + new_id;
+  if (new_id < sizeof(tkmc_tcbs) / sizeof(tkmc_tcbs[0])) {
+    TCB *new_tcb = tkmc_tcbs + new_id;
     new_tcb->tskid = new_id;
     new_tcb->state = DORMANT;
     stack_end += -13;
@@ -55,7 +55,7 @@ static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
 }
 
 static ER tkmc_start_task(ID tskid) {
-  TCB *tcb = tcbs + tskid;
+  TCB *tcb = tkmc_tcbs + tskid;
   tcb->state = READY;
   return E_OK;
 }
@@ -73,7 +73,7 @@ void tkmc_start(int a0, int a1) {
   tkmc_start_task(task1_id);
   tkmc_start_task(task2_id);
 
-  TCB *tcb1 = tcbs + task1_id;
+  TCB *tcb1 = tkmc_tcbs + task1_id;
   tcb1->state = RUNNING;
   current = tcb1;
 
@@ -85,7 +85,7 @@ void tkmc_start(int a0, int a1) {
 void tkmc_context_switch(ID tskid) {
   TCB *prev = current;
   prev->state = READY;
-  TCB *next = tcbs + tskid;
+  TCB *next = tkmc_tcbs + tskid;
   next->state = RUNNING;
   current = next;
   __context_switch(&next->sp, &prev->sp);
