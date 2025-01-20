@@ -19,12 +19,6 @@ static UW task2_stack[1024];
 extern void __launch_task(void **sp_end);
 extern void __context_switch(void **next_sp, void **current_sp);
 
-extern TCB tkmc_tcbs[2];
-TCB tkmc_tcbs[2] = {
-    {0, NON_EXISTENT, NULL, NULL},
-    {0, NON_EXISTENT, NULL, NULL},
-};
-
 static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
   UW *stack_begin = (UW *)sp;
   UW *stack_end = stack_begin + (stksz >> 2);
