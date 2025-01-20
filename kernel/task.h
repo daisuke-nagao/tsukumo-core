@@ -29,6 +29,7 @@ typedef struct TCB {
 } TCB;
 
 extern TCB tkmc_tcbs[2];
+extern TCB *current;
 
 extern void tkmc_init_tcb(void);
 

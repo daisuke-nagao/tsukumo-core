@@ -7,6 +7,7 @@
 #include "task.h"
 
 TCB tkmc_tcbs[2];
+TCB *current = NULL;
 
 void tkmc_init_tcb(void) {
   for (int i = 0; i < sizeof(tkmc_tcbs) / sizeof(tkmc_tcbs[0]); ++i) {

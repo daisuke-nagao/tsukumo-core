@@ -55,8 +55,6 @@ static ER tkmc_start_task(ID tskid) {
   return E_OK;
 }
 
-static TCB *current = NULL;
-
 void tkmc_start(int a0, int a1) {
   clear_bss();
 
