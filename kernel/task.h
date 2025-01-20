@@ -28,6 +28,8 @@ typedef struct TCB {
   FP task;
 } TCB;
 
+extern void tkmc_init_tcb(void);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */

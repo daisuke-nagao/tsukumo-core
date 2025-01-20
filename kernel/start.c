@@ -64,6 +64,9 @@ static TCB *current = NULL;
 
 void tkmc_start(int a0, int a1) {
   clear_bss();
+
+  tkmc_init_tcb();
+
   ID task1_id = tkmc_create_task(task1_stack, sizeof(task1_stack), (FP)task1);
   ID task2_id = tkmc_create_task(task2_stack, sizeof(task2_stack), (FP)task2);
 

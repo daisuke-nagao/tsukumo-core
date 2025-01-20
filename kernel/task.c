@@ -5,3 +5,5 @@
  */
 
 #include "task.h"
+
+void tkmc_init_tcb(void) {}
