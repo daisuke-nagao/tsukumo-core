@@ -6,6 +6,8 @@
 
 #include <tk/tkernel.h>
 
+#include "task.h"
+
 static void clear_bss(void);
 
 extern void task1(void);
@@ -16,21 +18,6 @@ static UW task2_stack[1024];
 
 extern void __launch_task(void **sp_end);
 extern void __context_switch(void **next_sp, void **current_sp);
-
-enum TaskState {
-  NON_EXISTENT = 0,
-  DORMANT,
-  READY,
-  RUNNING,
-};
-
-/* Task Control Block */
-typedef struct TCB {
-  ID tskid;
-  enum TaskState state;
-  void *sp;
-  FP task;
-} TCB;
 
 static TCB tcbs[2] = {
     {0, NON_EXISTENT, NULL, NULL},

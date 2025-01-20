@@ -13,6 +13,21 @@
 extern "C" {
 #endif /* __cplusplus */
 
+enum TaskState {
+  NON_EXISTENT = 0,
+  DORMANT,
+  READY,
+  RUNNING,
+};
+
+/* Task Control Block */
+typedef struct TCB {
+  ID tskid;
+  enum TaskState state;
+  void *sp;
+  FP task;
+} TCB;
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */
