@@ -6,7 +6,7 @@
 
 #include "task.h"
 
-TCB tkmc_tcbs[2];
+TCB tkmc_tcbs[CFN_MAX_TSKID];
 TCB *current = NULL;
 
 void tkmc_init_tcb(void) {
