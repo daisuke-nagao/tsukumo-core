@@ -7,6 +7,8 @@
 #ifndef UUID_01946FAC_8E45_7658_B009_C10ED747A05C
 #define UUID_01946FAC_8E45_7658_B009_C10ED747A05C
 
+#include <sys/config.h>
+
 #include <tk/typedef.h>
 #include <tk/errno.h>
 
