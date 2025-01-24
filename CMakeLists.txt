@@ -19,8 +19,13 @@ add_executable(${EXECUTABLE})
 
 target_sources(
   ${EXECUTABLE}
-  PRIVATE kernel/asm/rv32/start.s kernel/asm/rv32/launch_task.s
-          kernel/asm/rv32/context_switch.s kernel/start.c kernel/task.c task1.c task2.c)
+  PRIVATE kernel/asm/rv32/start.s
+          kernel/asm/rv32/launch_task.s
+          kernel/asm/rv32/context_switch.s
+          kernel/start.c
+          kernel/task.c
+          task1.c
+          task2.c)
 
 # Set CMake compilation flags
 target_compile_options(
@@ -53,8 +58,10 @@ else()
     WARNING "Size command not found. Size information will not be available.")
 endif()
 
+# ~~~
 # Define options
-#option(TK_HAS_DOUBLEWORD "Enable 64-bit types" ON)
+# option(TK_HAS_DOUBLEWORD "Enable 64-bit types" ON)
+# ~~~
 
 # Include external script
 include(DetermineTypes.cmake)
@@ -62,5 +69,7 @@ include(DetermineTypes.cmake)
 # Generate typedef.h
 configure_file(typedef.h.in ${CMAKE_BINARY_DIR}/include/tk/typedef.h @ONLY)
 
+# ~~~
 # Add compile definitions based on options
-#target_compile_definitions(${EXECUTABLE} PUBLIC TK_HAS_DOUBLEWORD)
+# target_compile_definitions(${EXECUTABLE} PUBLIC TK_HAS_DOUBLEWORD)
+# ~~~
