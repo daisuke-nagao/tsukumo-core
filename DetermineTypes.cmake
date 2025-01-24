@@ -2,8 +2,10 @@
 #
 # SPDX-License-Identifier: MIT
 
+# ~~~
 # DetermineTypes.cmake
 # Script to check type sizes and assign appropriate types
+# ~~~
 
 include(CheckTypeSize)
 
@@ -23,24 +25,44 @@ message(STATUS "long long size: ${LONG_LONG_SIZE}")
 
 # Function to assign types based on size
 function(assign_type target_size var_signed var_unsigned)
-    if(CHAR_SIZE EQUAL ${target_size})
-        set(${var_signed} "signed char" PARENT_SCOPE)
-        set(${var_unsigned} "unsigned char" PARENT_SCOPE)
-    elseif(SHORT_SIZE EQUAL ${target_size})
-        set(${var_signed} "signed short" PARENT_SCOPE)
-        set(${var_unsigned} "unsigned short" PARENT_SCOPE)
-    elseif(INT_SIZE EQUAL ${target_size})
-        set(${var_signed} "signed int" PARENT_SCOPE)
-        set(${var_unsigned} "unsigned int" PARENT_SCOPE)
-    elseif(LONG_SIZE EQUAL ${target_size})
-        set(${var_signed} "signed long" PARENT_SCOPE)
-        set(${var_unsigned} "unsigned long" PARENT_SCOPE)
-    elseif(LONG_LONG_SIZE EQUAL ${target_size})
-        set(${var_signed} "signed long long" PARENT_SCOPE)
-        set(${var_unsigned} "unsigned long long" PARENT_SCOPE)
-    else()
-        message(FATAL_ERROR "No ${target_size}-bit type available")
-    endif()
+  if(CHAR_SIZE EQUAL ${target_size})
+    set(${var_signed}
+        "signed char"
+        PARENT_SCOPE)
+    set(${var_unsigned}
+        "unsigned char"
+        PARENT_SCOPE)
+  elseif(SHORT_SIZE EQUAL ${target_size})
+    set(${var_signed}
+        "signed short"
+        PARENT_SCOPE)
+    set(${var_unsigned}
+        "unsigned short"
+        PARENT_SCOPE)
+  elseif(INT_SIZE EQUAL ${target_size})
+    set(${var_signed}
+        "signed int"
+        PARENT_SCOPE)
+    set(${var_unsigned}
+        "unsigned int"
+        PARENT_SCOPE)
+  elseif(LONG_SIZE EQUAL ${target_size})
+    set(${var_signed}
+        "signed long"
+        PARENT_SCOPE)
+    set(${var_unsigned}
+        "unsigned long"
+        PARENT_SCOPE)
+  elseif(LONG_LONG_SIZE EQUAL ${target_size})
+    set(${var_signed}
+        "signed long long"
+        PARENT_SCOPE)
+    set(${var_unsigned}
+        "unsigned long long"
+        PARENT_SCOPE)
+  else()
+    message(FATAL_ERROR "No ${target_size}-bit type available")
+  endif()
 endfunction()
 
 # Assign types for each bit width
