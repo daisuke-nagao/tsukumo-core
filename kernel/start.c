@@ -23,17 +23,20 @@ static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
   UW *stack_begin = (UW *)sp;
   UW *stack_end = stack_begin + (stksz >> 2);
 
-  ID new_id = sizeof(tkmc_tcbs) / sizeof(tkmc_tcbs[0]);
-  for (unsigned int i = 0; i < sizeof(tkmc_tcbs) / sizeof(tkmc_tcbs[0]); ++i) {
-    if (tkmc_tcbs[i].sp == NULL) {
-      new_id = i;
-      break;
-    }
+  ID new_id = E_LIMIT;
+  TCB *new_tcb = NULL;
+  if (&tkmc_free_tcb != tkmc_free_tcb.next) {
+    new_tcb = tkmc_free_tcb.next;
+    tkmc_free_tcb.next = new_tcb->next;
+    new_tcb->next->prev = &tkmc_free_tcb;
+    new_tcb->next = new_tcb->prev = (void *)0xdeadbeef;
+
+    new_id = new_tcb->tskid;
+  } else {
+    new_id = E_LIMIT;
   }
 
-  if (new_id < sizeof(tkmc_tcbs) / sizeof(tkmc_tcbs[0])) {
-    TCB *new_tcb = tkmc_tcbs + new_id;
-    new_tcb->tskid = new_id;
+  if (new_id >= 0) {
     new_tcb->state = DORMANT;
     stack_end += -13;
     for (int i = 0; i < 12; ++i) {
