@@ -22,6 +22,8 @@ enum TaskState {
 
 /* Task Control Block */
 typedef struct TCB {
+  struct TCB *next;
+  struct TCB *prev;
   ID tskid;
   enum TaskState state;
   void *sp;
