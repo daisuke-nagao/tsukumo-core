@@ -23,5 +23,10 @@ void tkmc_init_tcb(void) {
         .sp = NULL,
         .task = NULL,
     };
+
+    tkmc_free_tcb.prev->next = tcb;
+    tcb->prev = tkmc_free_tcb.prev;
+    tcb->next = &tkmc_free_tcb;
+    tkmc_free_tcb.prev = tcb;
   }
 }
