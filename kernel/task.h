@@ -22,6 +22,8 @@ enum TaskState {
 
 /* Task Control Block */
 typedef struct TCB {
+  struct TCB *next;
+  struct TCB *prev;
   ID tskid;
   enum TaskState state;
   void *sp;
@@ -29,6 +31,7 @@ typedef struct TCB {
 } TCB;
 
 extern TCB tkmc_tcbs[CFN_MAX_TSKID];
+extern TCB tkmc_free_tcb;
 extern TCB *current;
 
 extern void tkmc_init_tcb(void);
