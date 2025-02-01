@@ -35,6 +35,16 @@ static inline BOOL tkmc_list_empty(const tkmc_list_head *head) {
 #define tkmc_list_first_entry(ptr, type, member)                               \
   tkmc_list_entry((ptr)->next, type, member)
 
+static inline void tkmc_list_del(tkmc_list_head *head) {
+  tkmc_list_head *prev = head->prev;
+  tkmc_list_head *next = head->next;
+
+  prev->next = next;
+  next->prev = prev;
+
+  head->next = head->prev = (tkmc_list_head *)0xdeadbeef;
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */
