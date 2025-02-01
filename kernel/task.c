@@ -23,9 +23,6 @@ void tkmc_init_tcb(void) {
     };
     tkmc_init_list_head(&tcb->head);
 
-    tkmc_free_tcb.prev->next = &tcb->head;
-    tcb->head.prev = tkmc_free_tcb.prev;
-    tcb->head.next = &tkmc_free_tcb;
-    tkmc_free_tcb.prev = &tcb->head;
+    tkmc_list_add_tail(&tcb->head, &tkmc_free_tcb);
   }
 }
