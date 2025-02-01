@@ -25,6 +25,16 @@ static inline BOOL tkmc_list_empty(const tkmc_list_head *head) {
   return head == head->next ? TRUE : FALSE;
 }
 
+#define tkmc_offsetof(type, member) ((unsigned long)&(((type *)0)->member))
+
+#define tkmc_container_of(ptr, type, member)                                   \
+  ((type *)((char *)(ptr) - tkmc_offsetof(type, member)))
+
+#define tkmc_list_entry(ptr, type, member) tkmc_container_of(ptr, type, member)
+
+#define tkmc_list_first_entry(ptr, type, member)                               \
+  tkmc_list_entry((ptr)->next, type, member)
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */
