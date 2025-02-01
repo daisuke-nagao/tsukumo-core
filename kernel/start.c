@@ -25,11 +25,9 @@ static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
 
   ID new_id = E_LIMIT;
   TCB *new_tcb = NULL;
-  if (&tkmc_free_tcb != tkmc_free_tcb.next) {
-    new_tcb = tkmc_free_tcb.next;
-    tkmc_free_tcb.next = new_tcb->next;
-    new_tcb->next->prev = &tkmc_free_tcb;
-    new_tcb->next = new_tcb->prev = (void *)0xdeadbeef;
+  if (tkmc_list_empty(&tkmc_free_tcb) == FALSE) {
+    new_tcb = tkmc_list_first_entry(&tkmc_free_tcb, TCB, head);
+    tkmc_list_del(&new_tcb->head);
 
     new_id = new_tcb->tskid;
   } else {
