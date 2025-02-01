@@ -16,6 +16,11 @@ typedef struct tkmc_list_head {
   struct tkmc_list_head *prev;
 } tkmc_list_head;
 
+static void tkmc_init_list_head(tkmc_list_head *head) {
+  head->next = head;
+  head->prev = head;
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */
