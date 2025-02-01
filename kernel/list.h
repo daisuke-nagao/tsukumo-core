@@ -11,6 +11,11 @@
 extern "C" {
 #endif /* __cplusplus */
 
+typedef struct tkmc_list_head {
+  struct tkmc_list_head *next;
+  struct tkmc_list_head *prev;
+} tkmc_list_head;
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */

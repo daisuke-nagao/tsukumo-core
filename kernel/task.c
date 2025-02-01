@@ -6,6 +6,8 @@
 
 #include "task.h"
 
+#include "list.h"
+
 TCB tkmc_tcbs[CFN_MAX_TSKID];
 TCB tkmc_free_tcb;
 TCB *current = NULL;
