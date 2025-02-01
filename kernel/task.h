@@ -9,6 +9,8 @@
 
 #include <tk/tkernel.h>
 
+#include "list.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
@@ -22,8 +24,7 @@ enum TaskState {
 
 /* Task Control Block */
 typedef struct TCB {
-  struct TCB *next;
-  struct TCB *prev;
+  tkmc_list_head head;
   ID tskid;
   enum TaskState state;
   void *sp;

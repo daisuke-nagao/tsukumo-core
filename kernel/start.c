@@ -19,17 +19,21 @@ static UW task2_stack[1024];
 extern void __launch_task(void **sp_end);
 extern void __context_switch(void **next_sp, void **current_sp);
 
+#define tkmc_offsetof(type, member) ((unsigned long)&(((type *)0)->member))
+#define tkmc_container_of(ptr, type, member)                                   \
+  ((type *)((char *)(ptr) - tkmc_offsetof(type, member)))
+
 static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
   UW *stack_begin = (UW *)sp;
   UW *stack_end = stack_begin + (stksz >> 2);
 
   ID new_id = E_LIMIT;
   TCB *new_tcb = NULL;
-  if (&tkmc_free_tcb != tkmc_free_tcb.next) {
-    new_tcb = tkmc_free_tcb.next;
-    tkmc_free_tcb.next = new_tcb->next;
-    new_tcb->next->prev = &tkmc_free_tcb;
-    new_tcb->next = new_tcb->prev = (void *)0xdeadbeef;
+  if (&tkmc_free_tcb.head != tkmc_free_tcb.head.next) {
+    new_tcb = tkmc_container_of(tkmc_free_tcb.head.next, TCB, head);
+    tkmc_free_tcb.head.next = new_tcb->head.next;
+    new_tcb->head.next->prev = &tkmc_free_tcb.head;
+    new_tcb->head.next = new_tcb->head.prev = (void *)0xdeadbeef;
 
     new_id = new_tcb->tskid;
   } else {
