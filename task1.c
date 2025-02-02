@@ -7,12 +7,12 @@
 #include "putstring.h"
 #include <tk/tkernel.h>
 
-extern void tkmc_context_switch(ID tskid);
+extern void tkmc_yield(void);
 
 void task1(void) {
   putstring("Hello, world\n");
   while (1) {
     putstring("Hello, world.\n");
-    tkmc_context_switch(1);
+    tkmc_yield();
   }
 }
