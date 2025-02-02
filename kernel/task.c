@@ -81,7 +81,7 @@ ER tkmc_start_task(ID tskid) {
   return E_OK;
 }
 
-TCB *tkmc_get_highest_tcb(void) {
+TCB *tkmc_get_highest_priority_task(void) {
 
   for (int i = 0; i < sizeof(tkmc_ready_queue) / sizeof(tkmc_ready_queue[0]);
        ++i) {
@@ -99,7 +99,7 @@ void tkmc_yield(void) {
   tkmc_list_del(&tmp->head);
   tkmc_list_add_tail(&tmp->head, &tkmc_ready_queue[itskpri - 1]);
 
-  TCB *top = tkmc_get_highest_tcb();
+  TCB *top = tkmc_get_highest_priority_task();
   if (tmp != top) {
     tmp->state = READY;
     top->state = RUNNING;

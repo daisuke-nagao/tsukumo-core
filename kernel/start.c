@@ -20,7 +20,7 @@ extern void __launch_task(void **sp_end);
 
 extern ID tkmc_create_task(void *sp, SZ stksz, PRI itskpri, FP fp);
 extern ER tkmc_start_task(ID tskid);
-extern TCB *tkmc_get_highest_tcb(void);
+extern TCB *tkmc_get_highest_priority_task(void);
 
 void tkmc_start(int a0, int a1) {
   clear_bss();
@@ -35,7 +35,7 @@ void tkmc_start(int a0, int a1) {
   tkmc_start_task(task1_id);
   tkmc_start_task(task2_id);
 
-  TCB *tcb = tkmc_get_highest_tcb();
+  TCB *tcb = tkmc_get_highest_priority_task();
   tcb->state = RUNNING;
   current = tcb;
 
