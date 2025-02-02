@@ -20,12 +20,7 @@ extern void __launch_task(void **sp_end);
 extern void __context_switch(void **next_sp, void **current_sp);
 
 extern ID tkmc_create_task(void *sp, SZ stksz, FP fp);
-
-static ER tkmc_start_task(ID tskid) {
-  TCB *tcb = tkmc_tcbs + tskid;
-  tcb->state = READY;
-  return E_OK;
-}
+extern ER tkmc_start_task(ID tskid);
 
 void tkmc_start(int a0, int a1) {
   clear_bss();

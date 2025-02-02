@@ -67,3 +67,9 @@ ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
 
   return new_id;
 }
+
+ER tkmc_start_task(ID tskid) {
+  TCB *tcb = tkmc_tcbs + tskid;
+  tcb->state = READY;
+  return E_OK;
+}
