@@ -93,11 +93,17 @@ TCB *tkmc_get_highest_tcb(void) {
   return NULL;
 }
 
-void tkmc_context_switch(ID tskid) {
-  TCB *prev = current;
-  prev->state = READY;
-  TCB *next = tkmc_tcbs + tskid;
-  next->state = RUNNING;
-  current = next;
-  __context_switch(&next->sp, &prev->sp);
+void tkmc_yield(void) {
+  TCB *tmp = current;
+  PRI itskpri = tmp->itskpri;
+  tkmc_list_del(&tmp->head);
+  tkmc_list_add_tail(&tmp->head, &tkmc_ready_queue[itskpri - 1]);
+
+  TCB *top = tkmc_get_highest_tcb();
+  if (tmp != top) {
+    tmp->state = READY;
+    top->state = RUNNING;
+    current = top;
+    __context_switch(&top->sp, &tmp->sp);
+  }
 }
