@@ -19,36 +19,7 @@ static UW task2_stack[1024];
 extern void __launch_task(void **sp_end);
 extern void __context_switch(void **next_sp, void **current_sp);
 
-static ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
-  UW *stack_begin = (UW *)sp;
-  UW *stack_end = stack_begin + (stksz >> 2);
-
-  ID new_id = E_LIMIT;
-  TCB *new_tcb = NULL;
-  if (tkmc_list_empty(&tkmc_free_tcb) == FALSE) {
-    new_tcb = tkmc_list_first_entry(&tkmc_free_tcb, TCB, head);
-    tkmc_list_del(&new_tcb->head);
-
-    new_id = new_tcb->tskid;
-  } else {
-    new_id = E_LIMIT;
-  }
-
-  if (new_id >= 0) {
-    new_tcb->state = DORMANT;
-    stack_end += -13;
-    for (int i = 0; i < 12; ++i) {
-      stack_end[i] = 0xdeadbeef;
-    }
-    stack_end[12] = (UW)fp;
-    new_tcb->sp = stack_end;
-    new_tcb->task = fp;
-  } else {
-    new_id = (ID)E_LIMIT;
-  }
-
-  return new_id;
-}
+extern ID tkmc_create_task(void *sp, SZ stksz, FP fp);
 
 static ER tkmc_start_task(ID tskid) {
   TCB *tcb = tkmc_tcbs + tskid;
