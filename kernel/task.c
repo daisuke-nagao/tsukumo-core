@@ -20,6 +20,7 @@ void tkmc_init_tcb(void) {
     TCB *tcb = &tkmc_tcbs[i];
     *tcb = (TCB){
         .tskid = i + 1,
+        .itskpri = 0,
         .state = NON_EXISTENT,
         .sp = NULL,
         .task = NULL,
@@ -37,7 +38,7 @@ void tkmc_init_tcb(void) {
   }
 }
 
-ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
+ID tkmc_create_task(void *sp, SZ stksz, PRI itskpri, FP fp) {
   UW *stack_begin = (UW *)sp;
   UW *stack_end = stack_begin + (stksz >> 2);
 
@@ -61,6 +62,7 @@ ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
     stack_end[12] = (UW)fp;
     new_tcb->sp = stack_end;
     new_tcb->task = fp;
+    new_tcb->itskpri = itskpri;
   } else {
     new_id = (ID)E_LIMIT;
   }
@@ -71,5 +73,8 @@ ID tkmc_create_task(void *sp, SZ stksz, FP fp) {
 ER tkmc_start_task(ID tskid) {
   TCB *tcb = tkmc_tcbs + tskid - 1;
   tcb->state = READY;
+
+  PRI itskpri = tcb->itskpri;
+  tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[itskpri - 1]);
   return E_OK;
 }

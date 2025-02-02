@@ -26,6 +26,7 @@ enum TaskState {
 typedef struct TCB {
   tkmc_list_head head;
   ID tskid;
+  PRI itskpri;
   enum TaskState state;
   void *sp;
   FP task;

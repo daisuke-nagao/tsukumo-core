@@ -19,7 +19,7 @@ static UW task2_stack[1024];
 extern void __launch_task(void **sp_end);
 extern void __context_switch(void **next_sp, void **current_sp);
 
-extern ID tkmc_create_task(void *sp, SZ stksz, FP fp);
+extern ID tkmc_create_task(void *sp, SZ stksz, PRI itskpri, FP fp);
 extern ER tkmc_start_task(ID tskid);
 
 void tkmc_start(int a0, int a1) {
@@ -27,8 +27,10 @@ void tkmc_start(int a0, int a1) {
 
   tkmc_init_tcb();
 
-  ID task1_id = tkmc_create_task(task1_stack, sizeof(task1_stack), (FP)task1);
-  ID task2_id = tkmc_create_task(task2_stack, sizeof(task2_stack), (FP)task2);
+  ID task1_id =
+      tkmc_create_task(task1_stack, sizeof(task1_stack), 1, (FP)task1);
+  ID task2_id =
+      tkmc_create_task(task2_stack, sizeof(task2_stack), 1, (FP)task2);
 
   tkmc_start_task(task1_id);
   tkmc_start_task(task2_id);
