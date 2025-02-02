@@ -32,8 +32,6 @@ typedef struct TCB {
   FP task;
 } TCB;
 
-extern TCB tkmc_tcbs[CFN_MAX_TSKID];
-extern tkmc_list_head tkmc_free_tcb;
 extern TCB *current;
 
 extern void tkmc_init_tcb(void);
