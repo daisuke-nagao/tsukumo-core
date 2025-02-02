@@ -78,3 +78,15 @@ ER tkmc_start_task(ID tskid) {
   tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[itskpri - 1]);
   return E_OK;
 }
+
+TCB *tkmc_get_highest_tcb(void) {
+
+  for (int i = 0; i < sizeof(tkmc_ready_queue) / sizeof(tkmc_ready_queue[0]);
+       ++i) {
+    if (!tkmc_list_empty(&tkmc_ready_queue[i])) {
+      return tkmc_list_first_entry(&tkmc_ready_queue[i], TCB, head);
+    }
+  }
+
+  return NULL;
+}

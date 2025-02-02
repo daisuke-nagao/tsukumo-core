@@ -21,6 +21,7 @@ extern void __context_switch(void **next_sp, void **current_sp);
 
 extern ID tkmc_create_task(void *sp, SZ stksz, PRI itskpri, FP fp);
 extern ER tkmc_start_task(ID tskid);
+extern TCB *tkmc_get_highest_tcb(void);
 
 void tkmc_start(int a0, int a1) {
   clear_bss();
@@ -35,11 +36,11 @@ void tkmc_start(int a0, int a1) {
   tkmc_start_task(task1_id);
   tkmc_start_task(task2_id);
 
-  TCB *tcb1 = tkmc_tcbs + task1_id;
-  tcb1->state = RUNNING;
-  current = tcb1;
+  TCB *tcb = tkmc_get_highest_tcb();
+  tcb->state = RUNNING;
+  current = tcb;
 
-  __launch_task(&tcb1->sp);
+  __launch_task(&tcb->sp);
 
   return;
 }
