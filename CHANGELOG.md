@@ -40,7 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Applied consistent SPDX license header formatting across all source files.
 - Refactored task management in `kernel/task.c` and `kernel/start.c`:
   - Replaced custom TCB linked list management with the new `tkmc_list_head` from `list.h`.
-  - Improved task control block (`TCB`) structure to use the generic list API.
+  - Added priority (`itskpri`) to `TCB` for task scheduling.
+  - Simplified context switching logic with priority-based scheduling.
 
 ### Fixed
 - None.
@@ -48,3 +49,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Deprecated `tkmc_launch_task` from `launch_task.s` as its functionality is now covered by `__launch_task` in `context_switch.s`.
 - Removed custom linked list implementation in `kernel/task.c` in favor of the new `kernel/list.h`.
+- Removed `tkmc_context_switch` in favor of the more flexible `tkmc_yield` function.
