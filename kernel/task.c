@@ -8,11 +8,14 @@
 
 TCB tkmc_tcbs[CFN_MAX_TSKID];
 tkmc_list_head tkmc_free_tcb;
+tkmc_list_head tkmc_ready_queue[CFN_MAX_PRI];
 TCB *current = NULL;
 
 void tkmc_init_tcb(void) {
+  /* Initialize tkmc_free_tcb */
   tkmc_init_list_head(&tkmc_free_tcb);
 
+  /* Initialize tkmc_tcbs */
   for (int i = 0; i < sizeof(tkmc_tcbs) / sizeof(tkmc_tcbs[0]); ++i) {
     TCB *tcb = &tkmc_tcbs[i];
     *tcb = (TCB){
@@ -23,7 +26,14 @@ void tkmc_init_tcb(void) {
     };
     tkmc_init_list_head(&tcb->head);
 
-    tkmc_list_add_tail(&tcb->head, &tkmc_free_tcb);
+    tkmc_list_add_tail(&tcb->head,
+                       &tkmc_free_tcb); /* Append to tkmc_free_tcb */
+  }
+
+  /* Initialize tkmc_ready_queue */
+  for (int i = 0; i < sizeof(tkmc_ready_queue) / sizeof(tkmc_ready_queue[0]);
+       ++i) {
+    tkmc_init_list_head(&tkmc_ready_queue[i]);
   }
 }
 
