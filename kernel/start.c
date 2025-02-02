@@ -17,7 +17,6 @@ static UW task1_stack[1024];
 static UW task2_stack[1024];
 
 extern void __launch_task(void **sp_end);
-extern void __context_switch(void **next_sp, void **current_sp);
 
 extern ID tkmc_create_task(void *sp, SZ stksz, PRI itskpri, FP fp);
 extern ER tkmc_start_task(ID tskid);
@@ -43,15 +42,6 @@ void tkmc_start(int a0, int a1) {
   __launch_task(&tcb->sp);
 
   return;
-}
-
-void tkmc_context_switch(ID tskid) {
-  TCB *prev = current;
-  prev->state = READY;
-  TCB *next = tkmc_tcbs + tskid;
-  next->state = RUNNING;
-  current = next;
-  __context_switch(&next->sp, &prev->sp);
 }
 
 static void clear_bss(void) {

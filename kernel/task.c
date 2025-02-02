@@ -11,6 +11,8 @@ tkmc_list_head tkmc_free_tcb;
 tkmc_list_head tkmc_ready_queue[CFN_MAX_PRI];
 TCB *current = NULL;
 
+extern void __context_switch(void **next_sp, void **current_sp);
+
 void tkmc_init_tcb(void) {
   /* Initialize tkmc_free_tcb */
   tkmc_init_list_head(&tkmc_free_tcb);
@@ -89,4 +91,13 @@ TCB *tkmc_get_highest_tcb(void) {
   }
 
   return NULL;
+}
+
+void tkmc_context_switch(ID tskid) {
+  TCB *prev = current;
+  prev->state = READY;
+  TCB *next = tkmc_tcbs + tskid;
+  next->state = RUNNING;
+  current = next;
+  __context_switch(&next->sp, &prev->sp);
 }
