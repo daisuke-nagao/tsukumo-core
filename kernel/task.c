@@ -40,9 +40,9 @@ void tkmc_init_tcb(void) {
   }
 }
 
-ID tkmc_create_task(void *sp, SZ stksz, PRI itskpri, FP fp) {
-  UW *stack_begin = (UW *)sp;
-  UW *stack_end = stack_begin + (stksz >> 2);
+ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
+  UW *stack_begin = (UW *)pk_ctsk->bufptr;
+  UW *stack_end = stack_begin + (pk_ctsk->stksz >> 2);
 
   ID new_id = E_LIMIT;
   TCB *new_tcb = NULL;
@@ -61,10 +61,10 @@ ID tkmc_create_task(void *sp, SZ stksz, PRI itskpri, FP fp) {
     for (int i = 0; i < 12; ++i) {
       stack_end[i] = 0xdeadbeef;
     }
-    stack_end[12] = (UW)fp;
+    stack_end[12] = (UW)pk_ctsk->task;
     new_tcb->sp = stack_end;
-    new_tcb->task = fp;
-    new_tcb->itskpri = itskpri;
+    new_tcb->task = pk_ctsk->task;
+    new_tcb->itskpri = pk_ctsk->itskpri;
   } else {
     new_id = (ID)E_LIMIT;
   }

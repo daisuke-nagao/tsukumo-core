@@ -18,7 +18,7 @@ static UW task2_stack[1024];
 
 extern void __launch_task(void **sp_end);
 
-extern ID tkmc_create_task(void *sp, SZ stksz, PRI itskpri, FP fp);
+extern ID tkmc_create_task(const T_CTSK *pk_ctsk);
 extern ER tkmc_start_task(ID tskid);
 extern TCB *tkmc_get_highest_priority_task(void);
 
@@ -27,10 +27,26 @@ void tkmc_start(int a0, int a1) {
 
   tkmc_init_tcb();
 
-  ID task1_id =
-      tkmc_create_task(task1_stack, sizeof(task1_stack), 1, (FP)task1);
-  ID task2_id =
-      tkmc_create_task(task2_stack, sizeof(task2_stack), 1, (FP)task2);
+  T_CTSK pk_ctsk1 = {
+      .task = task1,
+      .itskpri = 1,
+      .stksz = sizeof(task1_stack),
+      .bufptr = task1_stack,
+  };
+
+  T_CTSK pk_ctsk2 = {
+      .task = task2,
+      .itskpri = 1,
+      .stksz = sizeof(task2_stack),
+      .bufptr = task2_stack,
+  };
+  ID task1_id = tkmc_create_task(&pk_ctsk1);
+  ID task2_id = tkmc_create_task(&pk_ctsk2);
+
+  // ID task1_id =
+  //     tkmc_create_task(task1_stack, sizeof(task1_stack), 1, (FP)task1);
+  // ID task2_id =
+  //     tkmc_create_task(task2_stack, sizeof(task2_stack), 1, (FP)task2);
 
   tkmc_start_task(task1_id);
   tkmc_start_task(task2_id);

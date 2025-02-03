@@ -58,10 +58,11 @@ else()
     WARNING "Size command not found. Size information will not be available.")
 endif()
 
-# ~~~
 # Define options
-# option(TK_HAS_DOUBLEWORD "Enable 64-bit types" ON)
-# ~~~
+option(
+  TKERNEL_CHECK_CONST
+  "Enable CONST checks to prevent unintended modifications to pointer parameters in system calls. This helps ensure code safety by using 'const' qualifiers when supported. If disabled, CONST will be defined as an empty macro to maintain compatibility with legacy code."
+  ON)
 
 # Include external script
 include(DetermineTypes.cmake)
@@ -69,7 +70,7 @@ include(DetermineTypes.cmake)
 # Generate typedef.h
 configure_file(typedef.h.in ${CMAKE_BINARY_DIR}/include/tk/typedef.h @ONLY)
 
-# ~~~
 # Add compile definitions based on options
-# target_compile_definitions(${EXECUTABLE} PUBLIC TK_HAS_DOUBLEWORD)
-# ~~~
+if(TKERNEL_CHECK_CONST)
+  target_compile_definitions(${EXECUTABLE} PUBLIC TKERNEL_CHECK_CONST)
+endif()
