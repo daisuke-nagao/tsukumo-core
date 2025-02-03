@@ -40,7 +40,7 @@ void tkmc_init_tcb(void) {
   }
 }
 
-ID tkmc_create_task(const T_CTSK *pk_ctsk) {
+ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
   UW *stack_begin = (UW *)pk_ctsk->bufptr;
   UW *stack_end = stack_begin + (pk_ctsk->stksz >> 2);
 
