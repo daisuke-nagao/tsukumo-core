@@ -36,6 +36,13 @@ extern TCB *current;
 
 extern void tkmc_init_tcb(void);
 
+typedef struct T_CTSK {
+  FP task;      /* Task Start Address */
+  PRI itskpri;  /* Initial Task Priority */
+  SZ stksz;     /* Stack Size */
+  void *bufptr; /* Buffer Pointer */
+} T_CTSK;
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */
