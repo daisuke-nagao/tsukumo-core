@@ -11,7 +11,8 @@ _start:
   la gp, __global_pointer$
   .option relax
 
-  la a0, mtrap_handler
+  la a0, trap_handlers
+  addi a0, a0, 1
   csrw mtvec, a0
 
   li a0, (1<<3)
@@ -29,9 +30,48 @@ _start:
   wfi
   j 1b
 
+  .balign 4
 mtrap_handler:
   // Clear MSIP
   li a0, 0x2000000
   li a1, 0
   sw a1, 0(a0)
   mret
+
+  .balign 4
+default_handler:
+  mret
+
+  .balign 16
+trap_handlers:
+  j default_handler
+  .balign 4
+  j default_handler
+  .balign 4
+  j default_handler
+  .balign 4
+  j mtrap_handler
+  .balign 4
+  j default_handler
+  .balign 4
+  j default_handler
+  .balign 4
+  j default_handler
+  .balign 4
+  j default_handler
+  .balign 4
+  j default_handler
+  .balign 4
+  j default_handler
+  .balign 4
+  j default_handler
+  .balign 4
+  j default_handler
+  .balign 4
+  j default_handler
+  .balign 4
+  j default_handler
+  .balign 4
+  j default_handler
+  .balign 4
+  j default_handler
