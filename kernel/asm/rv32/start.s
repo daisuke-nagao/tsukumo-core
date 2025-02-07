@@ -15,10 +15,8 @@ _start:
   addi a0, a0, 1
   csrw mtvec, a0
 
-  li a0, (1<<3)
-  csrs mie, a0
-  li a0, (1<<3)
-  csrs mstatus, a0
+  csrsi mie, (1<<3)
+  csrsi mstatus, (1<<3)
 
   li a0, 0x2000000
   li a1, 1
