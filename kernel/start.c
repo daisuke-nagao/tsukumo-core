@@ -43,11 +43,6 @@ void tkmc_start(int a0, int a1) {
   ID task1_id = tkmc_create_task(&pk_ctsk1);
   ID task2_id = tkmc_create_task(&pk_ctsk2);
 
-  // ID task1_id =
-  //     tkmc_create_task(task1_stack, sizeof(task1_stack), 1, (FP)task1);
-  // ID task2_id =
-  //     tkmc_create_task(task2_stack, sizeof(task2_stack), 1, (FP)task2);
-
   tkmc_start_task(task1_id);
   tkmc_start_task(task2_id);
 

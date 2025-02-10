@@ -57,11 +57,11 @@ ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
 
   if (new_id >= 0) {
     new_tcb->state = DORMANT;
-    stack_end += -13;
-    for (int i = 0; i < 12; ++i) {
+    stack_end += -29;
+    for (int i = 0; i < 29; ++i) {
       stack_end[i] = 0xdeadbeef;
     }
-    stack_end[12] = (UW)pk_ctsk->task;
+    stack_end[0] = (UW)pk_ctsk->task;
     new_tcb->sp = stack_end;
     new_tcb->task = pk_ctsk->task;
     new_tcb->itskpri = pk_ctsk->itskpri;
