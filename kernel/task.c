@@ -104,7 +104,12 @@ void tkmc_yield(void) {
   if (tmp != top) {
     tmp->state = READY;
     top->state = RUNNING;
-    current = top;
-    __context_switch(&top->sp, &tmp->sp);
+    //current = top;
+    //__context_switch(&top->sp, &tmp->sp);
+    asm volatile("li a0, 0x2000000;"
+      "li a1, 1;"
+      "sw a1, 0(a0);" ::
+          : "a0", "a1", "memory");
+
   }
 }
