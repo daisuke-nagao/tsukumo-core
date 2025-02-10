@@ -20,10 +20,6 @@ _start:
 
   la sp, _stack_end
 
-  li a0, 0x2000000
-  li a1, 1
-  sw a1, 0(a0)
-
   call tkmc_start
 1:
   wfi
@@ -69,6 +65,10 @@ mtrap_handler:
   li a0, 0x2000000
   li a1, 0
   sw a1, 0(a0)
+
+  mv a0, sp
+  call schedule
+  lw sp, 0(a0)
 
   lw a0, 28*4(sp)
   csrw mepc, a0

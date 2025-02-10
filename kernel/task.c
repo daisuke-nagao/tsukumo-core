@@ -62,6 +62,7 @@ ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
       stack_end[i] = 0xdeadbeef;
     }
     stack_end[0] = (UW)pk_ctsk->task;
+    stack_end[28] = (UW)pk_ctsk->task;
     new_tcb->sp = stack_end;
     new_tcb->task = pk_ctsk->task;
     new_tcb->itskpri = pk_ctsk->itskpri;

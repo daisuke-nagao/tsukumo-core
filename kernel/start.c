@@ -62,3 +62,15 @@ static void clear_bss(void) {
     *ptr = 0;
   }
 }
+
+void **schedule(void *sp) {
+
+  TCB *tmp = current;
+  tmp->sp = sp;
+
+  TCB *next = tkmc_get_highest_priority_task();
+
+  current = next;
+
+  return &next->sp;
+}
