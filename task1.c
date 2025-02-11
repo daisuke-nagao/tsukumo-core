@@ -9,14 +9,14 @@
 
 extern void tkmc_yield(void);
 
-void task1(void) {
+void task1(INT stacd) {
   putstring("Hello, world\n");
-  asm volatile("li a0, 0x2000000;"
-               "li a1, 1;"
-               "sw a1, 0(a0);" ::
-                   : "a0", "a1", "memory");
   while (1) {
-    putstring("Hello, world.\n");
+    if (stacd == 1) {
+      putstring("Hello, world.\n");
+    } else {
+      putstring("hello, World.\n");
+    }
     tkmc_yield();
   }
 }
