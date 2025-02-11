@@ -76,6 +76,8 @@ ER tkmc_start_task(ID tskid, INT stacd) {
   tcb->state = READY;
 
   PRI itskpri = tcb->itskpri;
+  INT* sp = (INT*)tcb->sp;
+  sp[6] = stacd;
   tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[itskpri - 1]);
   return E_OK;
 }

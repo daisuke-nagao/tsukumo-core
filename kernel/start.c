@@ -10,8 +10,8 @@
 
 static void clear_bss(void);
 
-extern void task1(void);
-extern void task2(void);
+extern void task1(INT stacd);
+extern void task2(INT stacd);
 
 static UW task1_stack[1024];
 static UW task2_stack[1024];
@@ -28,14 +28,14 @@ void tkmc_start(int a0, int a1) {
   tkmc_init_tcb();
 
   T_CTSK pk_ctsk1 = {
-      .task = task1,
+      .task = (FP)task1,
       .itskpri = 1,
       .stksz = sizeof(task1_stack),
       .bufptr = task1_stack,
   };
 
   T_CTSK pk_ctsk2 = {
-      .task = task2,
+      .task = (FP)task2,
       .itskpri = 1,
       .stksz = sizeof(task2_stack),
       .bufptr = task2_stack,

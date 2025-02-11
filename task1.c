@@ -9,10 +9,14 @@
 
 extern void tkmc_yield(void);
 
-void task1(void) {
+void task1(INT stacd) {
   putstring("Hello, world\n");
   while (1) {
-    putstring("Hello, world.\n");
+    if (stacd == 1) {
+      putstring("Hello, world.\n");
+    } else {
+      putstring("hello, World.\n");
+    }
     tkmc_yield();
   }
 }
