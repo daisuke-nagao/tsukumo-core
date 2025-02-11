@@ -19,7 +19,7 @@ static UW task2_stack[1024];
 extern void __launch_task(void **sp_end);
 
 extern ID tkmc_create_task(const T_CTSK *pk_ctsk);
-extern ER tkmc_start_task(ID tskid);
+extern ER tkmc_start_task(ID tskid, INT stacd);
 extern TCB *tkmc_get_highest_priority_task(void);
 
 void tkmc_start(int a0, int a1) {
@@ -43,8 +43,8 @@ void tkmc_start(int a0, int a1) {
   ID task1_id = tkmc_create_task(&pk_ctsk1);
   ID task2_id = tkmc_create_task(&pk_ctsk2);
 
-  tkmc_start_task(task1_id);
-  tkmc_start_task(task2_id);
+  tkmc_start_task(task1_id, 1);
+  tkmc_start_task(task2_id, 2);
 
   TCB *tcb = tkmc_get_highest_priority_task();
   tcb->state = RUNNING;

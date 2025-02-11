@@ -71,7 +71,7 @@ ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
   return new_id;
 }
 
-ER tkmc_start_task(ID tskid) {
+ER tkmc_start_task(ID tskid, INT stacd) {
   TCB *tcb = tkmc_tcbs + tskid - 1;
   tcb->state = READY;
 
