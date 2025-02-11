@@ -3,43 +3,9 @@
  *
  * SPDX-License-Identifier: MIT
  */
-  .section .reset, "ax", @progbits
-  .global __context_switch, @function
+  .text
   .global __launch_task, @function
   .balign 4
-__context_switch:
-    /* a0 = next_sp: void** */
-    /* a1 = current_sp: void** */
-    addi  sp, sp, -4*29
-    sw ra, 0*4(sp)
-    sw t0, 1*4(sp)
-    sw t1, 2*4(sp)
-    sw t2, 3*4(sp)
-    sw s0, 4*4(sp)
-    sw s1, 5*4(sp)
-    sw a0, 6*4(sp)
-    sw a1, 7*4(sp)
-    sw a2, 8*4(sp)
-    sw a3, 9*4(sp)
-    sw a4, 10*4(sp)
-    sw a5, 11*4(sp)
-    sw a6, 12*4(sp)
-    sw a7, 13*4(sp)
-    sw s2, 14*4(sp)
-    sw s3, 15*4(sp)
-    sw s4, 16*4(sp)
-    sw s5, 17*4(sp)
-    sw s6, 18*4(sp)
-    sw s7, 19*4(sp)
-    sw s8, 20*4(sp)
-    sw s9, 21*4(sp)
-    sw s10, 22*4(sp)
-    sw s11, 23*4(sp)
-    sw t3, 24*4(sp)
-    sw t4, 25*4(sp)
-    sw t5, 26*4(sp)
-    sw t6, 27*4(sp)
-    sw    sp, (a1)
 __launch_task:
     lw    sp, (a0)
     lw t6, 27*4(sp)

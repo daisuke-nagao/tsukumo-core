@@ -11,8 +11,6 @@ tkmc_list_head tkmc_free_tcb;
 tkmc_list_head tkmc_ready_queue[CFN_MAX_PRI];
 TCB *current = NULL;
 
-extern void __context_switch(void **next_sp, void **current_sp);
-
 void tkmc_init_tcb(void) {
   /* Initialize tkmc_free_tcb */
   tkmc_init_list_head(&tkmc_free_tcb);
