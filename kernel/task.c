@@ -11,8 +11,6 @@ tkmc_list_head tkmc_free_tcb;
 tkmc_list_head tkmc_ready_queue[CFN_MAX_PRI];
 TCB *current = NULL;
 
-extern void __context_switch(void **next_sp, void **current_sp);
-
 void tkmc_init_tcb(void) {
   /* Initialize tkmc_free_tcb */
   tkmc_init_list_head(&tkmc_free_tcb);
@@ -57,11 +55,12 @@ ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
 
   if (new_id >= 0) {
     new_tcb->state = DORMANT;
-    stack_end += -13;
-    for (int i = 0; i < 12; ++i) {
+    stack_end += -29;
+    for (int i = 0; i < 29; ++i) {
       stack_end[i] = 0xdeadbeef;
     }
-    stack_end[12] = (UW)pk_ctsk->task;
+    stack_end[0] = (UW)pk_ctsk->task;
+    stack_end[28] = (UW)pk_ctsk->task;
     new_tcb->sp = stack_end;
     new_tcb->task = pk_ctsk->task;
     new_tcb->itskpri = pk_ctsk->itskpri;
@@ -93,6 +92,8 @@ TCB *tkmc_get_highest_priority_task(void) {
   return NULL;
 }
 
+static inline void out_w(INT port, UW data) { *(_UW *)port = data; }
+
 void tkmc_yield(void) {
   TCB *tmp = current;
   PRI itskpri = tmp->itskpri;
@@ -103,7 +104,6 @@ void tkmc_yield(void) {
   if (tmp != top) {
     tmp->state = READY;
     top->state = RUNNING;
-    current = top;
-    __context_switch(&top->sp, &tmp->sp);
+    out_w(0x2000000, 1); // Trigger a machine software interrupt
   }
 }
