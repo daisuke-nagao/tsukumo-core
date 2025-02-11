@@ -94,6 +94,8 @@ TCB *tkmc_get_highest_priority_task(void) {
   return NULL;
 }
 
+static inline void out_w(INT port, UW data) { *(_UW *)port = data; }
+
 void tkmc_yield(void) {
   TCB *tmp = current;
   PRI itskpri = tmp->itskpri;
@@ -104,12 +106,6 @@ void tkmc_yield(void) {
   if (tmp != top) {
     tmp->state = READY;
     top->state = RUNNING;
-    //current = top;
-    //__context_switch(&top->sp, &tmp->sp);
-    asm volatile("li a0, 0x2000000;"
-      "li a1, 1;"
-      "sw a1, 0(a0);" ::
-          : "a0", "a1", "memory");
-
+    out_w(0x2000000, 1); // Trigger a machine software interrupt
   }
 }
