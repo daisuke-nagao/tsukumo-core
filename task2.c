@@ -9,13 +9,16 @@
 
 extern void tkmc_yield(void);
 
-void task2(INT stacd) {
+void task2(INT stacd, void *exinf) {
   putstring("FizzBuzz\n");
+
+  const char* msg = (const char*)exinf;
   while (1) {
-    if (stacd == 2) {
-      putstring("FizzBuzz.\n");
+    putstring(msg);
+    if (stacd == 1) {
+      putstring(" 1\n");
     } else {
-      putstring("fizzbuzz.\n");
+      putstring(" 2\n");
     }
     tkmc_yield();
   }

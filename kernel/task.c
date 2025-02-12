@@ -64,6 +64,7 @@ ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
     new_tcb->sp = stack_end;
     new_tcb->task = pk_ctsk->task;
     new_tcb->itskpri = pk_ctsk->itskpri;
+    new_tcb->exinf = pk_ctsk->exinf;
   } else {
     new_id = (ID)E_LIMIT;
   }
@@ -76,8 +77,9 @@ ER tkmc_start_task(ID tskid, INT stacd) {
   tcb->state = READY;
 
   PRI itskpri = tcb->itskpri;
-  INT* sp = (INT*)tcb->sp;
-  sp[6] = stacd;
+  INT *sp = (INT *)tcb->sp;
+  sp[6] = stacd; /* a0 register */
+  sp[7] = (INT)tcb->exinf; /* a1 register */
   tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[itskpri - 1]);
   return E_OK;
 }

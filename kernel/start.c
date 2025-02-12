@@ -10,8 +10,8 @@
 
 static void clear_bss(void);
 
-extern void task1(INT stacd);
-extern void task2(INT stacd);
+extern void task1(INT stacd, void *exinf);
+extern void task2(INT stacd, void *exinf);
 
 static UW task1_stack[1024];
 static UW task2_stack[1024];
@@ -22,12 +22,16 @@ extern ID tkmc_create_task(const T_CTSK *pk_ctsk);
 extern ER tkmc_start_task(ID tskid, INT stacd);
 extern TCB *tkmc_get_highest_priority_task(void);
 
+static const char hello_world[] = "Hello, world.";
+static const char fizzbuzz[] = "FizzBuzz.";
+
 void tkmc_start(int a0, int a1) {
   clear_bss();
 
   tkmc_init_tcb();
 
   T_CTSK pk_ctsk1 = {
+      .exinf = (void *)hello_world,
       .task = (FP)task1,
       .itskpri = 1,
       .stksz = sizeof(task1_stack),
@@ -35,6 +39,7 @@ void tkmc_start(int a0, int a1) {
   };
 
   T_CTSK pk_ctsk2 = {
+      .exinf = (void *)fizzbuzz,
       .task = (FP)task2,
       .itskpri = 1,
       .stksz = sizeof(task2_stack),
