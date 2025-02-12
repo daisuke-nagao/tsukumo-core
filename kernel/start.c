@@ -40,7 +40,7 @@ void tkmc_start(int a0, int a1) {
 
   T_CTSK pk_ctsk2 = {
       .exinf = (void *)fizzbuzz,
-      .task = (FP)task2,
+      .task = (FP)task1,
       .itskpri = 1,
       .stksz = sizeof(task2_stack),
       .bufptr = task2_stack,
