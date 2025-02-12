@@ -30,6 +30,7 @@ typedef struct TCB {
   enum TaskState state;
   void *sp;
   FP task;
+  void *exinf;
 } TCB;
 
 extern TCB *current;
@@ -37,6 +38,7 @@ extern TCB *current;
 extern void tkmc_init_tcb(void);
 
 typedef struct T_CTSK {
+  void *exinf;  /* Extended Information */
   FP task;      /* Task Start Address */
   PRI itskpri;  /* Initial Task Priority */
   SZ stksz;     /* Stack Size */
