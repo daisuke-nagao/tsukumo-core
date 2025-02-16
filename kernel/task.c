@@ -84,12 +84,22 @@ ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
 }
 
 ER tkmc_start_task(ID tskid, INT stacd) {
+  if (tskid >= CFN_MAX_TSKID) {
+    return E_ID;
+  }
   TCB *tcb = tkmc_tcbs + tskid - 1;
+  if (tcb->state == NON_EXISTENT) {
+    return E_NOEXS;
+  }
+  if (tcb->state != DORMANT) {
+    return E_OBJ;
+  }
+
   tcb->state = READY;
 
   PRI itskpri = tcb->itskpri;
   INT *sp = (INT *)tcb->sp;
-  sp[6] = stacd; /* a0 register */
+  sp[6] = stacd;           /* a0 register */
   sp[7] = (INT)tcb->exinf; /* a1 register */
   tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[itskpri - 1]);
   return E_OK;
