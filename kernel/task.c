@@ -39,6 +39,17 @@ void tkmc_init_tcb(void) {
 }
 
 ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
+  const ATR tskatr = pk_ctsk->tskatr;
+  static const ATR VALID_TSKATR =
+      TA_ASM | TA_HLNG | TA_USERBUF | TA_RNG0 | TA_RNG1 | TA_RNG2 | TA_RNG3;
+  if ((tskatr & ~VALID_TSKATR) != 0) {
+    return E_RSATR;
+  }
+
+  if ((tskatr & TA_USERBUF) == 0) {
+    return E_RSATR;
+  }
+
   UW *stack_begin = (UW *)pk_ctsk->bufptr;
   UW *stack_end = stack_begin + (pk_ctsk->stksz >> 2);
 

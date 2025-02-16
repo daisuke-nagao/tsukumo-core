@@ -32,6 +32,7 @@ void tkmc_start(int a0, int a1) {
 
   T_CTSK pk_ctsk1 = {
       .exinf = (void *)hello_world,
+      .tskatr = TA_USERBUF,
       .task = (FP)task1,
       .itskpri = 1,
       .stksz = sizeof(task1_stack),
@@ -40,6 +41,7 @@ void tkmc_start(int a0, int a1) {
 
   T_CTSK pk_ctsk2 = {
       .exinf = (void *)fizzbuzz,
+      .tskatr = TA_USERBUF,
       .task = (FP)task1,
       .itskpri = 1,
       .stksz = sizeof(task2_stack),
