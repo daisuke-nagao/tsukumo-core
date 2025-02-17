@@ -6,6 +6,7 @@
 
 #include <tk/tkernel.h>
 
+#include "../putstring.h"
 #include "task.h"
 
 static void clear_bss(void);
@@ -15,6 +16,7 @@ extern void task2(INT stacd, void *exinf);
 
 static UW task1_stack[1024];
 static UW task2_stack[1024];
+static UW task3_stack[1024];
 
 extern void __launch_task(void **sp_end);
 
@@ -24,6 +26,16 @@ extern TCB *tkmc_get_highest_priority_task(void);
 
 static const char hello_world[] = "Hello, world.";
 static const char fizzbuzz[] = "FizzBuzz.";
+
+extern void tkmc_ext_tsk(void);
+void task3(INT stcd, void *exinf) {
+  extern void tkmc_yield(void);
+  for (int i = 0; i < 10; ++i) {
+    putstring("task3\n");
+    tkmc_yield();
+  }
+  tkmc_ext_tsk();
+}
 
 void tkmc_start(int a0, int a1) {
   clear_bss();
@@ -47,11 +59,21 @@ void tkmc_start(int a0, int a1) {
       .stksz = sizeof(task2_stack),
       .bufptr = task2_stack,
   };
+  T_CTSK pk_ctsk3 = {
+      .exinf = NULL,
+      .tskatr = TA_USERBUF,
+      .task = (FP)task3,
+      .itskpri = 1,
+      .stksz = sizeof(task3_stack),
+      .bufptr = task3_stack,
+  };
   ID task1_id = tkmc_create_task(&pk_ctsk1);
   ID task2_id = tkmc_create_task(&pk_ctsk2);
+  ID task3_id = tkmc_create_task(&pk_ctsk3);
 
   tkmc_start_task(task1_id, 1);
   tkmc_start_task(task2_id, 2);
+  tkmc_start_task(task3_id, 3);
 
   TCB *tcb = tkmc_get_highest_priority_task();
   tcb->state = RUNNING;
