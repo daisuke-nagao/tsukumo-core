@@ -6,4 +6,12 @@
 
 #include "ini_tsk.h"
 
-void tkmc_ini_tsk(INT stacd, void *exinf) {}
+extern void usermain(int _a0);
+extern void tkmc_yield(void);
+
+void tkmc_ini_tsk(INT stacd, void *exinf) {
+  usermain(stacd);
+  while (1) {
+    tkmc_yield();
+  }
+}
