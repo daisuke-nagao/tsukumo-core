@@ -27,7 +27,7 @@ void usermain(int _a0) {
       .exinf = (void *)hello_world,
       .tskatr = TA_USERBUF,
       .task = (FP)task1,
-      .itskpri = 1,
+      .itskpri = 2,
       .stksz = sizeof(task1_stack),
       .bufptr = task1_stack,
   };
@@ -36,7 +36,7 @@ void usermain(int _a0) {
       .exinf = (void *)fizzbuzz,
       .tskatr = TA_USERBUF,
       .task = (FP)task1,
-      .itskpri = 1,
+      .itskpri = 2,
       .stksz = sizeof(task2_stack),
       .bufptr = task2_stack,
   };
