@@ -132,3 +132,12 @@ void tkmc_yield(void) {
     out_w(0x2000000, 1); // Trigger a machine software interrupt
   }
 }
+
+void tkmc_ext_tsk(void) {
+  TCB *tmp = current;
+  tkmc_list_del(&tmp->head);
+  tmp->state = DORMANT;
+  TCB *top = tkmc_get_highest_priority_task();
+  top->state = RUNNING;
+  out_w(0x2000000, 1); // Trigger a machine software interrupt
+}
