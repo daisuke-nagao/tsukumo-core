@@ -27,7 +27,7 @@ _start:
 
   .balign 4
 mtrap_handler:
-  addi sp, sp, -29*4
+  addi sp, sp, -32*4
 
   sw ra, 0*4(sp)
   sw t0, 1*4(sp)
@@ -102,7 +102,7 @@ mtrap_handler:
   lw t0, 1*4(sp)
   lw ra, 0*4(sp)
 
-  addi sp, sp, 29*4
+  addi sp, sp, 32*4
   mret
 
   .balign 4

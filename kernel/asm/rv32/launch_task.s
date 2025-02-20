@@ -36,5 +36,5 @@ __launch_task:
     lw t1, 2*4(sp)
     lw t0, 1*4(sp)
     lw ra, 0*4(sp)
-    addi  sp, sp, 4*29
+    addi  sp, sp, 4*32
     ret
