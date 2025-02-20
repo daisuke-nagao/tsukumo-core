@@ -5,6 +5,7 @@
  */
 
 #include "task.h"
+extern void tkmc_ext_tsk(void);
 
 TCB tkmc_tcbs[CFN_MAX_TSKID];
 tkmc_list_head tkmc_free_tcb;
@@ -70,8 +71,8 @@ ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
     for (int i = 0; i < 32; ++i) {
       stack_end[i] = 0xdeadbeef;
     }
-    stack_end[0] = (UW)pk_ctsk->task;
-    stack_end[28] = (UW)pk_ctsk->task;
+    stack_end[0] = (UW)tkmc_ext_tsk;   /* ra */
+    stack_end[28] = (UW)pk_ctsk->task; /* mepc */
     new_tcb->sp = stack_end;
     new_tcb->task = pk_ctsk->task;
     new_tcb->itskpri = pk_ctsk->itskpri;
