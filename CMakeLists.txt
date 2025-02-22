@@ -74,3 +74,60 @@ configure_file(typedef.h.in ${CMAKE_BINARY_DIR}/include/tk/typedef.h @ONLY)
 if(TKERNEL_CHECK_CONST)
   target_compile_definitions(${EXECUTABLE} PUBLIC TKERNEL_CHECK_CONST)
 endif()
+
+# Detect the QEMU executable. On Windows, QEMU might be installed in "C:/Program
+# Files/qemu".
+find_program(
+  QEMU_EXECUTABLE
+  NAMES qemu-system-riscv32.exe qemu-system-riscv32
+  HINTS "C:/Program Files/qemu" ENV ProgramFiles)
+
+if(NOT QEMU_EXECUTABLE)
+  message(
+    WARNING
+      "qemu-system-riscv32 not found. Please check PATH, CMAKE_PREFIX_PATH, or install QEMU."
+  )
+else()
+
+  # Set the kernel image path (kernel is tsukumo-core.elf in CMAKE_BINARY_DIR).
+  set(KERNEL_IMAGE "${CMAKE_BINARY_DIR}/tsukumo-core.elf")
+
+  # Set the script output directory (using CMAKE_BINARY_DIR).
+
+  # Generate Linux shell scripts.
+
+  # Standard QEMU launch script for Linux (run_qemu.sh).
+  file(
+    WRITE "${CMAKE_BINARY_DIR}/run_qemu.sh"
+    "#!/bin/sh\n"
+    "\"${QEMU_EXECUTABLE}\" -machine virt -kernel \"${KERNEL_IMAGE}\" -nographic -bios none\n"
+  )
+
+  # Debug QEMU launch script for Linux (run_qemu_debug.sh).
+  file(
+    WRITE "${CMAKE_BINARY_DIR}/run_qemu_debug.sh"
+    "#!/bin/sh\n"
+    "\"${QEMU_EXECUTABLE}\" -machine virt -kernel \"${KERNEL_IMAGE}\" -nographic -bios none -d in_asm\n"
+  )
+
+  # Generate Windows batch files.
+
+  # Standard QEMU launch batch file for Windows (run_qemu.bat).
+  file(
+    WRITE "${CMAKE_BINARY_DIR}/run_qemu.bat"
+    "@echo off\r\n"
+    "\"${QEMU_EXECUTABLE}\" -machine virt -kernel \"${KERNEL_IMAGE}\" -nographic -bios none\r\n"
+  )
+
+  # Debug QEMU launch batch file for Windows (run_qemu_debug.bat).
+  file(
+    WRITE "${CMAKE_BINARY_DIR}/run_qemu_debug.bat"
+    "@echo off\r\n"
+    "\"${QEMU_EXECUTABLE}\" -machine virt -kernel \"${KERNEL_IMAGE}\" -nographic -bios none -d in_asm\r\n"
+  )
+
+  # Set executable permissions for Linux scripts (not needed on Windows). if(NOT
+  # WIN32) file(CHMOD "${CMAKE_BINARY_DIR}/run_qemu.sh" OWNER_READ OWNER_WRITE
+  # OWNER_EXECUTE) file(CHMOD "${CMAKE_BINARY_DIR}/run_qemu_debug.sh" OWNER_READ
+  # OWNER_WRITE OWNER_EXECUTE) endif()
+endif()
