@@ -16,6 +16,8 @@
 
 #include <sys/profile.h>
 
+#include <sys/ioport.h>
+
 #ifdef TKERNEL_CHECK_CONST
 #define CONST const
 #else
