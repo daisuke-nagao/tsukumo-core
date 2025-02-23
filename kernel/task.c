@@ -118,8 +118,6 @@ TCB *tkmc_get_highest_priority_task(void) {
   return NULL;
 }
 
-static inline void out_w(INT port, UW data) { *(_UW *)port = data; }
-
 void tkmc_yield(void) {
   TCB *tmp = current;
   PRI itskpri = tmp->itskpri;

@@ -6,11 +6,13 @@
 #ifndef UUID_0194511A_FCFC_7A1D_B75D_151971DE4900
 #define UUID_0194511A_FCFC_7A1D_B75D_151971DE4900
 
-volatile static unsigned int *const UART0_BASE = (unsigned int *)0x10000000;
+#include <tk/tkernel.h>
+
+static const INT UART0_BASE = (INT)0x10000000;
 
 static void putstring(const char *str) {
   while (*str != '\0') {
-    *UART0_BASE = *str;
+    out_w(UART0_BASE, *str);
     ++str;
   }
 }
