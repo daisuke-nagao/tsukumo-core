@@ -16,6 +16,7 @@
 
 #include <sys/profile.h>
 
+#include <sys/interrupt.h>
 #include <sys/ioport.h>
 
 #ifdef TKERNEL_CHECK_CONST

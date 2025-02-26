@@ -16,7 +16,6 @@ _start:
   csrw mtvec, a0
 
   csrsi mie, (1<<3)
-  csrsi mstatus, (1<<3)
 
   la sp, _stack_end
 
