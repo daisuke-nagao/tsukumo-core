@@ -1,4 +1,10 @@
-#ifndef UUID_019542DF_8F10_70F0_AE6B_848A71C04DB1
+/*
+ * SPDX-FileCopyrightText: 2025 Daisuke Nagao
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+ #ifndef UUID_019542DF_8F10_70F0_AE6B_848A71C04DB1
 #define UUID_019542DF_8F10_70F0_AE6B_848A71C04DB1
 
 #include <tk/typedef.h>
