@@ -60,9 +60,14 @@ void **schedule(void *sp) {
   TCB *tmp = current;
   tmp->sp = sp;
 
-  TCB *next = tkmc_get_highest_priority_task();
+  extern TCB *next;
+
+  if (current->state == RUNNING) {
+    current->state = READY;
+  }
+  next->state = RUNNING;
 
   current = next;
 
-  return &next->sp;
+  return &current->sp;
 }
