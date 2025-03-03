@@ -85,6 +85,18 @@ ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
   return new_id;
 }
 
+TCB *tkmc_get_highest_priority_task(void) {
+
+  for (int i = 0; i < sizeof(tkmc_ready_queue) / sizeof(tkmc_ready_queue[0]);
+       ++i) {
+    if (!tkmc_list_empty(&tkmc_ready_queue[i])) {
+      return tkmc_list_first_entry(&tkmc_ready_queue[i], TCB, head);
+    }
+  }
+
+  return NULL;
+}
+
 ER tkmc_start_task(ID tskid, INT stacd) {
   if (tskid >= CFN_MAX_TSKID) {
     return E_ID;
@@ -111,18 +123,6 @@ ER tkmc_start_task(ID tskid, INT stacd) {
     }
   }
   return E_OK;
-}
-
-TCB *tkmc_get_highest_priority_task(void) {
-
-  for (int i = 0; i < sizeof(tkmc_ready_queue) / sizeof(tkmc_ready_queue[0]);
-       ++i) {
-    if (!tkmc_list_empty(&tkmc_ready_queue[i])) {
-      return tkmc_list_first_entry(&tkmc_ready_queue[i], TCB, head);
-    }
-  }
-
-  return NULL;
 }
 
 void tkmc_yield(void) {
