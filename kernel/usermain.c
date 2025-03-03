@@ -9,7 +9,6 @@
 #include "task.h"
 
 extern void task1(INT stacd, void *exinf);
-extern void task2(INT stacd, void *exinf);
 
 static UW task1_stack[1024] __attribute__((aligned(16)));
 static UW task2_stack[1024] __attribute__((aligned(16)));

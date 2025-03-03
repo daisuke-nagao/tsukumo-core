@@ -11,6 +11,7 @@ TCB tkmc_tcbs[CFN_MAX_TSKID];
 tkmc_list_head tkmc_free_tcb;
 tkmc_list_head tkmc_ready_queue[CFN_MAX_PRI];
 TCB *current = NULL;
+TCB *next = NULL;
 
 void tkmc_init_tcb(void) {
   /* Initialize tkmc_free_tcb */
@@ -84,6 +85,18 @@ ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
   return new_id;
 }
 
+TCB *tkmc_get_highest_priority_task(void) {
+
+  for (int i = 0; i < sizeof(tkmc_ready_queue) / sizeof(tkmc_ready_queue[0]);
+       ++i) {
+    if (!tkmc_list_empty(&tkmc_ready_queue[i])) {
+      return tkmc_list_first_entry(&tkmc_ready_queue[i], TCB, head);
+    }
+  }
+
+  return NULL;
+}
+
 ER tkmc_start_task(ID tskid, INT stacd) {
   if (tskid >= CFN_MAX_TSKID) {
     return E_ID;
@@ -103,19 +116,13 @@ ER tkmc_start_task(ID tskid, INT stacd) {
   sp[6] = stacd;           /* a0 register */
   sp[7] = (INT)tcb->exinf; /* a1 register */
   tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[itskpri - 1]);
-  return E_OK;
-}
-
-TCB *tkmc_get_highest_priority_task(void) {
-
-  for (int i = 0; i < sizeof(tkmc_ready_queue) / sizeof(tkmc_ready_queue[0]);
-       ++i) {
-    if (!tkmc_list_empty(&tkmc_ready_queue[i])) {
-      return tkmc_list_first_entry(&tkmc_ready_queue[i], TCB, head);
+  if (current != NULL) {
+    next = tkmc_get_highest_priority_task();
+    if (next != current) {
+      out_w(0x2000000, 1);
     }
   }
-
-  return NULL;
+  return E_OK;
 }
 
 void tkmc_yield(void) {
@@ -124,10 +131,8 @@ void tkmc_yield(void) {
   tkmc_list_del(&tmp->head);
   tkmc_list_add_tail(&tmp->head, &tkmc_ready_queue[itskpri - 1]);
 
-  TCB *top = tkmc_get_highest_priority_task();
-  if (tmp != top) {
-    tmp->state = READY;
-    top->state = RUNNING;
+  next = tkmc_get_highest_priority_task();
+  if (tmp != next) {
     out_w(0x2000000, 1); // Trigger a machine software interrupt
   }
 }
@@ -136,7 +141,6 @@ void tkmc_ext_tsk(void) {
   TCB *tmp = current;
   tkmc_list_del(&tmp->head);
   tmp->state = DORMANT;
-  TCB *top = tkmc_get_highest_priority_task();
-  top->state = RUNNING;
+  next = tkmc_get_highest_priority_task();
   out_w(0x2000000, 1); // Trigger a machine software interrupt
 }
