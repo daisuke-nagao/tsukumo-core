@@ -19,7 +19,7 @@ add_executable(${EXECUTABLE})
 
 target_sources(
   ${EXECUTABLE}
-  PRIVATE kernel/asm/rv32/start.s
+  PRIVATE kernel/asm/rv32/start.S
           kernel/asm/rv32/launch_task.s
           kernel/start.c
           kernel/task.c
