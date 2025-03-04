@@ -6,7 +6,7 @@
 
 #include <tk/tkernel.h>
 
-typedef typeof(sizeof(void*)) size_t;
+typedef typeof(sizeof(void *)) size_t;
 
 void *tkmc_memcpy(void *restrict dest, CONST void *restrict src, size_t n) {
   /* Pointers for accessing data in 8-bit increments */

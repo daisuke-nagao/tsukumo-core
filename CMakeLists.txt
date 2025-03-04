@@ -12,15 +12,15 @@ project(tsukumo-core LANGUAGES C ASM)
 set(EXECUTABLE ${PROJECT_NAME}.elf)
 
 # Set common flags for bare-metal
-set(COMMON_FLAGS -ffreestanding -nostdlib)
+set(COMMON_FLAGS -ffreestanding -nostdlib -nostdinc)
 
 # Specify the executable
 add_executable(${EXECUTABLE})
 
 target_sources(
   ${EXECUTABLE}
-  PRIVATE kernel/asm/rv32/start.s
-          kernel/asm/rv32/launch_task.s
+  PRIVATE kernel/asm/rv32/start.S
+          kernel/asm/rv32/launch_task.S
           kernel/start.c
           kernel/task.c
           kernel/ini_tsk.c
