@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
- #ifndef UUID_01955F69_C5A7_741B_B0BA_A9BC5CD7A819
+#ifndef UUID_01955F69_C5A7_741B_B0BA_A9BC5CD7A819
 #define UUID_01955F69_C5A7_741B_B0BA_A9BC5CD7A819
 
 #ifdef __cplusplus
@@ -22,4 +22,3 @@ extern "C" {
 #endif /* __cplusplus */
 
 #endif /* UUID_01955F69_C5A7_741B_B0BA_A9BC5CD7A819 */
-
