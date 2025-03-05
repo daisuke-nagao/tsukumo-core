@@ -139,19 +139,9 @@ timer_interrupt:
   sw t5, 26*4(sp)
   sw t6, 27*4(sp)
 
-  /* Clear timer interrupt by updating mtimecmp */
-  li a0, 0x2004000       /* mtimecmp address */
-  li a1, 0x200BFF8       /* mtime address */
-  lw a2, 0(a1)           /* Read current time */
-  li t0, 100000         /* Load immediate value */
-  add a2, a2, t0         /* Schedule next interrupt */
-  sw a2, 0(a0)           /* Write to mtimecmp */
+  call tkmc_timer_handler
 
-  li a0, 0x10000000
-  li a1, 0x23
-  sw a1, 0(a0)
   /* Return from interrupt */
-
   lw t6, 27*4(sp)
   lw t5, 26*4(sp)
   lw t4, 25*4(sp)

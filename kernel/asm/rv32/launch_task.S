@@ -38,4 +38,4 @@ __launch_task:
     lw ra, 0*4(sp)
     lw a3, 28*4(sp)
     addi  sp, sp, 4*32
-    jalr x0, a3, 0
+    jr a3
