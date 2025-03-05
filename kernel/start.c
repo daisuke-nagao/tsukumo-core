@@ -40,6 +40,8 @@ void tkmc_start(int a0, int a1) {
   tcb->state = RUNNING;
   current = tcb;
 
+  extern void tkmc_start_timer(void);
+  tkmc_start_timer();
   EI(0);
 
   __launch_task(&tcb->sp);
