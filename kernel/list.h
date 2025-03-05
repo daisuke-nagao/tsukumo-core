@@ -53,6 +53,25 @@ static inline void tkmc_list_add_tail(tkmc_list_head *new,
   head->prev = new;
 }
 
+/* Macro to get the next element */
+#define tkmc_list_next_entry(pos, member)                                      \
+  tkmc_list_entry((pos)->member.next, typeof(*(pos)), member)
+
+/* Macro for normal traversal */
+#define tkmc_list_for_each_entry(pos, head, member)                            \
+  for (pos = tkmc_list_first_entry(head, typeof(*pos), member);                \
+       &pos->member != (head); pos = tkmc_list_next_entry(pos, member))
+
+/*
+ * Macro for safe traversal:
+ * Since the next element `n` is pre-fetched even if `pos` is deleted within
+ * the loop, the entire list can be safely traversed.
+ */
+#define tkmc_list_for_each_entry_safe(pos, n, head, member)                    \
+  for (pos = tkmc_list_first_entry(head, typeof(*pos), member),                \
+      n = tkmc_list_next_entry(pos, member);                                   \
+       &pos->member != (head); pos = n, n = tkmc_list_next_entry(n, member))
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */
