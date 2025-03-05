@@ -57,6 +57,8 @@ ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
 
   ID new_id = E_LIMIT;
   TCB *new_tcb = NULL;
+  UINT intsts = 0;
+  DI(intsts);
   if (tkmc_list_empty(&tkmc_free_tcb) == FALSE) {
     new_tcb = tkmc_list_first_entry(&tkmc_free_tcb, TCB, head);
     tkmc_list_del(&new_tcb->head);
@@ -82,6 +84,7 @@ ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
     new_id = (ID)E_LIMIT;
   }
 
+  EI(intsts);
   return new_id;
 }
 
@@ -102,6 +105,8 @@ ER tkmc_start_task(ID tskid, INT stacd) {
     return E_ID;
   }
   TCB *tcb = tkmc_tcbs + tskid - 1;
+  UINT intsts = 0;
+  DI(intsts);
   if (tcb->state == NON_EXISTENT) {
     return E_NOEXS;
   }
@@ -122,12 +127,15 @@ ER tkmc_start_task(ID tskid, INT stacd) {
       out_w(0x2000000, 1);
     }
   }
+  EI(intsts);
   return E_OK;
 }
 
 void tkmc_yield(void) {
   TCB *tmp = current;
   PRI itskpri = tmp->itskpri;
+  UINT intsts = 0;
+  DI(intsts);
   tkmc_list_del(&tmp->head);
   tkmc_list_add_tail(&tmp->head, &tkmc_ready_queue[itskpri - 1]);
 
@@ -135,12 +143,16 @@ void tkmc_yield(void) {
   if (tmp != next) {
     out_w(0x2000000, 1); // Trigger a machine software interrupt
   }
+  EI(intsts);
 }
 
 void tkmc_ext_tsk(void) {
   TCB *tmp = current;
+  UINT intsts = 0;
+  DI(intsts);
   tkmc_list_del(&tmp->head);
   tmp->state = DORMANT;
   next = tkmc_get_highest_priority_task();
   out_w(0x2000000, 1); // Trigger a machine software interrupt
+  EI(intsts);
 }

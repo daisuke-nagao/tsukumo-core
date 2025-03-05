@@ -20,14 +20,6 @@ _start:
   li t0, (1<<3) | (1<<7)
   csrs mie, t0
 
-  /* Set mtimecmp = mtime + initial value */
-  li a0, CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET /* mtimecmp address */
-  li a1, CLINT_BASE_ADDRESS + CLINT_MTIME_OFFSET    /* mtime address */
-  lw a2, 0(a1)                                      /* Read mtime */
-  li t0, 100000                                     /* Load immediate value into a temporary register */
-  add a2, a2, t0                                    /* Add the value */
-  sw a2, 0(a0)                                      /* Write to mtimecmp */
-
   la sp, _stack_end
 
   call tkmc_start
@@ -147,19 +139,9 @@ timer_interrupt:
   sw t5, 26*4(sp)
   sw t6, 27*4(sp)
 
-  /* Clear timer interrupt by updating mtimecmp */
-  li a0, 0x2004000       /* mtimecmp address */
-  li a1, 0x200BFF8       /* mtime address */
-  lw a2, 0(a1)           /* Read current time */
-  li t0, 100000         /* Load immediate value */
-  add a2, a2, t0         /* Schedule next interrupt */
-  sw a2, 0(a0)           /* Write to mtimecmp */
+  call tkmc_timer_handler
 
-  li a0, 0x10000000
-  li a1, 0x23
-  sw a1, 0(a0)
   /* Return from interrupt */
-
   lw t6, 27*4(sp)
   lw t5, 26*4(sp)
   lw t4, 25*4(sp)

@@ -26,6 +26,7 @@ target_sources(
           kernel/ini_tsk.c
           kernel/usermain.c
           kernel/memcpy.c
+          kernel/timer.c
           task1.c)
 
 # Set CMake compilation flags

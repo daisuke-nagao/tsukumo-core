@@ -20,6 +20,11 @@ void task1(INT stacd, void *exinf) {
     } else {
       putstring(" 2\n");
     }
-    tkmc_yield();
+    extern ER tkmc_dly_tsk(TMO tmout);
+    if (msg[0] == 'H') {
+      tkmc_dly_tsk(10);
+    } else {
+      tkmc_dly_tsk(0);
+    }
   }
 }

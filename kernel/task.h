@@ -35,6 +35,7 @@ enum TaskState {
   DORMANT,
   READY,
   RUNNING,
+  WAIT,
 };
 
 /* Task Control Block */
@@ -46,6 +47,7 @@ typedef struct TCB {
   void *sp;
   FP task;
   void *exinf;
+  UINT tick_count;
 } TCB;
 
 extern TCB *current;
