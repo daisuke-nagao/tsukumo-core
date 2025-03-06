@@ -3,11 +3,9 @@
  *
  * SPDX-License-Identifier: MIT
  */
-
-#include "putstring.h"
 #include <tk/tkernel.h>
 
-extern void tkmc_yield(void);
+#include "putstring.h"
 
 void task1(INT stacd, void *exinf) {
   putstring("Hello, world\n");
