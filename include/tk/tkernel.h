@@ -49,9 +49,9 @@ typedef struct T_CTSK {
   void *bufptr; /* Buffer Pointer */
 } T_CTSK;
 
-extern void tkmc_ext_tsk(void);
-extern ID tkmc_create_task(const T_CTSK *pk_ctsk);
-extern ER tkmc_start_task(ID tskid, INT stacd);
+extern void tk_ext_tsk(void);
+extern ID tk_cre_tsk(const T_CTSK *pk_ctsk);
+extern ER tk_sta_tsk(ID tskid, INT stacd);
 extern ER tk_dly_tsk(TMO tmout);
 
 #endif /* UUID_01946FAC_8E45_7658_B009_C10ED747A05C */

@@ -10,5 +10,5 @@ extern void usermain(int _a0);
 
 void tkmc_ini_tsk(INT stacd, void *exinf) {
   usermain(stacd);
-  tkmc_ext_tsk();
+  tk_ext_tsk();
 }

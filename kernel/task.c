@@ -39,7 +39,7 @@ void tkmc_init_tcb(void) {
   }
 }
 
-ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
+ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
   const ATR tskatr = pk_ctsk->tskatr;
   static const ATR VALID_TSKATR =
       TA_ASM | TA_HLNG | TA_USERBUF | TA_RNG0 | TA_RNG1 | TA_RNG2 | TA_RNG3;
@@ -73,7 +73,7 @@ ID tkmc_create_task(CONST T_CTSK *pk_ctsk) {
     for (int i = 0; i < 32; ++i) {
       stack_end[i] = 0xdeadbeef;
     }
-    stack_end[0] = (UW)tkmc_ext_tsk;   /* ra */
+    stack_end[0] = (UW)tk_ext_tsk;   /* ra */
     stack_end[28] = (UW)pk_ctsk->task; /* mepc */
     new_tcb->sp = stack_end;
     new_tcb->task = pk_ctsk->task;
@@ -99,7 +99,7 @@ TCB *tkmc_get_highest_priority_task(void) {
   return NULL;
 }
 
-ER tkmc_start_task(ID tskid, INT stacd) {
+ER tk_sta_tsk(ID tskid, INT stacd) {
   if (tskid >= CFN_MAX_TSKID) {
     return E_ID;
   }
@@ -145,7 +145,7 @@ void tkmc_yield(void) {
   EI(intsts);
 }
 
-void tkmc_ext_tsk(void) {
+void tk_ext_tsk(void) {
   TCB *tmp = current;
   UINT intsts = 0;
   DI(intsts);
