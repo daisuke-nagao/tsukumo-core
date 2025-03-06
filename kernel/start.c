@@ -28,8 +28,8 @@ void tkmc_start(int a0, int a1) {
       .bufptr = ini_tsk_stack,
   };
 
-  ID ini_tsk_id = tkmc_create_task(&pk_ctsk);
-  tkmc_start_task(ini_tsk_id, a0);
+  ID ini_tsk_id = tk_cre_tsk(&pk_ctsk);
+  tk_sta_tsk(ini_tsk_id, a0);
 
   TCB *tcb = tkmc_get_highest_priority_task();
   tcb->state = RUNNING;

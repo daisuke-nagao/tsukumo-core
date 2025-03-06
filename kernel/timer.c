@@ -1,8 +1,7 @@
 // clang-format off
-#include "timer.h"
 #include <tk/tkernel.h>
 // clang-format on
-#include "../putstring.h"
+#include "timer.h"
 #include "asm/rv32/address.h"
 #include "list.h"
 #include "task.h"
@@ -66,7 +65,7 @@ void tkmc_move_to_timer_queue(TCB *tcb, UINT tick_count) {
   EI(intsts);
 }
 
-ER tkmc_dly_tsk(TMO tmout) {
+ER tk_dly_tsk(TMO tmout) {
   if (tmout == 0) {
     tkmc_yield();
     return E_OK;
