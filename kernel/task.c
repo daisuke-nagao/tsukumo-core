@@ -5,7 +5,6 @@
  */
 
 #include "task.h"
-extern void tkmc_ext_tsk(void);
 
 TCB tkmc_tcbs[CFN_MAX_TSKID];
 tkmc_list_head tkmc_free_tcb;
