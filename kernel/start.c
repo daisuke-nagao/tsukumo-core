@@ -8,16 +8,11 @@
 
 #include "ini_tsk.h"
 #include "task.h"
+#include "timer.h"
 
 static void clear_bss(void);
 
 static UINT ini_tsk_stack[128] __attribute__((aligned(16)));
-
-extern void __launch_task(void **sp_end);
-
-extern ID tkmc_create_task(const T_CTSK *pk_ctsk);
-extern ER tkmc_start_task(ID tskid, INT stacd);
-extern TCB *tkmc_get_highest_priority_task(void);
 
 void tkmc_start(int a0, int a1) {
   clear_bss();
@@ -40,7 +35,6 @@ void tkmc_start(int a0, int a1) {
   tcb->state = RUNNING;
   current = tcb;
 
-  extern void tkmc_start_timer(void);
   tkmc_start_timer();
   EI(0);
 
@@ -61,8 +55,6 @@ void **schedule(void *sp) {
 
   TCB *tmp = current;
   tmp->sp = sp;
-
-  extern TCB *next;
 
   if (current->state == RUNNING) {
     current->state = READY;

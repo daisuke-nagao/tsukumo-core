@@ -12,7 +12,6 @@ tkmc_list_head tkmc_timer_queue;
 #define CLINT_MSIP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET)
 #define CLINT_MTIME_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MTIME_OFFSET)
 #define CLINT_MTIMECMP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET)
-extern tkmc_list_head tkmc_ready_queue[CFN_MAX_PRI];
 
 static UW s_mtimecmp;
 void tkmc_start_timer(void) {
@@ -40,7 +39,7 @@ void tkmc_timer_handler(void) {
         tkmc_list_del(&tcb->head);
         tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
         tcb->state = READY;
-        extern TCB *next;
+
         TCB *tkmc_get_highest_priority_task(void);
         next = tkmc_get_highest_priority_task();
         if (next != current) {
@@ -60,7 +59,7 @@ void tkmc_move_to_timer_queue(TCB *tcb, UINT tick_count) {
   tcb->tick_count = tick_count;
   tkmc_list_del(&tcb->head);
   tkmc_list_add_tail(&tcb->head, &tkmc_timer_queue);
-  extern TCB *next;
+
   TCB *tkmc_get_highest_priority_task(void);
   next = tkmc_get_highest_priority_task();
   out_w(CLINT_MSIP_ADDRESS, 1);
@@ -69,12 +68,10 @@ void tkmc_move_to_timer_queue(TCB *tcb, UINT tick_count) {
 
 ER tkmc_dly_tsk(TMO tmout) {
   if (tmout == 0) {
-    extern void tkmc_yield();
     tkmc_yield();
     return E_OK;
   }
   ID tskid = current->tskid;
-  extern TCB tkmc_tcbs[CFN_MAX_TSKID];
 
   TCB *tcb = &tkmc_tcbs[tskid - 1];
 

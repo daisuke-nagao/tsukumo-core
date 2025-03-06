@@ -6,8 +6,6 @@
 
 #include <tk/tkernel.h>
 
-#include "task.h"
-
 extern void task1(INT stacd, void *exinf);
 
 static UW task1_stack[1024] __attribute__((aligned(16)));
@@ -15,9 +13,6 @@ static UW task2_stack[1024] __attribute__((aligned(16)));
 
 static const char hello_world[] = "Hello, world.";
 static const char fizzbuzz[] = "FizzBuzz.";
-
-extern ID tkmc_create_task(const T_CTSK *pk_ctsk);
-extern ER tkmc_start_task(ID tskid, INT stacd);
 
 void usermain(int _a0) __attribute__((weak));
 void usermain(int _a0) {
