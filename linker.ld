@@ -9,7 +9,7 @@ ENTRY(_start)
 
 MEMORY
 {
-  ram   (wxa) : ORIGIN = 0x80000000, LENGTH = 128M
+  ram   (wxa) : ORIGIN = 0x80000000, LENGTH = 520K
 }
 
 SECTIONS
@@ -22,6 +22,7 @@ SECTIONS
   } >ram AT>ram
 
   .rodata : {
+    . = ALIGN(16);
     PROVIDE(_rodata_start = .);
     *(.rodata .rodata.*)
     *(.note.* )
@@ -29,12 +30,13 @@ SECTIONS
   } >ram AT>ram
 
   .data : {
-    . = ALIGN(4096);
+    . = ALIGN(16);
     PROVIDE(_data_start = .);
     *(.data .data.*)
   } >ram AT>ram
 
   .sdata : {
+    . = ALIGN(16);
     PROVIDE( __global_pointer$ = . + 0x800 );
     *(.sdata .sdata.*)
     PROVIDE(_data_end = .);
@@ -47,15 +49,15 @@ SECTIONS
   } >ram AT>ram
 
   .bss :{
-    *(.bss .bss.*)
     . = ALIGN(16);
+    *(.bss .bss.*)
     PROVIDE(_bss_end = .);
   } >ram AT>ram
 
   .stack : {
     . = ALIGN(16);
     PROVIDE(_stack_start = .);
-    . = . + 4096;
+    . = . + 1024;
     PROVIDE(_stack_end = .);
   } >ram AT>ram
 
