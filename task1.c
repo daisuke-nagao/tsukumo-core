@@ -21,7 +21,7 @@ void task1(INT stacd, void *exinf) {
     if (msg[0] == 'H') {
       tk_dly_tsk(10);
     } else {
-      tk_dly_tsk(0);
+      tk_dly_tsk(30);
     }
   }
 }
