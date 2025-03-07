@@ -30,6 +30,7 @@ typedef struct TCB {
   PRI itskpri;
   enum TaskState state;
   void *sp;
+  void *initial_sp;
   FP task;
   void *exinf;
   UINT tick_count;
