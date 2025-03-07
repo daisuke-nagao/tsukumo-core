@@ -37,7 +37,8 @@ void tkmc_init_tcb(void) {
         .tskid = i + 1,        // Assign a unique task ID
         .itskpri = 0,          // Default priority
         .state = NON_EXISTENT, // Initial state
-        .sp = NULL,            // No stack pointer assigned
+        .sp = NULL,            // Stack pointer (set when task starts)
+        .initial_sp = NULL,    // Initial stack pointer (set at task creation)
         .task = NULL,          // No task function assigned
     };
     tkmc_init_list_head(&tcb->head);
@@ -109,6 +110,7 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     stack_end[0] = (UW)tk_ext_tsk;       // Set return address (ra)
     stack_end[28] = (UW)pk_ctsk->task;   // Set task entry point (mepc)
     new_tcb->sp = stack_end;             // Set stack pointer
+    new_tcb->initial_sp = stack_end;     // Store initial stack pointer
     new_tcb->task = pk_ctsk->task;       // Set task function
     new_tcb->itskpri = pk_ctsk->itskpri; // Set task priority
     new_tcb->exinf = pk_ctsk->exinf;     // Set extended information
@@ -143,6 +145,7 @@ TCB *tkmc_get_highest_priority_task(void) {
  * Start a task.
  * - Moves the task from the DORMANT state to the READY state.
  * - Adds the task to the appropriate ready queue based on its priority.
+ * - Resets the stack pointer to the initial value before execution.
  *
  * Parameters:
  * - tskid: Task ID of the task to start.
@@ -168,6 +171,9 @@ ER tk_sta_tsk(ID tskid, INT stacd) {
     EI(intsts);
     return E_OBJ; // Task is not in the DORMANT state
   }
+
+  /* Reset stack pointer to initial value */
+  tcb->sp = tcb->initial_sp;
 
   /* Transition the task to the READY state */
   tcb->state = READY;
