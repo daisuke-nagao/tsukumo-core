@@ -21,6 +21,7 @@ target_sources(
   ${EXECUTABLE}
   PRIVATE kernel/asm/rv32/start.S
           kernel/asm/rv32/launch_task.S
+          kernel/asm/rv32/idl_tsk.S
           kernel/start.c
           kernel/task.c
           kernel/ini_tsk.c
