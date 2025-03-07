@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
- #ifndef UUID_019542DF_8F10_70F0_AE6B_848A71C04DB1
+#ifndef UUID_019542DF_8F10_70F0_AE6B_848A71C04DB1
 #define UUID_019542DF_8F10_70F0_AE6B_848A71C04DB1
 
 #include <tk/typedef.h>
@@ -33,6 +33,10 @@ extern "C" {
       asm volatile("csrs mstatus, %0" ::"r"(intsts & MSTATUS_MIE) :);          \
     }                                                                          \
   } while (0)
+
+static inline BOOL isDI(UINT intsts) {
+  return (intsts & MSTATUS_MIE) == 0 ? TRUE : FALSE;
+}
 
 #ifdef __cplusplus
 } /* extern "C" */
