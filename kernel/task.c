@@ -106,7 +106,7 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     for (int i = 0; i < 32; ++i) {
       stack_end[i] = 0xdeadbeef; // Fill stack with a known pattern
     }
-    stack_end[0] = (UW)tk_ext_tsk;     // Set return address (ra)
+    stack_end[0] = (UW)tk_ext_tsk;       // Set return address (ra)
     stack_end[28] = (UW)pk_ctsk->task;   // Set task entry point (mepc)
     new_tcb->sp = stack_end;             // Set stack pointer
     new_tcb->task = pk_ctsk->task;       // Set task function
@@ -161,9 +161,11 @@ ER tk_sta_tsk(ID tskid, INT stacd) {
   /* Disable interrupts to ensure atomic state changes */
   DI(intsts);
   if (tcb->state == NON_EXISTENT) {
+    EI(intsts);
     return E_NOEXS; // Task does not exist
   }
   if (tcb->state != DORMANT) {
+    EI(intsts);
     return E_OBJ; // Task is not in the DORMANT state
   }
 
