@@ -13,7 +13,28 @@ This project aims to create a real-time operating system (RTOS) based on the uT-
 
 - **Windows** (Build environment)
 - **Clang** (Compiler)
+- **CMake** (Build system)
 - **QEMU** (For running the RISC-V processor)
+
+## Build Instructions
+
+1. Clone the repository:
+   ```shell
+   git clone https://github.com/daisuke-nagao/tsukumo-core.git
+   cd tsukumo-core
+   ```
+
+2. Create a build directory and configure the build:
+   ```shell
+   mkdir build
+   cd build
+   cmake ..
+   ```
+
+3. Build the project:
+   ```shell
+   cmake --build .
+   ```
 
 ## Running on QEMU
 
@@ -23,6 +44,13 @@ This project aims to create a real-time operating system (RTOS) based on the uT-
    ```
 
    This will boot the RTOS in QEMU without a graphical interface.
+
+2. If debugging is needed, run with the following option:
+   ```shell
+   qemu-system-riscv32 -machine virt -bios none -kernel tsukumo-core.elf -nographic -d in_asm
+   ```
+
+   This will display the executed RISC-V assembly instructions.
 
 ## Next Steps
 
