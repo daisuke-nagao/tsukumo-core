@@ -8,6 +8,7 @@ extern "C" {
 #endif /* __cplusplus */
 
 extern void tkmc_start_timer(void);
+extern void tkmc_init_timer(void);
 
 #ifdef __cplusplus
 } /* extern "C" */

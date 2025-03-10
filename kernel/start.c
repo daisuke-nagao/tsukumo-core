@@ -40,6 +40,7 @@ void tkmc_start(int a0, int a1) {
 
   /* Initialize the Task Control Block (TCB) system. */
   tkmc_init_tcb();
+  tkmc_init_timer();
 
   /* create tkmc_ini_tsk */
   {
