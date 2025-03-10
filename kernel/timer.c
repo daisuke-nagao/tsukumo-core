@@ -17,13 +17,15 @@ tkmc_list_head tkmc_timer_queue;
 /* Static variable to store the next timer compare value */
 static UW s_mtimecmp;
 
+void tkmc_init_timer(void) { tkmc_init_list_head(&tkmc_timer_queue); }
+
 /*
  * Initialize the timer system.
  * - Sets up the timer queue.
  * - Configures the initial timer compare value.
  */
 void tkmc_start_timer(void) {
-  tkmc_init_list_head(&tkmc_timer_queue);
+  // tkmc_init_list_head(&tkmc_timer_queue);
   s_mtimecmp = *(_UW *)(CLINT_MTIME_ADDRESS);
   s_mtimecmp += 100000; // Set the initial timer compare value
   *(_UW *)(CLINT_MTIMECMP_ADDRESS) = s_mtimecmp;
