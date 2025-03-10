@@ -5,6 +5,12 @@
  */
 
 #include "task.h"
+#include "asm/rv32/address.h"
+
+/* Memory-mapped addresses for the CLINT (Core Local Interruptor) */
+#define CLINT_MSIP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET)
+#define CLINT_MTIME_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MTIME_OFFSET)
+#define CLINT_MTIMECMP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET)
 
 /* Array of Task Control Blocks (TCBs) for managing tasks */
 TCB tkmc_tcbs[CFN_MAX_TSKID];
@@ -189,7 +195,7 @@ ER tk_sta_tsk(ID tskid, INT stacd) {
   if (current != NULL) {
     next = tkmc_get_highest_priority_task();
     if (next != current) {
-      out_w(0x2000000, 1); // Trigger a machine software interrupt
+      out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
     }
   }
   EI(intsts);
@@ -214,7 +220,7 @@ void tkmc_yield(void) {
   /* Update the next task to be scheduled */
   next = tkmc_get_highest_priority_task();
   if (tmp != next) {
-    out_w(0x2000000, 1); // Trigger a machine software interrupt
+    out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
   }
   EI(intsts);
 }
@@ -235,6 +241,6 @@ void tk_ext_tsk(void) {
 
   /* Update the next task to be scheduled */
   next = tkmc_get_highest_priority_task();
-  out_w(0x2000000, 1); // Trigger a machine software interrupt
+  out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
   EI(intsts);
 }
