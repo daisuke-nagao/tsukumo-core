@@ -115,6 +115,6 @@ ER tk_dly_tsk(TMO tmout) {
   TCB *tcb = &tkmc_tcbs[tskid - 1];
 
   /* Move the task to the timer queue with the specified timeout */
-  tkmc_move_to_timer_queue(tcb, ((tmout + 9) / 10));
+  tkmc_move_to_timer_queue(tcb, ((tmout + 9) / 10) + 1);
   return E_OK;
 }
