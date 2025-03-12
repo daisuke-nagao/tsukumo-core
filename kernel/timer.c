@@ -53,12 +53,13 @@ void tkmc_timer_handler(void) {
   if (!tkmc_list_empty(&tkmc_timer_queue)) {
     TCB *tcb, *n;
     tkmc_list_for_each_entry_safe(tcb, n, &tkmc_timer_queue, head) {
-      tcb->tick_count -= 1;
-      if (tcb->tick_count == 0) {
+      tcb->delay_ticks -= 1;
+      if (tcb->delay_ticks == 0) {
         /* Move the task to the ready queue */
         tkmc_list_del(&tcb->head);
         tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
         tcb->state = READY;
+        tcb->wupcause = E_TMOUT;
 
         /* Update the next task to be scheduled */
         TCB *tkmc_get_highest_priority_task(void);
@@ -78,14 +79,14 @@ void tkmc_timer_handler(void) {
  *
  * Parameters:
  * - tcb: Pointer to the Task Control Block (TCB) of the task.
- * - tick_count: Number of ticks to wait before the task is moved to the ready
+ * - delay_ticks: Number of ticks to wait before the task is moved to the ready
  * queue.
  */
-void tkmc_move_to_timer_queue(TCB *tcb, UINT tick_count) {
+ER tkmc_move_to_timer_queue(TCB *tcb, UINT delay_ticks) {
   UINT intsts;
   DI(intsts);
   tcb->state = WAIT;
-  tcb->tick_count = tick_count;
+  tcb->delay_ticks = delay_ticks;
   tkmc_list_del(&tcb->head);
   tkmc_list_add_tail(&tcb->head, &tkmc_timer_queue);
 
@@ -94,6 +95,9 @@ void tkmc_move_to_timer_queue(TCB *tcb, UINT tick_count) {
   next = tkmc_get_highest_priority_task();
   out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
   EI(intsts);
+  asm volatile("" ::: "memory");
+  ER ercd = tcb->wupcause;
+  return ercd;
 }
 
 /*
@@ -117,6 +121,9 @@ ER tk_dly_tsk(TMO tmout) {
   TCB *tcb = &tkmc_tcbs[tskid - 1];
 
   /* Move the task to the timer queue with the specified timeout */
-  tkmc_move_to_timer_queue(tcb, ((tmout + 9) / 10) + 1);
-  return E_OK;
+  ER ercd = tkmc_move_to_timer_queue(tcb, ((tmout + 9) / 10) + 1);
+  if (ercd == E_TMOUT) {
+    ercd = E_OK;
+  }
+  return ercd;
 }
