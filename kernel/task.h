@@ -33,7 +33,7 @@ typedef struct TCB {
   void *initial_sp;
   FP task;
   void *exinf;
-  UINT tick_count;
+  UINT delay_ticks;
   ER wupcause;
 } TCB;
 

@@ -47,7 +47,7 @@ void tkmc_init_tcb(void) {
         .initial_sp = NULL,    // Initial stack pointer (set at task creation)
         .task = NULL,          // No task function assigned
         .exinf = NULL,         // Extended information (user-defined data for the task)
-        .tick_count = 0,       // Reset countdown timer for sleep/delay
+        .delay_ticks = 0,      // Reset countdown timer for sleep/delay
         .wupcause = E_OK,      // Wakeup cause (default to normal wakeup)
     };
     tkmc_init_list_head(&tcb->head);
@@ -111,8 +111,8 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
 
   if (new_id >= 0) {
     /* Initialize the TCB for the new task */
-    new_tcb->state = DORMANT;
-    stack_end += -32; // Reserve space for the initial context
+    new_tcb->state = DORMANT; // Set initial task state
+    stack_end += -32;         // Reserve space for the initial context
     for (int i = 0; i < 32; ++i) {
       stack_end[i] = 0xdeadbeef; // Fill stack with a known pattern
     }
@@ -120,11 +120,11 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     stack_end[28] = (UW)pk_ctsk->task;   // Set task entry point (mepc)
     new_tcb->sp = stack_end;             // Set stack pointer
     new_tcb->initial_sp = stack_end;     // Store initial stack pointer
-    new_tcb->task = pk_ctsk->task;       // Set task function
-    new_tcb->itskpri = pk_ctsk->itskpri; // Set task priority
-    new_tcb->exinf = pk_ctsk->exinf;     // Set extended information
-    new_tcb->tick_count = 0;
-    new_tcb->wupcause = E_OK;
+    new_tcb->task = pk_ctsk->task;       // Assign task function
+    new_tcb->itskpri = pk_ctsk->itskpri; // Assign task priority
+    new_tcb->exinf = pk_ctsk->exinf;     // Store user-defined extended information
+    new_tcb->delay_ticks = 0;            // Initialize delay timer (task is not delayed)
+    new_tcb->wupcause = E_OK;            // Default wakeup cause
   } else {
     new_id = (ID)E_LIMIT; // Task creation failed
   }
