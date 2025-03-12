@@ -46,6 +46,9 @@ void tkmc_init_tcb(void) {
         .sp = NULL,            // Stack pointer (set when task starts)
         .initial_sp = NULL,    // Initial stack pointer (set at task creation)
         .task = NULL,          // No task function assigned
+        .exinf = NULL,
+        .tick_count = 0,
+        .wupcause = E_OK,
     };
     tkmc_init_list_head(&tcb->head);
 
@@ -120,6 +123,8 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     new_tcb->task = pk_ctsk->task;       // Set task function
     new_tcb->itskpri = pk_ctsk->itskpri; // Set task priority
     new_tcb->exinf = pk_ctsk->exinf;     // Set extended information
+    new_tcb->tick_count = 0;
+    new_tcb->wupcause = E_OK;
   } else {
     new_id = (ID)E_LIMIT; // Task creation failed
   }

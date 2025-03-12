@@ -34,6 +34,7 @@ typedef struct TCB {
   FP task;
   void *exinf;
   UINT tick_count;
+  ER wupcause;
 } TCB;
 
 extern TCB *current;
