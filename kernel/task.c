@@ -46,9 +46,9 @@ void tkmc_init_tcb(void) {
         .sp = NULL,            // Stack pointer (set when task starts)
         .initial_sp = NULL,    // Initial stack pointer (set at task creation)
         .task = NULL,          // No task function assigned
-        .exinf = NULL,
-        .tick_count = 0,
-        .wupcause = E_OK,
+        .exinf = NULL,         // Extended information (user-defined data for the task)
+        .tick_count = 0,       // Reset countdown timer for sleep/delay
+        .wupcause = E_OK,      // Wakeup cause (default to normal wakeup)
     };
     tkmc_init_list_head(&tcb->head);
 
