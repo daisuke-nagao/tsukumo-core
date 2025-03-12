@@ -9,13 +9,24 @@
 
 #include <tk/typedef.h>
 
+#define tkmc_compiler_barrier() asm volatile("" ::: "memory")
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
 
-static inline void out_b(INT port, UB data) { *(_UB *)port = data; }
-static inline void out_h(INT port, UH data) { *(_UH *)port = data; }
-static inline void out_w(INT port, UW data) { *(_UW *)port = data; }
+static inline void out_b(INT port, UB data) {
+  tkmc_compiler_barrier();
+  *(_UB *)port = data;
+}
+static inline void out_h(INT port, UH data) {
+  tkmc_compiler_barrier();
+  *(_UH *)port = data;
+}
+static inline void out_w(INT port, UW data) {
+  tkmc_compiler_barrier();
+  *(_UW *)port = data;
+}
 
 static inline UB in_b(INT port) { return *(_UB *)port; }
 static inline UH in_h(INT port) { return *(_UH *)port; }
