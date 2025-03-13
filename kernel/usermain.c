@@ -37,6 +37,6 @@ void usermain(int _a0) {
   ID task1_id = tk_cre_tsk(&pk_ctsk1);
   ID task2_id = tk_cre_tsk(&pk_ctsk2);
 
-  tk_sta_tsk(task1_id, 1);
-  tk_sta_tsk(task2_id, 2);
+  tk_sta_tsk(task1_id, task1_id);
+  tk_sta_tsk(task2_id, task2_id);
 }

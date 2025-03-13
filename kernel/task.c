@@ -46,9 +46,9 @@ void tkmc_init_tcb(void) {
         .sp = NULL,            // Stack pointer (set when task starts)
         .initial_sp = NULL,    // Initial stack pointer (set at task creation)
         .task = NULL,          // No task function assigned
-        .exinf = NULL,         // Extended information (user-defined data for the task)
-        .delay_ticks = 0,      // Reset countdown timer for sleep/delay
-        .wupcause = E_OK,      // Wakeup cause (default to normal wakeup)
+        .exinf = NULL, // Extended information (user-defined data for the task)
+        .delay_ticks = 0, // Reset countdown timer for sleep/delay
+        .wupcause = E_OK, // Wakeup cause (default to normal wakeup)
     };
     tkmc_init_list_head(&tcb->head);
 
@@ -122,9 +122,9 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     new_tcb->initial_sp = stack_end;     // Store initial stack pointer
     new_tcb->task = pk_ctsk->task;       // Assign task function
     new_tcb->itskpri = pk_ctsk->itskpri; // Assign task priority
-    new_tcb->exinf = pk_ctsk->exinf;     // Store user-defined extended information
-    new_tcb->delay_ticks = 0;            // Initialize delay timer (task is not delayed)
-    new_tcb->wupcause = E_OK;            // Default wakeup cause
+    new_tcb->exinf = pk_ctsk->exinf; // Store user-defined extended information
+    new_tcb->delay_ticks = 0; // Initialize delay timer (task is not delayed)
+    new_tcb->wupcause = E_OK; // Default wakeup cause
   } else {
     new_id = (ID)E_LIMIT; // Task creation failed
   }
@@ -166,7 +166,7 @@ TCB *tkmc_get_highest_priority_task(void) {
  * - E_OK on success, or an error code if the task cannot be started.
  */
 ER tk_sta_tsk(ID tskid, INT stacd) {
-  if (tskid >= CFN_MAX_TSKID) {
+  if (tskid > CFN_MAX_TSKID) {
     return E_ID; // Invalid task ID
   }
   TCB *tcb = tkmc_tcbs + tskid - 1;
@@ -248,4 +248,50 @@ void tk_ext_tsk(void) {
   next = tkmc_get_highest_priority_task();
   out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
   EI(intsts);
+}
+
+/*
+ * Release a waiting task.
+ * - Moves the specified task from the WAIT state to the READY state.
+ * - Removes the task from the waiting queue and adds it to the appropriate
+ * ready queue.
+ * - Triggers a context switch if a higher-priority task is ready.
+ *
+ * Parameters:
+ * - tskid: Task ID of the task to be released.
+ *
+ * Returns:
+ * - E_OK on success.
+ * - E_ID if the task ID is invalid.
+ * - E_NOEXS if the task does not exist.
+ * - E_OBJ if the task is not in the WAIT state.
+ */
+ER tk_rel_wai(ID tskid) {
+  ER ercd = E_OK;
+
+  if (tskid > CFN_MAX_TSKID) {
+    return E_ID;
+  }
+
+  TCB *tcb = &tkmc_tcbs[tskid - 1];
+  UINT intsts = 0;
+  DI(intsts);
+  if (tcb->state == NON_EXISTENT) {
+    ercd = E_NOEXS;
+  } else if (tcb->state != WAIT) {
+    ercd = E_OBJ;
+  }
+
+  if (ercd == E_OK) {
+    tkmc_list_del(&tcb->head);
+    tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+    tcb->state = READY;
+
+    next = tkmc_get_highest_priority_task();
+    if (current != next) {
+      out_w(CLINT_MSIP_ADDRESS, 1);
+    }
+  }
+  EI(intsts);
+  return ercd;
 }
