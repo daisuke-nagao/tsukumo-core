@@ -166,7 +166,7 @@ TCB *tkmc_get_highest_priority_task(void) {
  * - E_OK on success, or an error code if the task cannot be started.
  */
 ER tk_sta_tsk(ID tskid, INT stacd) {
-  if (tskid >= CFN_MAX_TSKID) {
+  if (tskid > CFN_MAX_TSKID) {
     return E_ID; // Invalid task ID
   }
   TCB *tcb = tkmc_tcbs + tskid - 1;
@@ -283,7 +283,6 @@ ER tk_rel_wai(ID tskid) {
     if (current != next) {
       out_w(CLINT_MSIP_ADDRESS, 1);
     }
-    __sync_synchronize();
   }
   EI(intsts);
   return ercd;
