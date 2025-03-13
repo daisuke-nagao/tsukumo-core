@@ -250,6 +250,22 @@ void tk_ext_tsk(void) {
   EI(intsts);
 }
 
+/*
+ * Release a waiting task.
+ * - Moves the specified task from the WAIT state to the READY state.
+ * - Removes the task from the waiting queue and adds it to the appropriate
+ * ready queue.
+ * - Triggers a context switch if a higher-priority task is ready.
+ *
+ * Parameters:
+ * - tskid: Task ID of the task to be released.
+ *
+ * Returns:
+ * - E_OK on success.
+ * - E_ID if the task ID is invalid.
+ * - E_NOEXS if the task does not exist.
+ * - E_OBJ if the task is not in the WAIT state.
+ */
 ER tk_rel_wai(ID tskid) {
   ER ercd = E_OK;
 
