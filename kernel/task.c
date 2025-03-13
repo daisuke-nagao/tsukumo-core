@@ -46,9 +46,9 @@ void tkmc_init_tcb(void) {
         .sp = NULL,            // Stack pointer (set when task starts)
         .initial_sp = NULL,    // Initial stack pointer (set at task creation)
         .task = NULL,          // No task function assigned
-        .exinf = NULL,         // Extended information (user-defined data for the task)
-        .delay_ticks = 0,      // Reset countdown timer for sleep/delay
-        .wupcause = E_OK,      // Wakeup cause (default to normal wakeup)
+        .exinf = NULL, // Extended information (user-defined data for the task)
+        .delay_ticks = 0, // Reset countdown timer for sleep/delay
+        .wupcause = E_OK, // Wakeup cause (default to normal wakeup)
     };
     tkmc_init_list_head(&tcb->head);
 
@@ -122,9 +122,9 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     new_tcb->initial_sp = stack_end;     // Store initial stack pointer
     new_tcb->task = pk_ctsk->task;       // Assign task function
     new_tcb->itskpri = pk_ctsk->itskpri; // Assign task priority
-    new_tcb->exinf = pk_ctsk->exinf;     // Store user-defined extended information
-    new_tcb->delay_ticks = 0;            // Initialize delay timer (task is not delayed)
-    new_tcb->wupcause = E_OK;            // Default wakeup cause
+    new_tcb->exinf = pk_ctsk->exinf; // Store user-defined extended information
+    new_tcb->delay_ticks = 0; // Initialize delay timer (task is not delayed)
+    new_tcb->wupcause = E_OK; // Default wakeup cause
   } else {
     new_id = (ID)E_LIMIT; // Task creation failed
   }
@@ -248,4 +248,43 @@ void tk_ext_tsk(void) {
   next = tkmc_get_highest_priority_task();
   out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
   EI(intsts);
+}
+
+ER tk_rel_wai(ID tskid) {
+  /*
+  E_OK 正常終了
+  E_ID 不正ID番号(tskid が不正あるいは利用できない)
+  E_NOEXS オブジェクトが存在していない(tskidのタスクが存在しない)
+  E_OBJ
+  利用可能なコンテキストオブジェクトの状態が不正(対象タスクが待ち状態ではない(自タスクや休止状態(DORMANT)の場合を含む))
+  */
+
+  ER ercd = E_OK;
+
+  if (tskid > CFN_MAX_TSKID) {
+    return E_ID;
+  }
+
+  TCB *tcb = &tkmc_tcbs[tskid - 1];
+  UINT intsts = 0;
+  DI(intsts);
+  if (tcb->state == NON_EXISTENT) {
+    ercd = E_NOEXS;
+  } else if (tcb->state != WAIT) {
+    ercd = E_OBJ;
+  }
+
+  if (ercd == E_OK) {
+    tkmc_list_del(&tcb->head);
+    tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+    tcb->state = READY;
+
+    next = tkmc_get_highest_priority_task();
+    if (current != next) {
+      out_w(CLINT_MSIP_ADDRESS, 1);
+    }
+    __sync_synchronize();
+  }
+  EI(intsts);
+  return ercd;
 }

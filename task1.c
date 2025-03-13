@@ -13,7 +13,8 @@ void task1(INT stacd, void *exinf) {
   const char *msg = (const char *)exinf;
   while (1) {
     putstring(msg);
-    if (stacd == 1) {
+    if (stacd == 3) {
+      tk_rel_wai(4);
       putstring(" 1\n");
     } else {
       putstring(" 2\n");
