@@ -251,14 +251,6 @@ void tk_ext_tsk(void) {
 }
 
 ER tk_rel_wai(ID tskid) {
-  /*
-  E_OK 正常終了
-  E_ID 不正ID番号(tskid が不正あるいは利用できない)
-  E_NOEXS オブジェクトが存在していない(tskidのタスクが存在しない)
-  E_OBJ
-  利用可能なコンテキストオブジェクトの状態が不正(対象タスクが待ち状態ではない(自タスクや休止状態(DORMANT)の場合を含む))
-  */
-
   ER ercd = E_OK;
 
   if (tskid > CFN_MAX_TSKID) {
