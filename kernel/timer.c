@@ -105,7 +105,7 @@ static ER schedule_timer(TCB *tcb, UINT delay_ticks) {
  * - Yields the CPU if the timeout is zero.
  *
  * Parameters:
- * - tmout: Timeout value in milliseconds.
+ * - dlytm: Timeout value in milliseconds.
  *
  * Returns:
  * - E_OK on success.
