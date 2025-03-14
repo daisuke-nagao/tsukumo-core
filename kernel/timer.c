@@ -25,7 +25,6 @@ void tkmc_init_timer(void) { tkmc_init_list_head(&tkmc_timer_queue); }
  * - Configures the initial timer compare value.
  */
 void tkmc_start_timer(void) {
-  // tkmc_init_list_head(&tkmc_timer_queue);
   s_mtimecmp = *(_UW *)(CLINT_MTIME_ADDRESS);
   s_mtimecmp += 100000; // Set the initial timer compare value
   *(_UW *)(CLINT_MTIMECMP_ADDRESS) = s_mtimecmp;
@@ -62,7 +61,6 @@ void tkmc_timer_handler(void) {
         tcb->wupcause = E_TMOUT;
 
         /* Update the next task to be scheduled */
-        TCB *tkmc_get_highest_priority_task(void);
         next = tkmc_get_highest_priority_task();
         if (next != current) {
           out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
@@ -82,7 +80,7 @@ void tkmc_timer_handler(void) {
  * - delay_ticks: Number of ticks to wait before the task is moved to the ready
  * queue.
  */
-ER tkmc_move_to_timer_queue(TCB *tcb, UINT delay_ticks) {
+static ER schedule_timer(TCB *tcb, UINT delay_ticks) {
   UINT intsts;
   DI(intsts);
   tcb->state = WAIT;
@@ -91,12 +89,13 @@ ER tkmc_move_to_timer_queue(TCB *tcb, UINT delay_ticks) {
   tkmc_list_add_tail(&tcb->head, &tkmc_timer_queue);
 
   /* Update the next task to be scheduled */
-  TCB *tkmc_get_highest_priority_task(void);
   next = tkmc_get_highest_priority_task();
   out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
   EI(intsts);
-  asm volatile("" ::: "memory");
-  ER ercd = tcb->wupcause;
+  DI(intsts);
+  // wait to be awaken
+  ER ercd = ((volatile TCB *)current)->wupcause;
+  EI(intsts);
   return ercd;
 }
 
@@ -111,17 +110,16 @@ ER tkmc_move_to_timer_queue(TCB *tcb, UINT delay_ticks) {
  * Returns:
  * - E_OK on success.
  */
-ER tk_dly_tsk(TMO tmout) {
-  if (tmout == 0) {
+ER tk_dly_tsk(TMO dlytm) {
+  if (dlytm == 0) {
     tkmc_yield();
     return E_OK;
+  } else if (dlytm < 0) {
+    return E_PAR;
   }
-  ID tskid = current->tskid;
-
-  TCB *tcb = &tkmc_tcbs[tskid - 1];
 
   /* Move the task to the timer queue with the specified timeout */
-  ER ercd = tkmc_move_to_timer_queue(tcb, ((tmout + 9) / 10) + 1);
+  ER ercd = schedule_timer(current, ((dlytm + 9) / 10) + 1);
   if (ercd == E_TMOUT) {
     ercd = E_OK;
   }

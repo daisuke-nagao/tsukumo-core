@@ -91,7 +91,6 @@ void tkmc_start(int a0, int a1) {
 
   /* Enable interrupts globally. */
   EI(0);
-
   /* Launch the initial task by restoring its context. */
   __launch_task(&tcb->sp);
 

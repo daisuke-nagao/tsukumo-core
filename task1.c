@@ -12,17 +12,24 @@ void task1(INT stacd, void *exinf) {
 
   const char *msg = (const char *)exinf;
   while (1) {
+    ER ercd = E_OK;
+    if (msg[0] == 'H') {
+      ercd = tk_dly_tsk(990);
+    } else {
+      ercd = tk_dly_tsk(300);
+    }
     putstring(msg);
     if (stacd == 3) {
       tk_rel_wai(4);
       putstring(" 1\n");
     } else {
-      putstring(" 2\n");
-    }
-    if (msg[0] == 'H') {
-      tk_dly_tsk(10);
-    } else {
-      tk_dly_tsk(30);
+      if (ercd == E_OK) {
+        putstring(" 2\n");
+      } else if (ercd == E_RLWAI) {
+        putstring(" 3\n");
+      } else {
+        putstring(" !\n");
+      }
     }
   }
 }

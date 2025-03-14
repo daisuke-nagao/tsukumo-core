@@ -267,25 +267,29 @@ void tk_ext_tsk(void) {
  * - E_OBJ if the task is not in the WAIT state.
  */
 ER tk_rel_wai(ID tskid) {
-  ER ercd = E_OK;
-
   if (tskid > CFN_MAX_TSKID) {
     return E_ID;
   }
-
   TCB *tcb = &tkmc_tcbs[tskid - 1];
+
+  ER ercd = E_OK;
   UINT intsts = 0;
   DI(intsts);
-  if (tcb->state == NON_EXISTENT) {
-    ercd = E_NOEXS;
-  } else if (tcb->state != WAIT) {
-    ercd = E_OBJ;
+  if (ercd == E_OK) {
+    if (tcb->state == NON_EXISTENT) {
+      ercd = E_NOEXS;
+    } else if (tcb == current) {
+      ercd = E_OBJ;
+    } else if (tcb->state != WAIT) {
+      ercd = E_OBJ;
+    }
   }
 
   if (ercd == E_OK) {
+    tcb->state = READY;
+    tcb->wupcause = E_RLWAI;
     tkmc_list_del(&tcb->head);
     tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
-    tcb->state = READY;
 
     next = tkmc_get_highest_priority_task();
     if (current != next) {
@@ -293,5 +297,6 @@ ER tk_rel_wai(ID tskid) {
     }
   }
   EI(intsts);
+
   return ercd;
 }

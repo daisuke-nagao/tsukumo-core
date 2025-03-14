@@ -70,7 +70,7 @@
 
 /* Debugger Support Functions */
 #define TK_SUPPORT_DSNAME FALSE /* Support of DS object name */
-#define TK_SUPPORT_DBGSPT FALSE /* Support of μT-Kernel/DS */
+#define TK_SUPPORT_DBGSPT FALSE /* Support of uT-Kernel/DS */
 
 /* Service Profile Items that Represent Values */
 #define TK_SPECVER_MAGIC 6

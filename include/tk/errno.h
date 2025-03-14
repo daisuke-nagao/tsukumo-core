@@ -57,11 +57,11 @@ extern "C" {
 #define E_DLT ERCD(-51, 0)    /* Waiting object deleted */
 #define E_DISWAI ERCD(-52, 0) /* Release from waiting due to wait disable */
 
-/* Device error class (57-64) (μT-Kernel/SM) */
+/* Device error class (57-64) (uT-Kernel/SM) */
 #define E_IO ERCD(-57, 0)    /* I/O error */
 #define E_NOMDA ERCD(-58, 0) /* No media */
 
-/* Miscellaneous state error class (65-72) (μT-Kernel/SM) */
+/* Miscellaneous state error class (65-72) (uT-Kernel/SM) */
 #define E_BUSY ERCD(-65, 0)  /* Busy state */
 #define E_ABORT ERCD(-66, 0) /* Aborted */
 #define E_RONLY ERCD(-67, 0) /* Write protected */

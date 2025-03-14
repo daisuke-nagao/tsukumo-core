@@ -3,6 +3,7 @@
  *
  * SPDX-License-Identifier: MIT
  */
+
   .text
   .global tkmc_idl_tsk, @function
   .balign 4
