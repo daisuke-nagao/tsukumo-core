@@ -80,9 +80,7 @@ void tkmc_timer_handler(void) {
  * - delay_ticks: Number of ticks to wait before the task is moved to the ready
  * queue.
  */
-static ER schedule_timer(TCB *tcb, UINT delay_ticks, enum TaskWait tskwait) {
-  UINT intsts;
-  DI(intsts);
+static void schedule_timer(TCB *tcb, UINT delay_ticks, enum TaskWait tskwait) {
   tcb->tskstat = TTS_WAI;
   tcb->tskwait = tskwait;
   tcb->delay_ticks = delay_ticks;
@@ -92,12 +90,6 @@ static ER schedule_timer(TCB *tcb, UINT delay_ticks, enum TaskWait tskwait) {
   /* Update the next task to be scheduled */
   next = tkmc_get_highest_priority_task();
   out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
-  EI(intsts);
-  // wait to be awaken
-  DI(intsts);
-  ER ercd = ((volatile TCB *)current)->wupcause;
-  EI(intsts);
-  return ercd;
 }
 
 /*
@@ -120,7 +112,14 @@ ER tk_dly_tsk(TMO dlytm) {
   }
 
   /* Move the task to the timer queue with the specified timeout */
-  ER ercd = schedule_timer(current, ((dlytm + 9) / 10) + 1, TTW_DLY);
+  UINT intsts;
+  DI(intsts);
+  schedule_timer(current, ((dlytm + 9) / 10) + 1, TTW_DLY);
+  EI(intsts);
+  // wait to be awaken
+  DI(intsts);
+  ER ercd = ((volatile TCB *)current)->wupcause;
+  EI(intsts);
   if (ercd == E_TMOUT) {
     ercd = E_OK;
   }
