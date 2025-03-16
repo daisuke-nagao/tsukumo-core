@@ -20,7 +20,10 @@ enum TaskState {
   TTS_RUN = 0x0001,
   TTS_RDY = 0x0002,
   TTS_WAI = 0x0004,
+  TTS_SUS = 0x0008,
+  TTS_WAS = 0x000c,
   TTS_DMT = 0x0010,
+  TTS_NODISWAI = 0x0080,
 };
 
 /* Task Control Block */
