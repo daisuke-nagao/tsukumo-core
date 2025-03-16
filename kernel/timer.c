@@ -139,11 +139,20 @@ ER tk_slp_tsk(TMO tmout) {
     current->wupcnt -= 1;
     ercd = E_OK;
     EI(intsts);
+    return ercd;
   } else {
     if (tmout > 0) {
       schedule_timer(current, ((tmout + 9) / 10) + 1, TTW_SLP);
+    } else if (tmout == TMO_POL) {
+      EI(intsts);
+      return E_TMOUT;
     } else {
-      //! @todo implement
+      current->tskstat = TTS_WAI;
+      current->tskwait = TTW_SLP;
+      current->delay_ticks = 0;
+      tkmc_list_del(&current->head);
+      next = tkmc_get_highest_priority_task();
+      out_w(CLINT_MSIP_ADDRESS, 1);
     }
     EI(intsts);
     // wait to be awaken
