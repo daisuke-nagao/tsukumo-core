@@ -32,6 +32,7 @@ typedef struct TCB {
   ID tskid;
   PRI itskpri;
   UINT tskstat;
+  UW tskwait;
   void *sp;
   void *initial_sp;
   FP task;

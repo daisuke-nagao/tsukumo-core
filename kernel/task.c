@@ -43,9 +43,11 @@ void tkmc_init_tcb(void) {
         .tskid = i + 1,       // Assign a unique task ID
         .itskpri = 0,         // Default priority
         .tskstat = TTS_NOEXS, // Initial state
-        .sp = NULL,           // Stack pointer (set when task starts)
-        .initial_sp = NULL,   // Initial stack pointer (set at task creation)
-        .task = NULL,         // No task function assigned
+        .tskwait =
+            0, // Task wait flags (updated when the task enters a wait state)
+        .sp = NULL,         // Stack pointer (set when task starts)
+        .initial_sp = NULL, // Initial stack pointer (set at task creation)
+        .task = NULL,       // No task function assigned
         .exinf = NULL, // Extended information (user-defined data for the task)
         .delay_ticks = 0, // Reset countdown timer for sleep/delay
         .wupcause = E_OK, // Wakeup cause (default to normal wakeup)
@@ -112,7 +114,9 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
   if (new_id >= 0) {
     /* Initialize the TCB for the new task */
     new_tcb->tskstat = TTS_DMT; // Set initial task state
-    stack_end += -32;           // Reserve space for the initial context
+    new_tcb->tskwait =
+        0;            // No wait condition (task is not waiting for any event)
+    stack_end += -32; // Reserve space for the initial context
     for (int i = 0; i < 32; ++i) {
       stack_end[i] = 0xdeadbeef; // Fill stack with a known pattern
     }
@@ -188,6 +192,7 @@ ER tk_sta_tsk(ID tskid, INT stacd) {
 
   /* Transition the task to the TTS_RDY state */
   tcb->tskstat = TTS_RDY;
+  tcb->tskwait = 0;
 
   /* Set up the task's initial context */
   PRI itskpri = tcb->itskpri;
@@ -243,6 +248,7 @@ void tk_ext_tsk(void) {
   DI(intsts);
   tkmc_list_del(&tmp->head);
   tmp->tskstat = TTS_DMT;
+  tmp->tskwait = 0;
 
   /* Update the next task to be scheduled */
   next = tkmc_get_highest_priority_task();
@@ -287,6 +293,7 @@ ER tk_rel_wai(ID tskid) {
 
   if (ercd == E_OK) {
     tcb->tskstat = TTS_RDY;
+    tcb->tskwait = 0;
     tcb->wupcause = E_RLWAI;
     tkmc_list_del(&tcb->head);
     tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
