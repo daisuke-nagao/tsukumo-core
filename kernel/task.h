@@ -16,11 +16,11 @@ extern "C" {
 #endif /* __cplusplus */
 
 enum TaskState {
-  TTS_NOEXS = 0,
-  TTS_DMT,
-  TTS_RDY,
-  TTS_RUN,
-  TTS_WAI,
+  TTS_NOEXS = 0x0000,
+  TTS_RUN = 0x0001,
+  TTS_RDY = 0x0002,
+  TTS_WAI = 0x0004,
+  TTS_DMT = 0x0010,
 };
 
 /* Task Control Block */
