@@ -40,12 +40,12 @@ void tkmc_init_tcb(void) {
   for (int i = 0; i < sizeof(tkmc_tcbs) / sizeof(tkmc_tcbs[0]); ++i) {
     TCB *tcb = &tkmc_tcbs[i];
     *tcb = (TCB){
-        .tskid = i + 1,        // Assign a unique task ID
-        .itskpri = 0,          // Default priority
-        .state = NON_EXISTENT, // Initial state
-        .sp = NULL,            // Stack pointer (set when task starts)
-        .initial_sp = NULL,    // Initial stack pointer (set at task creation)
-        .task = NULL,          // No task function assigned
+        .tskid = i + 1,     // Assign a unique task ID
+        .itskpri = 0,       // Default priority
+        .state = TTS_NOEXS, // Initial state
+        .sp = NULL,         // Stack pointer (set when task starts)
+        .initial_sp = NULL, // Initial stack pointer (set at task creation)
+        .task = NULL,       // No task function assigned
         .exinf = NULL, // Extended information (user-defined data for the task)
         .delay_ticks = 0, // Reset countdown timer for sleep/delay
         .wupcause = E_OK, // Wakeup cause (default to normal wakeup)
@@ -111,7 +111,7 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
 
   if (new_id >= 0) {
     /* Initialize the TCB for the new task */
-    new_tcb->state = DORMANT; // Set initial task state
+    new_tcb->state = TTS_DMT; // Set initial task state
     stack_end += -32;         // Reserve space for the initial context
     for (int i = 0; i < 32; ++i) {
       stack_end[i] = 0xdeadbeef; // Fill stack with a known pattern
@@ -154,7 +154,7 @@ TCB *tkmc_get_highest_priority_task(void) {
 
 /*
  * Start a task.
- * - Moves the task from the DORMANT state to the READY state.
+ * - Moves the task from the TTS_DMT state to the TTS_RDY state.
  * - Adds the task to the appropriate ready queue based on its priority.
  * - Resets the stack pointer to the initial value before execution.
  *
@@ -174,20 +174,20 @@ ER tk_sta_tsk(ID tskid, INT stacd) {
 
   /* Disable interrupts to ensure atomic state changes */
   DI(intsts);
-  if (tcb->state == NON_EXISTENT) {
+  if (tcb->state == TTS_NOEXS) {
     EI(intsts);
     return E_NOEXS; // Task does not exist
   }
-  if (tcb->state != DORMANT) {
+  if (tcb->state != TTS_DMT) {
     EI(intsts);
-    return E_OBJ; // Task is not in the DORMANT state
+    return E_OBJ; // Task is not in the TTS_DMT state
   }
 
   /* Reset stack pointer to initial value */
   tcb->sp = tcb->initial_sp;
 
-  /* Transition the task to the READY state */
-  tcb->state = READY;
+  /* Transition the task to the TTS_RDY state */
+  tcb->state = TTS_RDY;
 
   /* Set up the task's initial context */
   PRI itskpri = tcb->itskpri;
@@ -232,7 +232,7 @@ void tkmc_yield(void) {
 
 /*
  * Terminate the current task.
- * - Moves the task to the DORMANT state.
+ * - Moves the task to the TTS_DMT state.
  * - Triggers a context switch to the next ready task.
  */
 void tk_ext_tsk(void) {
@@ -242,7 +242,7 @@ void tk_ext_tsk(void) {
   /* Disable interrupts to ensure atomic operations */
   DI(intsts);
   tkmc_list_del(&tmp->head);
-  tmp->state = DORMANT;
+  tmp->state = TTS_DMT;
 
   /* Update the next task to be scheduled */
   next = tkmc_get_highest_priority_task();
@@ -252,7 +252,7 @@ void tk_ext_tsk(void) {
 
 /*
  * Release a waiting task.
- * - Moves the specified task from the WAIT state to the READY state.
+ * - Moves the specified task from the TTS_WAI state to the TTS_RDY state.
  * - Removes the task from the waiting queue and adds it to the appropriate
  * ready queue.
  * - Triggers a context switch if a higher-priority task is ready.
@@ -264,7 +264,7 @@ void tk_ext_tsk(void) {
  * - E_OK on success.
  * - E_ID if the task ID is invalid.
  * - E_NOEXS if the task does not exist.
- * - E_OBJ if the task is not in the WAIT state.
+ * - E_OBJ if the task is not in the TTS_WAI state.
  */
 ER tk_rel_wai(ID tskid) {
   if (tskid > CFN_MAX_TSKID) {
@@ -276,17 +276,17 @@ ER tk_rel_wai(ID tskid) {
   UINT intsts = 0;
   DI(intsts);
   if (ercd == E_OK) {
-    if (tcb->state == NON_EXISTENT) {
+    if (tcb->state == TTS_NOEXS) {
       ercd = E_NOEXS;
     } else if (tcb == current) {
       ercd = E_OBJ;
-    } else if (tcb->state != WAIT) {
+    } else if (tcb->state != TTS_WAI) {
       ercd = E_OBJ;
     }
   }
 
   if (ercd == E_OK) {
-    tcb->state = READY;
+    tcb->state = TTS_RDY;
     tcb->wupcause = E_RLWAI;
     tkmc_list_del(&tcb->head);
     tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);

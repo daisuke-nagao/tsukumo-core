@@ -83,7 +83,7 @@ void tkmc_start(int a0, int a1) {
 
   /* Retrieve the highest-priority task (should be the initial task). */
   TCB *tcb = tkmc_get_highest_priority_task();
-  tcb->state = RUNNING; // Mark the task as running
+  tcb->state = TTS_RUN; // Mark the task as running
   current = tcb;        // Set the current task pointer
 
   /* Start the system timer for task scheduling. */
@@ -126,10 +126,10 @@ void **schedule(void *sp) {
   tmp->sp = sp;
 
   /* Update the state of the current task. */
-  if (current->state == RUNNING) {
-    current->state = READY; // Move the current task back to the READY state
+  if (current->state == TTS_RUN) {
+    current->state = TTS_RDY; // Move the current task back to the TTS_RDY state
   }
-  next->state = RUNNING; // Mark the next task as running
+  next->state = TTS_RUN; // Mark the next task as running
 
   /* Update the current task pointer to the next task. */
   current = next;
