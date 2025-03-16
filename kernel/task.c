@@ -51,6 +51,7 @@ void tkmc_init_tcb(void) {
         .exinf = NULL, // Extended information (user-defined data for the task)
         .delay_ticks = 0, // Reset countdown timer for sleep/delay
         .wupcause = E_OK, // Wakeup cause (default to normal wakeup)
+        .wupcnt = 0,
     };
     tkmc_init_list_head(&tcb->head);
 
@@ -129,6 +130,7 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     new_tcb->exinf = pk_ctsk->exinf; // Store user-defined extended information
     new_tcb->delay_ticks = 0; // Initialize delay timer (task is not delayed)
     new_tcb->wupcause = E_OK; // Default wakeup cause
+    new_tcb->wupcnt = 0;
   } else {
     new_id = (ID)E_LIMIT; // Task creation failed
   }
@@ -295,6 +297,7 @@ ER tk_rel_wai(ID tskid) {
     tcb->tskstat = TTS_RDY;
     tcb->tskwait = 0;
     tcb->wupcause = E_RLWAI;
+    tcb->wupcnt = 0;
     tkmc_list_del(&tcb->head);
     tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
 

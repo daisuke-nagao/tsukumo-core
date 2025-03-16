@@ -64,6 +64,7 @@ typedef struct TCB {
   void *exinf;
   UINT delay_ticks;
   ER wupcause;
+  UINT wupcnt;
 } TCB;
 
 extern TCB *current;
