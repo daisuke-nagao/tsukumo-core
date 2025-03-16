@@ -132,5 +132,26 @@ ER tk_slp_tsk(TMO tmout) {
     return E_PAR;
   }
 
-  return E_OK;
+  UINT intsts;
+  ER ercd = E_OK;
+  DI(intsts);
+  if (current->wupcnt > 0) {
+    current->wupcnt -= 1;
+    ercd = E_OK;
+    EI(intsts);
+  } else {
+    if (tmout > 0) {
+      schedule_timer(current, ((tmout + 9) / 10) + 1, TTW_SLP);
+    } else {
+      //! @todo implement
+    }
+    EI(intsts);
+    // wait to be awaken
+    DI(intsts);
+    ercd = ((volatile TCB *)current)->wupcause;
+    current->wupcause = E_OK;
+    EI(intsts);
+  }
+
+  return ercd;
 }
