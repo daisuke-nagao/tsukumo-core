@@ -16,7 +16,7 @@ void task1(INT stacd, void *exinf) {
     if (msg[0] == 'H') {
       ercd = tk_dly_tsk(990);
     } else {
-      ercd = tk_dly_tsk(300);
+      ercd = tk_slp_tsk(300);
     }
     putstring(msg);
     if (stacd == 3) {
@@ -27,6 +27,8 @@ void task1(INT stacd, void *exinf) {
         putstring(" 2\n");
       } else if (ercd == E_RLWAI) {
         putstring(" 3\n");
+      } else if (ercd == E_TMOUT) {
+        putstring(" 4\n");
       } else {
         putstring(" !\n");
       }
