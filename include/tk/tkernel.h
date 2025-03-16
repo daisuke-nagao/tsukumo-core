@@ -52,7 +52,8 @@ typedef struct T_CTSK {
 extern void tk_ext_tsk(void);
 extern ID tk_cre_tsk(const T_CTSK *pk_ctsk);
 extern ER tk_sta_tsk(ID tskid, INT stacd);
-extern ER tk_dly_tsk(TMO tmout);
+extern ER tk_dly_tsk(TMO dlytm);
+// extern ER tk_slp_tsk(TMO tmout);
 extern ER tk_rel_wai(ID tskid);
 
 #endif /* UUID_01946FAC_8E45_7658_B009_C10ED747A05C */

@@ -93,8 +93,8 @@ static ER schedule_timer(TCB *tcb, UINT delay_ticks, enum TaskWait tskwait) {
   next = tkmc_get_highest_priority_task();
   out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
   EI(intsts);
-  DI(intsts);
   // wait to be awaken
+  DI(intsts);
   ER ercd = ((volatile TCB *)current)->wupcause;
   EI(intsts);
   return ercd;
@@ -125,4 +125,12 @@ ER tk_dly_tsk(TMO dlytm) {
     ercd = E_OK;
   }
   return ercd;
+}
+
+ER tk_slp_tsk(TMO tmout) {
+  if (tmout < TMO_FEVR) {
+    return E_PAR;
+  }
+
+  return E_OK;
 }
