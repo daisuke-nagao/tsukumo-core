@@ -28,9 +28,9 @@ extern "C" {
 #define EI(intsts)                                                             \
   do {                                                                         \
     if (intsts == 0) {                                                         \
-      asm volatile("csrsi mstatus, %0" ::"i"(MSTATUS_MIE) :);                  \
+      asm volatile("csrsi mstatus, %0" ::"i"(MSTATUS_MIE) : "memory");         \
     } else {                                                                   \
-      asm volatile("csrs mstatus, %0" ::"r"(intsts & MSTATUS_MIE) :);          \
+      asm volatile("csrs mstatus, %0" ::"r"(intsts & MSTATUS_MIE) : "memory"); \
     }                                                                          \
   } while (0)
 

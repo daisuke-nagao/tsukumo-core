@@ -119,6 +119,7 @@ ER tk_dly_tsk(TMO dlytm) {
   // wait to be awaken
   DI(intsts);
   ER ercd = ((volatile TCB *)current)->wupcause;
+  current->wupcause = E_OK;
   EI(intsts);
   if (ercd == E_TMOUT) {
     ercd = E_OK;
