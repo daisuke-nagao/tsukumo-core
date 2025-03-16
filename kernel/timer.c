@@ -80,10 +80,11 @@ void tkmc_timer_handler(void) {
  * - delay_ticks: Number of ticks to wait before the task is moved to the ready
  * queue.
  */
-static ER schedule_timer(TCB *tcb, UINT delay_ticks) {
+static ER schedule_timer(TCB *tcb, UINT delay_ticks, enum TaskWait tskwait) {
   UINT intsts;
   DI(intsts);
   tcb->tskstat = TTS_WAI;
+  tcb->tskwait = tskwait;
   tcb->delay_ticks = delay_ticks;
   tkmc_list_del(&tcb->head);
   tkmc_list_add_tail(&tcb->head, &tkmc_timer_queue);
@@ -119,7 +120,7 @@ ER tk_dly_tsk(TMO dlytm) {
   }
 
   /* Move the task to the timer queue with the specified timeout */
-  ER ercd = schedule_timer(current, ((dlytm + 9) / 10) + 1);
+  ER ercd = schedule_timer(current, ((dlytm + 9) / 10) + 1, TTW_DLY);
   if (ercd == E_TMOUT) {
     ercd = E_OK;
   }
