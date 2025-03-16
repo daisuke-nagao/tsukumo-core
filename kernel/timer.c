@@ -57,7 +57,7 @@ void tkmc_timer_handler(void) {
         /* Move the task to the ready queue */
         tkmc_list_del(&tcb->head);
         tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
-        tcb->state = READY;
+        tcb->state = TTS_RDY;
         tcb->wupcause = E_TMOUT;
 
         /* Update the next task to be scheduled */
@@ -72,7 +72,7 @@ void tkmc_timer_handler(void) {
 
 /*
  * Move a task to the timer queue.
- * - Sets the task's state to WAIT.
+ * - Sets the task's state to TTS_WAI.
  * - Adds the task to the timer queue with the specified tick count.
  *
  * Parameters:
@@ -83,7 +83,7 @@ void tkmc_timer_handler(void) {
 static ER schedule_timer(TCB *tcb, UINT delay_ticks) {
   UINT intsts;
   DI(intsts);
-  tcb->state = WAIT;
+  tcb->state = TTS_WAI;
   tcb->delay_ticks = delay_ticks;
   tkmc_list_del(&tcb->head);
   tkmc_list_add_tail(&tcb->head, &tkmc_timer_queue);
