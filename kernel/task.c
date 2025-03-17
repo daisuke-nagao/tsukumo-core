@@ -314,8 +314,21 @@ ER tk_rel_wai(ID tskid) {
   return ercd;
 }
 
+/*
+ * Wake up a task.
+ * - Transitions a sleeping or waiting task to the ready state.
+ * - If the task is already ready or running, increments its wakeup count.
+ *
+ * Parameters:
+ * - tskid: ID of the task to wake up.
+ *
+ * Returns:
+ * - E_OK on success.
+ * - E_ID if the task ID is invalid.
+ * - E_NOEXS if the task does not exist.
+ */
 ER tk_wup_tsk(ID tskid) {
-  if (tskid > CFN_MAX_TSKID) {
+  if (tskid <= 0 || tskid > CFN_MAX_TSKID) {
     return E_ID;
   }
   TCB *tcb = &tkmc_tcbs[tskid - 1];
@@ -345,10 +358,17 @@ ER tk_wup_tsk(ID tskid) {
       ercd = E_OK;
     }
   } else if (tskstat == TTS_RDY || tskstat == TTS_RUN) {
-    tcb->wupcnt += 1;
-    ercd = E_OK;
-  } else {
+    const UINT WUPCNT_MAX = (~(UINT)(0)) - 1;
+    if (tcb->wupcnt <= WUPCNT_MAX) {
+      tcb->wupcnt += 1;
+      ercd = E_OK;
+    } else {
+      ercd = E_QOVR;
+    }
+  } else if (tskstat == TTS_NOEXS) {
     ercd = E_NOEXS;
+  } else {
+    ercd = E_OBJ;
   }
   EI(intsts);
 
