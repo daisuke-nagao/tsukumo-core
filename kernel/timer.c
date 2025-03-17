@@ -3,6 +3,7 @@
 // clang-format on
 #include "timer.h"
 #include "asm/rv32/address.h"
+#include "dispatch.h"
 #include "list.h"
 #include "task.h"
 
@@ -63,7 +64,7 @@ void tkmc_timer_handler(void) {
         /* Update the next task to be scheduled */
         next = tkmc_get_highest_priority_task();
         if (next != current) {
-          out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
+          dispatch();
         }
       }
     }
@@ -89,7 +90,7 @@ static void schedule_timer(TCB *tcb, UINT delay_ticks, enum TaskWait tskwait) {
 
   /* Update the next task to be scheduled */
   next = tkmc_get_highest_priority_task();
-  out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
+  dispatch();
 }
 
 /*
@@ -152,7 +153,7 @@ ER tk_slp_tsk(TMO tmout) {
       current->delay_ticks = 0;
       tkmc_list_del(&current->head);
       next = tkmc_get_highest_priority_task();
-      out_w(CLINT_MSIP_ADDRESS, 1);
+      dispatch();
     }
     EI(intsts);
     // wait to be awaken
