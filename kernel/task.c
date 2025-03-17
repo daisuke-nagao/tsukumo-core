@@ -6,6 +6,7 @@
 
 #include "task.h"
 #include "asm/rv32/address.h"
+#include "dispatch.h"
 
 /* Memory-mapped addresses for the CLINT (Core Local Interruptor) */
 #define CLINT_MSIP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET)
@@ -207,7 +208,7 @@ ER tk_sta_tsk(ID tskid, INT stacd) {
   if (current != NULL) {
     next = tkmc_get_highest_priority_task();
     if (next != current) {
-      out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
+      dispatch();
     }
   }
   EI(intsts);
@@ -232,7 +233,7 @@ void tkmc_yield(void) {
   /* Update the next task to be scheduled */
   next = tkmc_get_highest_priority_task();
   if (tmp != next) {
-    out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
+    dispatch();
   }
   EI(intsts);
 }
@@ -254,7 +255,7 @@ void tk_ext_tsk(void) {
 
   /* Update the next task to be scheduled */
   next = tkmc_get_highest_priority_task();
-  out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
+  dispatch();
   EI(intsts);
 }
 
@@ -303,7 +304,7 @@ ER tk_rel_wai(ID tskid) {
 
     next = tkmc_get_highest_priority_task();
     if (current != next) {
-      out_w(CLINT_MSIP_ADDRESS, 1);
+      dispatch();
     }
   }
   EI(intsts);
