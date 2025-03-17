@@ -29,11 +29,12 @@ target_sources(
           kernel/memcpy.c
           kernel/memset.c
           kernel/timer.c
-          task1.c)
+          task1.c
+          task2.c)
 
 # Set CMake compilation flags
 target_compile_options(
-  ${EXECUTABLE} PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS}>
+  ${EXECUTABLE} PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS} -fstack-usage>
                         $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
 
 # Set required standards

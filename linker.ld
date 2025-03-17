@@ -42,19 +42,19 @@ SECTIONS
     PROVIDE(_data_end = .);
   } >ram AT>ram
 
-  .sbss : {
+  .sbss (NOLOAD) : {
     . = ALIGN(16);
     PROVIDE(_bss_start = .);
     *(.sbss .sbss.*)
   } >ram AT>ram
 
-  .bss :{
+  .bss (NOLOAD) :{
     . = ALIGN(16);
     *(.bss .bss.*)
     PROVIDE(_bss_end = .);
   } >ram AT>ram
 
-  .stack : {
+  .stack (NOLOAD) : {
     . = ALIGN(16);
     PROVIDE(_stack_start = .);
     . = . + 1024;

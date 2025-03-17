@@ -9,6 +9,5 @@
   .balign 4
 tkmc_idl_tsk:
 1:
-  li a0, 0
-  call tk_dly_tsk
+  call tkmc_yield
   j 1b
