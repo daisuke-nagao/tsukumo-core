@@ -3,6 +3,7 @@
 // clang-format on
 #include "timer.h"
 #include "asm/rv32/address.h"
+#include "dispatch.h"
 #include "list.h"
 #include "task.h"
 
@@ -63,7 +64,7 @@ void tkmc_timer_handler(void) {
         /* Update the next task to be scheduled */
         next = tkmc_get_highest_priority_task();
         if (next != current) {
-          out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
+          dispatch();
         }
       }
     }
@@ -80,9 +81,7 @@ void tkmc_timer_handler(void) {
  * - delay_ticks: Number of ticks to wait before the task is moved to the ready
  * queue.
  */
-static ER schedule_timer(TCB *tcb, UINT delay_ticks, enum TaskWait tskwait) {
-  UINT intsts;
-  DI(intsts);
+static void schedule_timer(TCB *tcb, UINT delay_ticks, enum TaskWait tskwait) {
   tcb->tskstat = TTS_WAI;
   tcb->tskwait = tskwait;
   tcb->delay_ticks = delay_ticks;
@@ -91,13 +90,7 @@ static ER schedule_timer(TCB *tcb, UINT delay_ticks, enum TaskWait tskwait) {
 
   /* Update the next task to be scheduled */
   next = tkmc_get_highest_priority_task();
-  out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
-  EI(intsts);
-  DI(intsts);
-  // wait to be awaken
-  ER ercd = ((volatile TCB *)current)->wupcause;
-  EI(intsts);
-  return ercd;
+  dispatch();
 }
 
 /*
@@ -120,9 +113,56 @@ ER tk_dly_tsk(TMO dlytm) {
   }
 
   /* Move the task to the timer queue with the specified timeout */
-  ER ercd = schedule_timer(current, ((dlytm + 9) / 10) + 1, TTW_DLY);
+  UINT intsts;
+  DI(intsts);
+  schedule_timer(current, ((dlytm + 9) / 10) + 1, TTW_DLY);
+  EI(intsts);
+  // wait to be awaken
+  DI(intsts);
+  ER ercd = ((volatile TCB *)current)->wupcause;
+  current->wupcause = E_OK;
+  EI(intsts);
   if (ercd == E_TMOUT) {
     ercd = E_OK;
   }
+  return ercd;
+}
+
+ER tk_slp_tsk(TMO tmout) {
+  if (tmout < TMO_FEVR) {
+    return E_PAR;
+  }
+
+  UINT intsts;
+  ER ercd = E_OK;
+  DI(intsts);
+  if (current->wupcnt > 0) {
+    current->wupcnt -= 1;
+    ercd = E_OK;
+    EI(intsts);
+    return ercd;
+  } else {
+    if (tmout > 0) {
+      schedule_timer(current, ((tmout + 9) / 10) + 1, TTW_SLP);
+    } else if (tmout == TMO_POL) {
+      EI(intsts);
+      return E_TMOUT;
+    } else {
+      current->tskstat = TTS_WAI;
+      current->tskwait = TTW_SLP;
+      current->delay_ticks = 0;
+      tkmc_list_del(&current->head);
+      tkmc_init_list_head(&current->head);
+      next = tkmc_get_highest_priority_task();
+      dispatch();
+    }
+    EI(intsts);
+    // wait to be awaken
+    DI(intsts);
+    ercd = ((volatile TCB *)current)->wupcause;
+    current->wupcause = E_OK;
+    EI(intsts);
+  }
+
   return ercd;
 }

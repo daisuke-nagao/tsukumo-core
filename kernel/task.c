@@ -6,6 +6,7 @@
 
 #include "task.h"
 #include "asm/rv32/address.h"
+#include "dispatch.h"
 
 /* Memory-mapped addresses for the CLINT (Core Local Interruptor) */
 #define CLINT_MSIP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET)
@@ -51,6 +52,7 @@ void tkmc_init_tcb(void) {
         .exinf = NULL, // Extended information (user-defined data for the task)
         .delay_ticks = 0, // Reset countdown timer for sleep/delay
         .wupcause = E_OK, // Wakeup cause (default to normal wakeup)
+        .wupcnt = 0,
     };
     tkmc_init_list_head(&tcb->head);
 
@@ -129,6 +131,7 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     new_tcb->exinf = pk_ctsk->exinf; // Store user-defined extended information
     new_tcb->delay_ticks = 0; // Initialize delay timer (task is not delayed)
     new_tcb->wupcause = E_OK; // Default wakeup cause
+    new_tcb->wupcnt = 0;
   } else {
     new_id = (ID)E_LIMIT; // Task creation failed
   }
@@ -205,7 +208,7 @@ ER tk_sta_tsk(ID tskid, INT stacd) {
   if (current != NULL) {
     next = tkmc_get_highest_priority_task();
     if (next != current) {
-      out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
+      dispatch();
     }
   }
   EI(intsts);
@@ -230,7 +233,7 @@ void tkmc_yield(void) {
   /* Update the next task to be scheduled */
   next = tkmc_get_highest_priority_task();
   if (tmp != next) {
-    out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
+    dispatch();
   }
   EI(intsts);
 }
@@ -252,7 +255,7 @@ void tk_ext_tsk(void) {
 
   /* Update the next task to be scheduled */
   next = tkmc_get_highest_priority_task();
-  out_w(CLINT_MSIP_ADDRESS, 1); // Trigger a machine software interrupt
+  dispatch();
   EI(intsts);
 }
 
@@ -260,7 +263,7 @@ void tk_ext_tsk(void) {
  * Release a waiting task.
  * - Moves the specified task from the TTS_WAI state to the TTS_RDY state.
  * - Removes the task from the waiting queue and adds it to the appropriate
- * ready queue.
+ *   ready queue.
  * - Triggers a context switch if a higher-priority task is ready.
  *
  * Parameters:
@@ -273,36 +276,134 @@ void tk_ext_tsk(void) {
  * - E_OBJ if the task is not in the TTS_WAI state.
  */
 ER tk_rel_wai(ID tskid) {
-  if (tskid > CFN_MAX_TSKID) {
+  // Check if the task ID is out of range
+  if (tskid <= 0 || tskid > CFN_MAX_TSKID) {
     return E_ID;
   }
   TCB *tcb = &tkmc_tcbs[tskid - 1];
 
   ER ercd = E_OK;
   UINT intsts = 0;
+
+  // Disable interrupts to prevent race conditions
   DI(intsts);
+
   if (ercd == E_OK) {
+    // Validate the state of the task before proceeding
     if (tcb->tskstat == TTS_NOEXS) {
-      ercd = E_NOEXS;
+      ercd = E_NOEXS; // Task does not exist
     } else if (tcb == current) {
-      ercd = E_OBJ;
+      ercd = E_OBJ; // Cannot release the current task
     } else if (tcb->tskstat != TTS_WAI) {
-      ercd = E_OBJ;
+      ercd = E_OBJ; // Task is not in a waiting state
     }
   }
 
   if (ercd == E_OK) {
+    // Transition the task to the ready state
     tcb->tskstat = TTS_RDY;
     tcb->tskwait = 0;
-    tcb->wupcause = E_RLWAI;
-    tkmc_list_del(&tcb->head);
+    tcb->wupcause = E_RLWAI; // Reason for wake-up is a release request
+    tcb->wupcnt = 0;
+
+    // Remove the task from the waiting queue if it is present
+    if (!tkmc_list_empty(&tcb->head)) {
+      tkmc_list_del(&tcb->head);
+    }
+
+    // Add the task to the appropriate ready queue based on its priority
     tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
 
+    // Check if a higher-priority task needs to run
     next = tkmc_get_highest_priority_task();
     if (current != next) {
-      out_w(CLINT_MSIP_ADDRESS, 1);
+      dispatch(); // Perform a context switch
     }
   }
+
+  // Re-enable interrupts after making changes
+  EI(intsts);
+
+  return ercd;
+}
+
+/*
+ * Wake up a task.
+ * - Transitions a sleeping or waiting task to the ready state.
+ * - If the task is already ready or running, increments its wakeup count.
+ *
+ * Parameters:
+ * - tskid: ID of the task to wake up.
+ *
+ * Returns:
+ * - E_OK on success.
+ * - E_ID if the task ID is invalid.
+ * - E_NOEXS if the task does not exist.
+ * - E_OBJ if the task is not in a suitable state to be woken up.
+ * - E_QOVR if the wakeup count exceeds its maximum value.
+ */
+ER tk_wup_tsk(ID tskid) {
+  // Validate the task ID
+  if (tskid <= 0 || tskid > CFN_MAX_TSKID) {
+    return E_ID; // Invalid task ID
+  }
+
+  // Get the TCB for the specified task ID
+  TCB *tcb = &tkmc_tcbs[tskid - 1];
+
+  ER ercd = E_OK;
+  UINT intsts = 0;
+  const UINT WUPCNT_MAX = (~(UINT)(0)) - 1;
+
+  // Disable interrupts to ensure atomic operations
+  DI(intsts);
+
+  // Check the task state
+  UINT tskstat = tcb->tskstat;
+  if (tskstat == TTS_WAI) {
+    UINT tskwait = tcb->tskwait;
+    if (tskwait == TTW_SLP) {
+      // If the task is waiting to sleep, make it ready
+      tcb->tskstat = TTS_RDY;
+      tcb->tskwait = 0;
+      tcb->wupcause = E_OK; // Normal wake-up
+      tcb->wupcnt = 0;
+
+      // Remove the task from any queues and add it to the ready queue
+      if (!tkmc_list_empty(&tcb->head)) {
+        tkmc_list_del(&tcb->head);
+      }
+      tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+
+      // Check if a higher-priority task needs to run
+      next = tkmc_get_highest_priority_task();
+      if (current != next) {
+        dispatch(); // Perform a context switch
+      }
+    } else {
+      // If the task is waiting on something else, increment the wakeup count
+      if (tcb->wupcnt <= WUPCNT_MAX) {
+        tcb->wupcnt += 1;
+        ercd = E_OK;
+      } else {
+        ercd = E_QOVR; // Wakeup count overflow
+      }
+    }
+  } else if (tskstat == TTS_RDY || tskstat == TTS_RUN) {
+    // If the task is already ready or running, increment the wakeup count
+    if (tcb->wupcnt <= WUPCNT_MAX) {
+      tcb->wupcnt += 1;
+      ercd = E_OK;
+    } else {
+      ercd = E_QOVR; // Wakeup count overflow
+    }
+  } else if (tskstat == TTS_NOEXS) {
+    ercd = E_NOEXS; // Task does not exist
+  } else {
+    ercd = E_OBJ; // Invalid state for waking up
+  }
+
+  // Re-enable interrupts
   EI(intsts);
 
   return ercd;
