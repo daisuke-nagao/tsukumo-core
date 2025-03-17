@@ -11,6 +11,7 @@ void task1(INT stacd, void *exinf) {
   putstring("Hello, world\n");
 
   const char *msg = (const char *)exinf;
+  INT c = 0;
   while (1) {
     ER ercd = E_OK;
     if (msg[0] == 'H') {
@@ -20,7 +21,17 @@ void task1(INT stacd, void *exinf) {
     }
     putstring(msg);
     if (stacd == 3) {
-      tk_rel_wai(4);
+      ++c;
+      c %= 2;
+      if (c) {
+        tk_rel_wai(4);
+        tk_rel_wai(4);
+      } else {
+        extern ER tk_wup_tsk(ID);
+        tk_wup_tsk(4);
+        tk_wup_tsk(4);
+        tk_wup_tsk(4);
+      }
       putstring(" 1\n");
     } else {
       if (ercd == E_OK) {

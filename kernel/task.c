@@ -313,3 +313,44 @@ ER tk_rel_wai(ID tskid) {
 
   return ercd;
 }
+
+ER tk_wup_tsk(ID tskid) {
+  if (tskid > CFN_MAX_TSKID) {
+    return E_ID;
+  }
+  TCB *tcb = &tkmc_tcbs[tskid - 1];
+
+  ER ercd = E_OK;
+  UINT intsts = 0;
+  DI(intsts);
+  UINT tskstat = tcb->tskstat;
+  if (tskstat == TTS_WAI) {
+    UINT tskwait = tcb->tskwait;
+    if (tskwait == TTW_SLP) {
+      tcb->tskstat = TTS_RDY;
+      tcb->tskwait = 0;
+      tcb->wupcause = E_OK;
+      tcb->wupcnt = 0;
+      if (!tkmc_list_empty(&tcb->head)) {
+        tkmc_list_del(&tcb->head);
+      }
+      tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+
+      next = tkmc_get_highest_priority_task();
+      if (current != next) {
+        dispatch();
+      }
+    } else {
+      tcb->wupcnt += 1;
+      ercd = E_OK;
+    }
+  } else if (tskstat == TTS_RDY || tskstat == TTS_RUN) {
+    tcb->wupcnt += 1;
+    ercd = E_OK;
+  } else {
+    ercd = E_NOEXS;
+  }
+  EI(intsts);
+
+  return ercd;
+}
