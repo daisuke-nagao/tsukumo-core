@@ -26,9 +26,11 @@ void tkmc_init_timer(void) { tkmc_init_list_head(&tkmc_timer_queue); }
  * - Configures the initial timer compare value.
  */
 void tkmc_start_timer(void) {
-  s_mtimecmp = *(_UW *)(CLINT_MTIME_ADDRESS);
-  s_mtimecmp += 100000; // Set the initial timer compare value
-  *(_UW *)(CLINT_MTIMECMP_ADDRESS) = s_mtimecmp;
+  UW mtimecmp = in_w(CLINT_MTIME_ADDRESS);
+  mtimecmp += 100000; // Set the initial timer compare value
+  s_mtimecmp = mtimecmp;
+  tkmc_compiler_barrier();
+  out_w(CLINT_MTIMECMP_ADDRESS, mtimecmp);
 }
 
 /*
@@ -38,16 +40,17 @@ void tkmc_start_timer(void) {
  * time has expired.
  */
 void tkmc_timer_handler(void) {
-  UW mtime = *(_UW *)(CLINT_MTIME_ADDRESS);
+  UW mtime = in_w(CLINT_MTIME_ADDRESS);
   UW mtimecmp = s_mtimecmp;
 
   /* Update the timer compare value to schedule the next interrupt */
   while (mtime >= mtimecmp) {
     mtimecmp += 100000;
-    mtime = *(_UW *)(CLINT_MTIME_ADDRESS);
+    mtime = in_w(CLINT_MTIME_ADDRESS);
   }
-  *(_UW *)(CLINT_MTIMECMP_ADDRESS) = mtimecmp;
   s_mtimecmp = mtimecmp;
+  tkmc_compiler_barrier();
+  out_w(CLINT_MTIMECMP_ADDRESS, mtimecmp);
 
   /* Check the timer queue for tasks whose wait time has expired */
   if (!tkmc_list_empty(&tkmc_timer_queue)) {
