@@ -299,7 +299,9 @@ ER tk_rel_wai(ID tskid) {
     tcb->tskwait = 0;
     tcb->wupcause = E_RLWAI;
     tcb->wupcnt = 0;
-    tkmc_list_del(&tcb->head);
+    if (!tkmc_list_empty(&tcb->head)) {
+      tkmc_list_del(&tcb->head);
+    }
     tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
 
     next = tkmc_get_highest_priority_task();

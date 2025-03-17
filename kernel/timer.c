@@ -152,6 +152,7 @@ ER tk_slp_tsk(TMO tmout) {
       current->tskwait = TTW_SLP;
       current->delay_ticks = 0;
       tkmc_list_del(&current->head);
+      tkmc_init_list_head(&current->head);
       next = tkmc_get_highest_priority_task();
       dispatch();
     }
