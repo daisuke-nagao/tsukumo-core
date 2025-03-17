@@ -7,42 +7,35 @@
 
 #include "putstring.h"
 
+extern ID get_tskid(unsigned int index);
+enum TASK_INDEX {
+  TASK1 = 0,
+  TASK2 = 1,
+  TASK_NBOF,
+};
 void task1(INT stacd, void *exinf) {
   putstring("Hello, world\n");
+
+  ID task2_id = get_tskid(TASK2);
 
   const char *msg = (const char *)exinf;
   INT c = 0;
   while (1) {
     ER ercd = E_OK;
-    if (msg[0] == 'H') {
-      ercd = tk_dly_tsk(990);
-    } else {
-      ercd = tk_slp_tsk(300);
-    }
+    ercd = tk_dly_tsk(990);
     putstring(msg);
-    if (stacd == 3) {
-      ++c;
-      c %= 2;
-      if (c) {
-        tk_rel_wai(4);
-        tk_rel_wai(4);
-      } else {
-        extern ER tk_wup_tsk(ID);
-        tk_wup_tsk(4);
-        tk_wup_tsk(4);
-        tk_wup_tsk(4);
-      }
-      putstring(" 1\n");
+
+    ++c;
+    c %= 2;
+
+    if (c) {
+      tk_rel_wai(task2_id);
+      tk_rel_wai(task2_id);
     } else {
-      if (ercd == E_OK) {
-        putstring(" 2\n");
-      } else if (ercd == E_RLWAI) {
-        putstring(" 3\n");
-      } else if (ercd == E_TMOUT) {
-        putstring(" 4\n");
-      } else {
-        putstring(" !\n");
-      }
+      tk_wup_tsk(task2_id);
+      tk_wup_tsk(task2_id);
+      tk_wup_tsk(task2_id);
     }
+    putstring(" TASK1\n");
   }
 }

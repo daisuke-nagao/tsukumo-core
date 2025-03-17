@@ -55,5 +55,6 @@ extern ER tk_sta_tsk(ID tskid, INT stacd);
 extern ER tk_dly_tsk(TMO dlytm);
 extern ER tk_slp_tsk(TMO tmout);
 extern ER tk_rel_wai(ID tskid);
+extern ER tk_wup_tsk(ID tskid);
 
 #endif /* UUID_01946FAC_8E45_7658_B009_C10ED747A05C */
