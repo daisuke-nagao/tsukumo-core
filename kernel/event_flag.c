@@ -27,3 +27,5 @@ void tkmc_init_flgcb(void) {
     tkmc_list_add_tail(&flgcb->wait_queue, &tkmc_free_flbcb);
   }
 }
+
+ID tk_cre_flg(CONST T_CFLG *pk_cflg) { return E_LIMIT; }
