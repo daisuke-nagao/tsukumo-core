@@ -36,5 +36,30 @@ ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
     return E_RSATR;
   }
 
-  return E_LIMIT;
+  if (flgatr & TA_TPRI || flgatr & TA_WMUL) {
+    return E_NOMEM; // temporary
+  }
+
+  UINT intsts = 0;
+  FLGCB *new_flgcb = NULL;
+  ID new_flgid = 0;
+  DI(intsts);
+
+  if (tkmc_list_empty(&tkmc_free_flbcb) == FALSE) {
+    /* Allocate a TCB from the free list */
+    new_flgcb = tkmc_list_first_entry(&tkmc_free_flbcb, FLGCB, wait_queue);
+    tkmc_list_del(&new_flgcb->wait_queue);
+    tkmc_init_list_head(&new_flgcb->wait_queue);
+    new_flgid = new_flgcb->flgid;
+
+    new_flgcb->exinf = pk_cflg->exinf;
+    new_flgcb->flgatr = pk_cflg->flgatr;
+    new_flgcb->flgptn = pk_cflg->iflgptn;
+  } else {
+    new_flgid = (ID)E_LIMIT;
+  }
+
+  EI(intsts);
+
+  return new_flgid;
 }
