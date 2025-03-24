@@ -31,7 +31,7 @@ set(CMAKE_ASM_FLAGS_INIT "${RISCV_COMPILE_OPTIONS}")
 
 # Set linker flags
 set(CMAKE_EXE_LINKER_FLAGS_INIT
-    "-nostdlib -nostartfiles -T ${CMAKE_SOURCE_DIR}/linker.ld")
+    "-nostdlib -nostartfiles -T \"${CMAKE_SOURCE_DIR}/linker.ld\"")
 
 # Set include and library paths (adjust as needed)
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
