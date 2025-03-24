@@ -40,6 +40,12 @@
 #define TA_COP2 0x00004000U /* Use coprocessor (ID=2) */
 #define TA_COP3 0x00008000U /* Use coprocessor (ID=3) */
 
+#define TA_TFIFO 0x00000000    /* Manage waiting tasks in FIFO order */
+#define TA_TPRI 0x00000001     /* Manage waiting tasks in order of priority */
+#define TA_WSGL 0x00000000     /* Do not allow waiting of multiple tasks */
+#define TA_WMUL 0x00000008     /* Allow waiting of multiple tasks */
+#define TA_NODISWAI 0x00000080 /* Prohibit wait disable */
+
 typedef struct T_CTSK {
   void *exinf;  /* Extended Information */
   ATR tskatr;   /* Task Attribute  */
