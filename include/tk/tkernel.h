@@ -65,7 +65,7 @@ extern ER tk_wup_tsk(ID tskid);
 
 typedef struct T_CFLG {
   void *exinf;  /* Extended Information */
-  ATR flgattr;  /* EventFlag Attribute*/
+  ATR flgatr;   /* EventFlag Attribute*/
   UINT iflgptn; /* Initial EventFlag Pattern */
 } T_CFLG;
 

@@ -19,7 +19,7 @@ void tkmc_init_flgcb(void) {
     *flgcb = (FLGCB){
         .flgid = i + 1,
         .exinf = NULL,
-        .attr = 0,
+        .flgatr = 0,
         .flgptn = 0,
     };
     tkmc_init_list_head(&flgcb->wait_queue);

@@ -19,7 +19,7 @@ typedef struct FLGCB {
   tkmc_list_head wait_queue;
   ID flgid;
   void *exinf;
-  ATR attr;
+  ATR flgatr;
   UINT flgptn;
 } FLGCB;
 
