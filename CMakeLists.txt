@@ -14,23 +14,50 @@ set(EXECUTABLE ${PROJECT_NAME}.elf)
 # Set common flags for bare-metal
 set(COMMON_FLAGS -ffreestanding -nostdlib -nostdinc)
 
-# Specify the executable
-add_executable(${EXECUTABLE})
+# Create static library for kernel components
+add_library(
+  tsukumo-core-kernel STATIC
+  kernel/asm/rv32/start.S
+  kernel/asm/rv32/launch_task.S
+  kernel/asm/rv32/idl_tsk.S
+  kernel/start.c
+  kernel/task.c
+  kernel/ini_tsk.c
+  kernel/usermain.c
+  kernel/memcpy.c
+  kernel/memset.c
+  kernel/timer.c)
 
-target_sources(
-  ${EXECUTABLE}
-  PRIVATE kernel/asm/rv32/start.S
-          kernel/asm/rv32/launch_task.S
-          kernel/asm/rv32/idl_tsk.S
-          kernel/start.c
-          kernel/task.c
-          kernel/ini_tsk.c
-          kernel/usermain.c
-          kernel/memcpy.c
-          kernel/memset.c
-          kernel/timer.c
-          task1.c
-          task2.c)
+# Set include paths for the kernel library
+target_include_directories(tsukumo-core-kernel
+                           PUBLIC include ${CMAKE_BINARY_DIR}/include/)
+
+# Set compile options for the kernel library
+target_compile_options(
+  tsukumo-core-kernel
+  PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS} -fstack-usage>
+          $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
+
+# Set required language standard for the kernel library
+target_compile_features(tsukumo-core-kernel PRIVATE c_std_11)
+
+# Define macro function to create an executable with linked kernel library
+function(tkmc_add_executable exec_name)
+  # Parse arguments, expecting SOURCES keyword
+  cmake_parse_arguments(TKMC "" "" "SOURCES" ${ARGN})
+
+  # Define the executable with the given sources
+  add_executable(${exec_name} ${TKMC_SOURCES})
+
+  # Link against the prebuilt kernel static library
+  target_link_libraries(${exec_name} PRIVATE tsukumo-core-kernel)
+
+  # Add compile-time definitions (e.g. for CONST checking)
+  target_compile_definitions(${exec_name} PUBLIC TKERNEL_CHECK_CONST)
+endfunction()
+
+# Add main executable with user task sources
+tkmc_add_executable(${EXECUTABLE} SOURCES task1.c task2.c)
 
 # Set CMake compilation flags
 target_compile_options(
@@ -38,11 +65,7 @@ target_compile_options(
                         $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
 
 # Set required standards
-target_compile_features(${EXECUTABLE} PRIVATE c_std_11 cxx_std_20)
-
-# Add include directories (if needed)
-target_include_directories(${EXECUTABLE} PRIVATE include
-                                                 ${CMAKE_BINARY_DIR}/include/)
+target_compile_features(${EXECUTABLE} PRIVATE c_std_11)
 
 # Convert to BIN file
 add_custom_command(
@@ -69,10 +92,10 @@ option(
   "Enable CONST checks to prevent unintended modifications to pointer parameters in system calls. This helps ensure code safety by using 'const' qualifiers when supported. If disabled, CONST will be defined as an empty macro to maintain compatibility with legacy code."
   ON)
 
-# Include external script
+# Include external script for type determination
 include(DetermineTypes.cmake)
 
-# Generate typedef.h
+# Generate typedef.h from template
 configure_file(typedef.h.in ${CMAKE_BINARY_DIR}/include/tk/typedef.h @ONLY)
 
 # Add compile definitions based on options
@@ -96,8 +119,6 @@ else()
 
   # Set the kernel image path (kernel is tsukumo-core.elf in CMAKE_BINARY_DIR).
   set(KERNEL_IMAGE "${CMAKE_BINARY_DIR}/tsukumo-core.elf")
-
-  # Set the script output directory (using CMAKE_BINARY_DIR).
 
   # Generate Linux shell scripts.
 
