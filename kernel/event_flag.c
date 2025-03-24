@@ -28,4 +28,13 @@ void tkmc_init_flgcb(void) {
   }
 }
 
-ID tk_cre_flg(CONST T_CFLG *pk_cflg) { return E_LIMIT; }
+ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
+  const ATR flgatr = pk_cflg->flgatr;
+  static const ATR VALID_FLGATR = TA_TFIFO | TA_TPRI | TA_WSGL | TA_WMUL;
+
+  if ((flgatr & ~VALID_FLGATR) != 0) {
+    return E_RSATR;
+  }
+
+  return E_LIMIT;
+}
