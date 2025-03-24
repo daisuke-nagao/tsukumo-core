@@ -63,3 +63,7 @@ ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
 
   return new_flgid;
 }
+
+ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
+  return E_TMOUT;
+}
