@@ -63,4 +63,10 @@ extern ER tk_slp_tsk(TMO tmout);
 extern ER tk_rel_wai(ID tskid);
 extern ER tk_wup_tsk(ID tskid);
 
+typedef struct T_CFLG {
+  void *exinf;  /* Extended Information */
+  ATR flgattr;  /* EventFlag Attribute*/
+  UINT iflgptn; /* Initial EventFlag Pattern */
+} T_CFLG;
+
 #endif /* UUID_01946FAC_8E45_7658_B009_C10ED747A05C */
