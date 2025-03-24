@@ -26,7 +26,8 @@ add_library(
   kernel/usermain.c
   kernel/memcpy.c
   kernel/memset.c
-  kernel/timer.c)
+  kernel/timer.c
+  kernel/event_flag.c)
 
 # Set include paths for the kernel library
 target_include_directories(tsukumo-core-kernel
