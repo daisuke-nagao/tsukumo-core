@@ -14,23 +14,40 @@ set(EXECUTABLE ${PROJECT_NAME}.elf)
 # Set common flags for bare-metal
 set(COMMON_FLAGS -ffreestanding -nostdlib -nostdinc)
 
-# Specify the executable
-add_executable(${EXECUTABLE})
+add_library(
+  tsukumo-core-kernel STATIC
+  kernel/asm/rv32/start.S
+  kernel/asm/rv32/launch_task.S
+  kernel/asm/rv32/idl_tsk.S
+  kernel/start.c
+  kernel/task.c
+  kernel/ini_tsk.c
+  kernel/usermain.c
+  kernel/memcpy.c
+  kernel/memset.c
+  kernel/timer.c)
 
-target_sources(
-  ${EXECUTABLE}
-  PRIVATE kernel/asm/rv32/start.S
-          kernel/asm/rv32/launch_task.S
-          kernel/asm/rv32/idl_tsk.S
-          kernel/start.c
-          kernel/task.c
-          kernel/ini_tsk.c
-          kernel/usermain.c
-          kernel/memcpy.c
-          kernel/memset.c
-          kernel/timer.c
-          task1.c
-          task2.c)
+target_include_directories(tsukumo-core-kernel
+                           PUBLIC include ${CMAKE_BINARY_DIR}/include/)
+
+target_compile_options(
+  tsukumo-core-kernel
+  PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS} -fstack-usage>
+          $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
+
+target_compile_features(tsukumo-core-kernel PRIVATE c_std_11)
+
+# tkmc_macros.cmake
+function(tkmc_add_executable exec_name)
+  cmake_parse_arguments(TKMC "" "" "SOURCES" ${ARGN})
+
+  add_executable(${exec_name} ${TKMC_SOURCES})
+  target_link_libraries(${exec_name} PRIVATE tsukumo-core-kernel)
+
+  target_compile_definitions(${exec_name} PUBLIC TKERNEL_CHECK_CONST)
+endfunction()
+
+tkmc_add_executable(${EXECUTABLE} SOURCES task1.c task2.c)
 
 # Set CMake compilation flags
 target_compile_options(
@@ -38,11 +55,7 @@ target_compile_options(
                         $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
 
 # Set required standards
-target_compile_features(${EXECUTABLE} PRIVATE c_std_11 cxx_std_20)
-
-# Add include directories (if needed)
-target_include_directories(${EXECUTABLE} PRIVATE include
-                                                 ${CMAKE_BINARY_DIR}/include/)
+target_compile_features(${EXECUTABLE} PRIVATE c_std_11)
 
 # Convert to BIN file
 add_custom_command(
