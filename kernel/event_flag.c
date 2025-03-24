@@ -11,7 +11,7 @@
 FLGCB tkmc_flbcbs[CFN_MAX_FLGID];
 static tkmc_list_head tkmc_free_flbcb;
 
-void tkmc_init_flbcb(void) {
+void tkmc_init_flgcb(void) {
   tkmc_init_list_head(&tkmc_free_flbcb);
 
   for (int i = 0; i < sizeof(tkmc_flbcbs) / sizeof(tkmc_flbcbs[0]); ++i) {

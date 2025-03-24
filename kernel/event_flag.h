@@ -23,7 +23,7 @@ typedef struct FLGCB {
   UINT flgptn;
 } FLGCB;
 
-extern void tkmc_init_flbcb(void);
+extern void tkmc_init_flgcb(void);
 
 #ifdef __cplusplus
 } /* extern "C" */

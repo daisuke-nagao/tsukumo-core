@@ -6,6 +6,7 @@
 
 #include <tk/tkernel.h>
 
+#include "event_flag.h"
 #include "ini_tsk.h"
 #include "task.h"
 #include "timer.h"
@@ -40,6 +41,7 @@ void tkmc_start(int a0, int a1) {
 
   /* Initialize the Task Control Block (TCB) system. */
   tkmc_init_tcb();
+  tkmc_init_flgcb();
   tkmc_init_timer();
 
   /* create tkmc_ini_tsk */
