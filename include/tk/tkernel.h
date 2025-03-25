@@ -46,6 +46,11 @@
 #define TA_WMUL 0x00000008     /* Allow waiting of multiple tasks */
 #define TA_NODISWAI 0x00000080 /* Prohibit wait disable */
 
+#define TWF_ANDW 0x00   /* AND wait */
+#define TWF_ORW 0x01    /* OR wait */
+#define TWF_CLR 0x10    /* Clear all */
+#define TWF_BITCLR 0x20 /* Clear only condition bits */
+
 typedef struct T_CTSK {
   void *exinf;  /* Extended Information */
   ATR tskatr;   /* Task Attribute  */

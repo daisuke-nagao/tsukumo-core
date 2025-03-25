@@ -68,5 +68,19 @@ ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
 }
 
 ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
+  if (flgid > CFN_MAX_FLGID) {
+    return E_ID;
+  }
+  if (waiptn == 0) {
+    return E_PAR;
+  }
+  static const UINT VALID_WFMODE = TWF_ANDW | TWF_ORW | TWF_CLR | TWF_BITCLR;
+  if ((wfmode & ~VALID_WFMODE) != 0) {
+    return E_PAR;
+  }
+  if (tmout < TMO_FEVR) {
+    return E_PAR;
+  }
+
   return E_TMOUT;
 }
