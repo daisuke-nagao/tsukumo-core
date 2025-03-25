@@ -82,5 +82,19 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
     return E_PAR;
   }
 
-  return E_TMOUT;
+  ER ercd = E_OK;
+  FLGCB *flgcb = &tkmc_flgcbs[flgid - 1];
+
+  UINT intsts = 0;
+  DI(intsts);
+  if ((flgcb->flgid & NOEXS_MASK) != 0) {
+    ercd = E_NOEXS;
+  }
+
+  if (ercd == E_OK) {
+    ercd = E_TMOUT;
+  }
+  EI(intsts);
+
+  return ercd;
 }
