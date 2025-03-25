@@ -8,14 +8,14 @@
 
 #include "event_flag.h"
 
-FLGCB tkmc_flbcbs[CFN_MAX_FLGID];
+FLGCB tkmc_flgcbs[CFN_MAX_FLGID];
 static tkmc_list_head tkmc_free_flbcb;
 
 void tkmc_init_flgcb(void) {
   tkmc_init_list_head(&tkmc_free_flbcb);
 
-  for (int i = 0; i < sizeof(tkmc_flbcbs) / sizeof(tkmc_flbcbs[0]); ++i) {
-    FLGCB *flgcb = &tkmc_flbcbs[i];
+  for (int i = 0; i < sizeof(tkmc_flgcbs) / sizeof(tkmc_flgcbs[0]); ++i) {
+    FLGCB *flgcb = &tkmc_flgcbs[i];
     *flgcb = (FLGCB){
         .flgid = i + 1,
         .exinf = NULL,
