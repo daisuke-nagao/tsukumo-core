@@ -67,6 +67,16 @@ ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
   return new_flgid;
 }
 
+static BOOL check_ptn(UINT flgptn, UINT waiptn, UINT wfmode) {
+  BOOL cond;
+  if ((wfmode & TWF_ANDW) != 0) {
+    cond = (flgptn & waiptn) == waiptn;
+  } else {
+    cond = (flgptn & waiptn) != 0;
+  }
+  return cond ? TRUE : FALSE;
+}
+
 ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
   if (flgid > CFN_MAX_FLGID) {
     return E_ID;
@@ -92,7 +102,19 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
   }
 
   if (ercd == E_OK) {
-    ercd = E_TMOUT;
+    UINT flgptn = flgcb->flgptn;
+
+    if (check_ptn(flgptn, waiptn, wfmode) != FALSE) {
+      *p_flgptn = flgptn;
+      if ((wfmode & TWF_CLR) != 0) {
+        flgcb->flgptn = 0;
+      } else if ((wfmode & TWF_BITCLR) != 0) {
+        flgcb->flgptn &= ~waiptn;
+      }
+      ercd = E_OK;
+    } else {
+      ercd = E_TMOUT;
+    }
   }
   EI(intsts);
 
