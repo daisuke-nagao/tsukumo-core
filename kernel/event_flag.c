@@ -11,13 +11,15 @@
 FLGCB tkmc_flgcbs[CFN_MAX_FLGID];
 static tkmc_list_head tkmc_free_flbcb;
 
+#define NOEXS_MASK 0x80000000u
+
 void tkmc_init_flgcb(void) {
   tkmc_init_list_head(&tkmc_free_flbcb);
 
   for (int i = 0; i < sizeof(tkmc_flgcbs) / sizeof(tkmc_flgcbs[0]); ++i) {
     FLGCB *flgcb = &tkmc_flgcbs[i];
     *flgcb = (FLGCB){
-        .flgid = i + 1,
+        .flgid = (i + 1) | NOEXS_MASK,
         .exinf = NULL,
         .flgatr = 0,
         .flgptn = 0,
@@ -50,8 +52,9 @@ ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
     new_flgcb = tkmc_list_first_entry(&tkmc_free_flbcb, FLGCB, wait_queue);
     tkmc_list_del(&new_flgcb->wait_queue);
     tkmc_init_list_head(&new_flgcb->wait_queue);
-    new_flgid = new_flgcb->flgid;
+    new_flgid = new_flgcb->flgid & ~NOEXS_MASK;
 
+    new_flgcb->flgid = new_flgid;
     new_flgcb->exinf = pk_cflg->exinf;
     new_flgcb->flgatr = pk_cflg->flgatr;
     new_flgcb->flgptn = pk_cflg->iflgptn;
