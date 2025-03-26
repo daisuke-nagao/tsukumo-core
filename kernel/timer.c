@@ -84,7 +84,7 @@ void tkmc_timer_handler(void) {
  * - delay_ticks: Number of ticks to wait before the task is moved to the ready
  * queue.
  */
-static void schedule_timer(TCB *tcb, UINT delay_ticks, enum TaskWait tskwait) {
+void tkmc_schedule_timer(TCB *tcb, UINT delay_ticks, enum TaskWait tskwait) {
   tcb->tskstat = TTS_WAI;
   tcb->tskwait = tskwait;
   tcb->delay_ticks = delay_ticks;
@@ -118,7 +118,7 @@ ER tk_dly_tsk(TMO dlytm) {
   /* Move the task to the timer queue with the specified timeout */
   UINT intsts;
   DI(intsts);
-  schedule_timer(current, ((dlytm + 9) / 10) + 1, TTW_DLY);
+  tkmc_schedule_timer(current, ((dlytm + 9) / 10) + 1, TTW_DLY);
   EI(intsts);
   // wait to be awaken
   DI(intsts);
@@ -146,7 +146,7 @@ ER tk_slp_tsk(TMO tmout) {
     return ercd;
   } else {
     if (tmout > 0) {
-      schedule_timer(current, ((tmout + 9) / 10) + 1, TTW_SLP);
+      tkmc_schedule_timer(current, ((tmout + 9) / 10) + 1, TTW_SLP);
     } else if (tmout == TMO_POL) {
       EI(intsts);
       return E_TMOUT;

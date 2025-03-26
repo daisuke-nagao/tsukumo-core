@@ -9,12 +9,16 @@
 
 #include <tk/tkernel.h>
 
+#include "task.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
 
 extern void tkmc_start_timer(void);
 extern void tkmc_init_timer(void);
+extern void tkmc_schedule_timer(TCB *tcb, UINT delay_ticks,
+                                enum TaskWait tskwait);
 
 #ifdef __cplusplus
 } /* extern "C" */
