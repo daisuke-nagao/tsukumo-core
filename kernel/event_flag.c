@@ -115,6 +115,10 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
     } else {
       if (tmout == TMO_POL) {
         ercd = E_TMOUT;
+      } else if (tmout > 0) {
+        ercd = E_TMOUT; // temporary
+      } else if (tmout == TMO_FEVR) {
+        ercd = E_TMOUT; // temporary
       } else {
         ercd = E_TMOUT; // temporary
       }
