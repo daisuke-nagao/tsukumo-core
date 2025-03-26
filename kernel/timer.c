@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2025 Daisuke Nagao
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 // clang-format off
 #include <tk/tkernel.h>
 // clang-format on
