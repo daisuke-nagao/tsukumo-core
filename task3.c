@@ -49,9 +49,14 @@ void task3(INT stacd, void *exinf) {
 
   // Try with OR condition for a slightly different pattern
   // Expected: success, since lower bits still match at least part of 0x00a5a5a7
-  ercd = tk_wai_flg(flgid, 0x00a5a5a7, TWF_ORW | TWF_BITCLR, &flgptn, TMO_POL);
+  ercd = tk_wai_flg(flgid, 0x00a5a5a7, TWF_ORW | TWF_CLR, &flgptn, TMO_POL);
   if (ercd == E_OK) { // expect true
     putstring("TASK3: E_OK\n");
+  }
+
+  ercd = tk_wai_flg(flgid, 0xFFFFFFFF, TWF_ORW, &flgptn, TMO_POL);
+  if (ercd == E_TMOUT) { // expect true
+    putstring("TASK3: E_TMOUT\n");
   }
 
   // Exit task
