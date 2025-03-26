@@ -46,6 +46,38 @@
 #define TA_WMUL 0x00000008     /* Allow waiting of multiple tasks */
 #define TA_NODISWAI 0x00000080 /* Prohibit wait disable */
 
+#define TTS_NOEXS 0x0000
+#define TTS_RUN 0x0001
+#define TTS_RDY 0x0002
+#define TTS_WAI 0x0004
+#define TTS_SUS 0x0008
+#define TTS_WAS 0x000c
+#define TTS_DMT 0x0010
+#define TTS_NODISWAI 0x0080
+
+#define TTW_SLP 0x00000001  /**< Waiting due to `tk_slp_tsk` */
+#define TTW_DLY 0x00000002  /**< Waiting due to `tk_dly_tsk` */
+#define TTW_SEM 0x00000004  /**< Waiting due to `tk_wai_sem` */
+#define TTW_FLG 0x00000008  /**< Waiting due to `tk_wai_flg` */
+#define TTW_MBX 0x00000040  /**< Waiting due to `tk_rcv_mbx` */
+#define TTW_MTX 0x00000080  /**< Waiting due to `tk_loc_mtx` */
+#define TTW_SMBF 0x00000100 /**< Waiting due to `tk_snd_mbf` */
+#define TTW_RMBF 0x00000200 /**< Waiting due to `tk_rcv_mbf` */
+// #define TTW_CAL   0x00000400  Reserved
+// #define TTW_ACP   0x00000800  Reserved
+// #define TTW_RDV   0x00001000  Reserved
+// #define TTW_CAL_RDV  TTW_CAL|TTW_RDV  Reserved
+#define TTW_MPF 0x00002000 /**< Waiting due to `tk_get_mpf` */
+#define TTW_MPL 0x00004000 /**< Waiting due to `tk_get_mpl` */
+#define TTW_EV1 0x00010000 /**< Waiting for Task Event #1 */
+#define TTW_EV2 0x00020000 /**< Waiting for Task Event #2 */
+#define TTW_EV3 0x00040000 /**< Waiting for Task Event #3 */
+#define TTW_EV4 0x00080000 /**< Waiting for Task Event #4 */
+#define TTW_EV5 0x00100000 /**< Waiting for Task Event #5 */
+#define TTW_EV6 0x00200000 /**< Waiting for Task Event #6 */
+#define TTW_EV7 0x00400000 /**< Waiting for Task Event #7 */
+#define TTW_EV8 0x00800000 /**< Waiting for Task Event #8 */
+
 #define TWF_ANDW 0x00   /* AND wait */
 #define TWF_ORW 0x01    /* OR wait */
 #define TWF_CLR 0x10    /* Clear all */

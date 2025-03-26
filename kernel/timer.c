@@ -84,7 +84,7 @@ void tkmc_timer_handler(void) {
  * - delay_ticks: Number of ticks to wait before the task is moved to the ready
  * queue.
  */
-void tkmc_schedule_timer(TCB *tcb, UINT delay_ticks, enum TaskWait tskwait) {
+void tkmc_schedule_timer(TCB *tcb, UINT delay_ticks, UINT tskwait) {
   tcb->tskstat = TTS_WAI;
   tcb->tskwait = tskwait;
   tcb->delay_ticks = delay_ticks;

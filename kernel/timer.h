@@ -17,8 +17,7 @@ extern "C" {
 
 extern void tkmc_start_timer(void);
 extern void tkmc_init_timer(void);
-extern void tkmc_schedule_timer(TCB *tcb, UINT delay_ticks,
-                                enum TaskWait tskwait);
+extern void tkmc_schedule_timer(TCB *tcb, UINT delay_ticks, UINT tskwait);
 
 #ifdef __cplusplus
 } /* extern "C" */
