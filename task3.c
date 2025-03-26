@@ -59,6 +59,16 @@ void task3(INT stacd, void *exinf) {
     putstring("TASK3: E_TMOUT\n");
   }
 
+  ercd = tk_set_flg(flgid, 0x00000008);
+  if (ercd == E_OK) {
+    putstring("TASK3: E_OK\n");
+  }
+
+  ercd = tk_wai_flg(flgid, 0x00000008, TWF_ANDW | TWF_CLR, &flgptn, TMO_POL);
+  if (ercd == E_OK) { // expect true
+    putstring("TASK3: E_OK\n");
+  }
+
   // Exit task
   tk_ext_tsk();
 }
