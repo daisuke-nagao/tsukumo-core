@@ -8,9 +8,11 @@
 #include "putstring.h"
 
 extern ID get_tskid(unsigned int index);
+
 enum TASK_INDEX {
   TASK1 = 0,
-  TASK2 = 1,
+  TASK2,
+  TASK3,
   TASK_NBOF,
 };
 void task1(INT stacd, void *exinf) {

@@ -45,12 +45,22 @@ static inline void tkmc_list_del(tkmc_list_head *head) {
   head->next = head->prev = (tkmc_list_head *)0xdeadbeef;
 }
 
+static inline void tkmc_list_add_between(tkmc_list_head *new,
+                                         tkmc_list_head *prev,
+                                         tkmc_list_head *next) {
+  next->prev = new;
+  new->next = next;
+  new->prev = prev;
+  prev->next = new;
+}
+
+static inline void tkmc_list_add(tkmc_list_head *new, tkmc_list_head *head) {
+  tkmc_list_add_between(new, head, head->next);
+}
+
 static inline void tkmc_list_add_tail(tkmc_list_head *new,
                                       tkmc_list_head *head) {
-  new->next = head;
-  new->prev = head->prev;
-  new->prev->next = new;
-  head->prev = new;
+  tkmc_list_add_between(new, head->prev, head);
 }
 
 /* Macro to get the next element */

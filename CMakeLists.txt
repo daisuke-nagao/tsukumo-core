@@ -26,7 +26,8 @@ add_library(
   kernel/usermain.c
   kernel/memcpy.c
   kernel/memset.c
-  kernel/timer.c)
+  kernel/timer.c
+  kernel/event_flag.c)
 
 # Set include paths for the kernel library
 target_include_directories(tsukumo-core-kernel
@@ -57,7 +58,7 @@ function(tkmc_add_executable exec_name)
 endfunction()
 
 # Add main executable with user task sources
-tkmc_add_executable(${EXECUTABLE} SOURCES task1.c task2.c)
+tkmc_add_executable(${EXECUTABLE} SOURCES task1.c task2.c task3.c task4.c)
 
 # Set CMake compilation flags
 target_compile_options(
