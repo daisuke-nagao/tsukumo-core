@@ -127,9 +127,11 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
   TCB *tcb = current;
 
   // WSGL allows only one task to wait; if already waiting, return error
-  if (!tkmc_list_empty(&flgcb->wait_queue)) {
-    EI(intsts);
-    return E_OBJ; // Illegal use
+  if ((flgcb->flgatr & TA_WMUL) == 0) {
+    if (!tkmc_list_empty(&flgcb->wait_queue)) {
+      EI(intsts);
+      return E_OBJ;
+    }
   }
 
   // Set wait information
@@ -187,42 +189,45 @@ ER tk_set_flg(ID flgid, UINT setptn) {
   // Set the pattern bits
   flgcb->flgptn |= setptn;
 
-  // WSGL assumption: handle only the first waiting task
   if (!tkmc_list_empty(&flgcb->wait_queue)) {
-    TCB *tcb = tkmc_list_first_entry(&flgcb->wait_queue, TCB, winfo.wait_queue);
+    TCB *tcb, *n;
+    tkmc_list_for_each_entry_safe(tcb, n, &flgcb->wait_queue,
+                                  winfo.wait_queue) {
+      if (check_ptn(flgcb->flgptn, tcb->winfo.waiptn, tcb->winfo.wfmode)) {
+        tkmc_list_del(&tcb->winfo.wait_queue);
 
-    // Check if the wait condition is satisfied
-    if (check_ptn(flgcb->flgptn, tcb->winfo.waiptn, tcb->winfo.wfmode)) {
-      // Remove from event flag wait queue
-      tkmc_list_del(&tcb->winfo.wait_queue);
+        // Remove from timer queue if present
+        if (tcb->delay_ticks > 0) {
+          tkmc_list_del(&tcb->head); // Remove from timer queue
+          tcb->delay_ticks = 0;
+        }
 
-      // Remove from timer queue if present
-      if (tcb->delay_ticks > 0) {
-        tkmc_list_del(&tcb->head); // Remove from timer queue
-        tcb->delay_ticks = 0;
+        // Set result
+        tcb->winfo.flgptn = flgcb->flgptn;
+        tcb->wupcause = E_OK;
+
+        // Clear pattern
+        if (tcb->winfo.wfmode & TWF_CLR) {
+          flgcb->flgptn = 0;
+        } else if (tcb->winfo.wfmode & TWF_BITCLR) {
+          flgcb->flgptn &= ~(tcb->winfo.waiptn);
+        }
+
+        // State transition
+        tcb->tskstat = TTS_RDY;
+        tcb->tskwait = 0;
+        tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+
+        if ((flgcb->flgatr & TA_WSGL) != 0) {
+          break;
+        }
       }
+    }
 
-      // Set result
-      tcb->winfo.flgptn = flgcb->flgptn;
-      tcb->wupcause = E_OK;
-
-      // Clear pattern
-      if (tcb->winfo.wfmode & TWF_CLR) {
-        flgcb->flgptn = 0;
-      } else if (tcb->winfo.wfmode & TWF_BITCLR) {
-        flgcb->flgptn &= ~(tcb->winfo.waiptn);
-      }
-
-      // State transition
-      tcb->tskstat = TTS_RDY;
-      tcb->tskwait = 0;
-      tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
-
-      // Context switch if a higher-priority task is ready
-      next = tkmc_get_highest_priority_task();
-      if (next != current) {
-        dispatch();
-      }
+    // Context switch if a higher-priority task is ready
+    next = tkmc_get_highest_priority_task();
+    if (next != current) {
+      dispatch();
     }
   }
 

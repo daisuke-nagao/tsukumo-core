@@ -25,6 +25,11 @@ void task4(INT stacd, void *exinf) {
   ID flgid = (ID)stacd;
   UINT setptn = 0xFFFFFFFF;
 
+  UINT flgptn;
+  ER ercd = tk_wai_flg(flgid, 0xFFFFFFFF, TWF_ORW, &flgptn, TMO_FEVR);
+  if (ercd == E_OBJ) {
+    putstring("TASK4: E_OBJ\n");
+  }
   tk_set_flg(flgid, setptn);
 
   // Exit task
