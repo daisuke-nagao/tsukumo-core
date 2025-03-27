@@ -45,6 +45,13 @@ static inline void tkmc_list_del(tkmc_list_head *head) {
   head->next = head->prev = (tkmc_list_head *)0xdeadbeef;
 }
 
+static inline void tkmc_list_add(tkmc_list_head *new, tkmc_list_head *head) {
+  new->next = head->next;
+  new->prev = head;
+  head->next->prev = new;
+  head->next = new;
+}
+
 static inline void tkmc_list_add_tail(tkmc_list_head *new,
                                       tkmc_list_head *head) {
   new->next = head;
