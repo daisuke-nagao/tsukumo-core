@@ -163,8 +163,8 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
 
   if (new_id >= 0) {
     reset_tcb(new_tcb);
+
     /* Initialize the TCB for the new task */
-    new_tcb->tskstat = TTS_DMT; // Set initial task state
     static const UINT SZ = sizeof(StashedRegisters);
     stack_end -= SZ; // Reserve space for the initial context
     StashedRegisters *regs = (StashedRegisters *)stack_end;
@@ -173,10 +173,12 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     }
     regs->registers.ra = (UINT)tk_ext_tsk;      // Set return address (ra)
     regs->registers.mepc = (UINT)pk_ctsk->task; // Set task entry point (mepc)
-    new_tcb->sp = stack_end;                    // Set stack pointer
-    new_tcb->initial_sp = stack_end;            // Store initial stack pointer
-    new_tcb->task = pk_ctsk->task;              // Assign task function
-    new_tcb->itskpri = pk_ctsk->itskpri;        // Assign task priority
+
+    new_tcb->tskstat = TTS_DMT;          // Set initial task state
+    new_tcb->sp = stack_end;             // Set stack pointer
+    new_tcb->initial_sp = stack_end;     // Store initial stack pointer
+    new_tcb->task = pk_ctsk->task;       // Assign task function
+    new_tcb->itskpri = pk_ctsk->itskpri; // Assign task priority
     new_tcb->exinf = pk_ctsk->exinf; // Store user-defined extended information
   } else {
     new_id = (ID)E_LIMIT; // Task creation failed
