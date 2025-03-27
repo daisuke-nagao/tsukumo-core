@@ -138,12 +138,17 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
     if (tkmc_list_empty(&flgcb->wait_queue) != FALSE) {
       tkmc_list_add_tail(&tcb->winfo.wait_queue, &flgcb->wait_queue);
     } else {
+      BOOL inserted = FALSE;
       TCB *pos;
       tkmc_list_for_each_entry(pos, &flgcb->wait_queue, winfo.wait_queue) {
         if (tcb->itskpri < pos->itskpri) {
           tkmc_list_add(&tcb->winfo.wait_queue, pos->winfo.wait_queue.prev);
+          inserted = TRUE;
           break;
         }
+      }
+      if (inserted == FALSE) {
+        tkmc_list_add_tail(&tcb->winfo.wait_queue, &flgcb->wait_queue);
       }
     }
   } else {
