@@ -28,6 +28,65 @@ TCB *current = NULL;
 /* Pointer to the next task to be scheduled */
 TCB *next = NULL;
 
+static void reset_tcb(TCB *tcb) {
+  // tcb->tskid = 0; // keep as it is
+  tcb->itskpri = 0;
+  tcb->tskstat = 0;
+  tcb->tskwait = 0;
+  tcb->sp = NULL;
+  tcb->initial_sp = NULL;
+  tcb->task = NULL;
+  tcb->exinf = NULL;
+  tcb->delay_ticks = 0;
+  tcb->wupcause = E_OK;
+  tcb->wupcnt = 0;
+  tcb->winfo.flgptn = 0;
+  tcb->winfo.wfmode = 0;
+
+  tkmc_init_list_head(&tcb->head);
+  tkmc_init_list_head(&tcb->winfo.wait_queue);
+
+  return;
+}
+
+static void default_tcb(TCB *tcb) {
+  reset_tcb(tcb);
+  tcb->tskid = 0;
+
+  return;
+}
+
+/// @brief Represents the full set of general-purpose registers to be saved
+/// during a trap.
+///
+/// This structure corresponds to the 32 general-purpose registers in RISC-V,
+/// including `mepc` (Machine Exception Program Counter), and is used to save
+/// the context when entering a trap handler.
+///
+/// The padding ensures the structure is exactly 32 words (128 bytes),
+/// matching the register save area expectations in the trap handling mechanism.
+typedef union StashedRegisters {
+  struct {
+    UINT ra;                             ///< Return address (x1)
+    UINT t0, t1, t2;                     ///< Temporary registers (x5–x7)
+    UINT s0, s1;                         ///< Saved registers (x8–x9)
+    UINT a0, a1, a2, a3, a4, a5, a6, a7; ///< Argument registers (x10–x17)
+    UINT s2, s3, s4, s5, s6, s7, s8, s9, s10,
+        s11;             ///< Saved registers (x18–x27)
+    UINT t3, t4, t5, t6; ///< Temporary registers (x28–x31)
+    UINT mepc;           ///< Machine Exception Program Counter
+
+    UINT padding[3];
+  } __attribute__((
+      packed)) registers; ///< Padding to ensure the structure is 32 words
+  UINT array[32];
+} StashedRegisters;
+
+// Ensure that the structure occupies exactly 32 words (128 bytes),
+// matching the size of a full register context save
+_Static_assert(sizeof(StashedRegisters) == sizeof(UINT[32]),
+               "StashedRegisters must be exactly 32 UINTs in size (128 bytes)");
+
 /*
  * Initialize the Task Control Block (TCB) system.
  * - Sets up the free TCB list and ready queues.
@@ -40,21 +99,9 @@ void tkmc_init_tcb(void) {
   /* Initialize each TCB and add it to the free list */
   for (int i = 0; i < sizeof(tkmc_tcbs) / sizeof(tkmc_tcbs[0]); ++i) {
     TCB *tcb = &tkmc_tcbs[i];
-    *tcb = (TCB){
-        .tskid = i + 1,       // Assign a unique task ID
-        .itskpri = 0,         // Default priority
-        .tskstat = TTS_NOEXS, // Initial state
-        .tskwait =
-            0, // Task wait flags (updated when the task enters a wait state)
-        .sp = NULL,         // Stack pointer (set when task starts)
-        .initial_sp = NULL, // Initial stack pointer (set at task creation)
-        .task = NULL,       // No task function assigned
-        .exinf = NULL, // Extended information (user-defined data for the task)
-        .delay_ticks = 0, // Reset countdown timer for sleep/delay
-        .wupcause = E_OK, // Wakeup cause (default to normal wakeup)
-        .wupcnt = 0,
-    };
-    tkmc_init_list_head(&tcb->head);
+
+    default_tcb(tcb);
+    tcb->tskid = i + 1; // Assign a unique task ID
 
     /* Add the TCB to the free list */
     tkmc_list_add_tail(&tcb->head, &tkmc_free_tcb);
@@ -94,8 +141,8 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
   }
 
   /* Calculate stack boundaries */
-  UW *stack_begin = (UW *)pk_ctsk->bufptr;
-  UW *stack_end = stack_begin + (pk_ctsk->stksz >> 2);
+  UB *stack_begin = (UB *)pk_ctsk->bufptr;
+  UB *stack_end = stack_begin + pk_ctsk->stksz;
 
   ID new_id = E_LIMIT; // Default to error code
   TCB *new_tcb = NULL;
@@ -107,6 +154,7 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     /* Allocate a TCB from the free list */
     new_tcb = tkmc_list_first_entry(&tkmc_free_tcb, TCB, head);
     tkmc_list_del(&new_tcb->head);
+    tkmc_init_list_head(&new_tcb->head);
 
     new_id = new_tcb->tskid; // Assign the task ID
   } else {
@@ -114,24 +162,22 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
   }
 
   if (new_id >= 0) {
+    reset_tcb(new_tcb);
     /* Initialize the TCB for the new task */
     new_tcb->tskstat = TTS_DMT; // Set initial task state
-    new_tcb->tskwait =
-        0;            // No wait condition (task is not waiting for any event)
-    stack_end += -32; // Reserve space for the initial context
-    for (int i = 0; i < 32; ++i) {
-      stack_end[i] = 0xdeadbeef; // Fill stack with a known pattern
+    static const UINT SZ = sizeof(StashedRegisters);
+    stack_end -= SZ; // Reserve space for the initial context
+    StashedRegisters *regs = (StashedRegisters *)stack_end;
+    for (int i = 0; i < sizeof(regs->array) / sizeof(regs->array[0]); ++i) {
+      regs->array[i] = 0xdeadbeef; // Fill stack with a known pattern
     }
-    stack_end[0] = (UW)tk_ext_tsk;       // Set return address (ra)
-    stack_end[28] = (UW)pk_ctsk->task;   // Set task entry point (mepc)
-    new_tcb->sp = stack_end;             // Set stack pointer
-    new_tcb->initial_sp = stack_end;     // Store initial stack pointer
-    new_tcb->task = pk_ctsk->task;       // Assign task function
-    new_tcb->itskpri = pk_ctsk->itskpri; // Assign task priority
+    regs->registers.ra = (UINT)tk_ext_tsk;      // Set return address (ra)
+    regs->registers.mepc = (UINT)pk_ctsk->task; // Set task entry point (mepc)
+    new_tcb->sp = stack_end;                    // Set stack pointer
+    new_tcb->initial_sp = stack_end;            // Store initial stack pointer
+    new_tcb->task = pk_ctsk->task;              // Assign task function
+    new_tcb->itskpri = pk_ctsk->itskpri;        // Assign task priority
     new_tcb->exinf = pk_ctsk->exinf; // Store user-defined extended information
-    new_tcb->delay_ticks = 0; // Initialize delay timer (task is not delayed)
-    new_tcb->wupcause = E_OK; // Default wakeup cause
-    new_tcb->wupcnt = 0;
   } else {
     new_id = (ID)E_LIMIT; // Task creation failed
   }
@@ -199,9 +245,9 @@ ER tk_sta_tsk(ID tskid, INT stacd) {
 
   /* Set up the task's initial context */
   PRI itskpri = tcb->itskpri;
-  INT *sp = (INT *)tcb->sp;
-  sp[6] = stacd;           // Set a0 register
-  sp[7] = (INT)tcb->exinf; // Set a1 register
+  StashedRegisters *regs = (StashedRegisters *)tcb->sp;
+  regs->registers.a0 = (UINT)stacd;      // Set a0 register
+  regs->registers.a1 = (UINT)tcb->exinf; // Set a1 register
   tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[itskpri - 1]);
 
   /* Update the next task to be scheduled */
