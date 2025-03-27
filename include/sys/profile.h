@@ -10,7 +10,7 @@
 /* Device Driver Functions */
 #define TK_SUPPORT_TASKEVENT FALSE /* Support of task event */
 #define TK_SUPPORT_DISWAI FALSE    /* Support of disabling wait */
-#define TK_SUPPORT_IOPORT FALSE    /* Support of I/O port access */
+#define TK_SUPPORT_IOPORT TRUE     /* Support of I/O port access */
 #define TK_SUPPORT_MICROWAIT FALSE /* Support of micro wait */
 
 /* Power Management Functions */
