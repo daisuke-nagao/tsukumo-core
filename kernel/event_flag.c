@@ -240,3 +240,24 @@ ER tk_set_flg(ID flgid, UINT setptn) {
 
   return E_OK;
 }
+
+ER tk_clr_flg(ID flgid, UINT clrptn) {
+  if (flgid <= 0 || flgid > CFN_MAX_FLGID) {
+    return E_ID;
+  }
+
+  FLGCB *flgcb = &tkmc_flgcbs[flgid - 1];
+  UINT intsts = 0;
+  DI(intsts);
+
+  if ((flgcb->flgid & NOEXS_MASK) != 0) {
+    EI(intsts);
+    return E_NOEXS;
+  }
+
+  // Clear the specified pattern bits
+  flgcb->flgptn &= ~clrptn;
+
+  EI(intsts);
+  return E_OK;
+}

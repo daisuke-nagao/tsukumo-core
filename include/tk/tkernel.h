@@ -108,7 +108,7 @@ typedef struct T_CFLG {
 
 extern ID tk_cre_flg(CONST T_CFLG *pk_cflg);
 extern ER tk_set_flg(ID flgid, UINT setptn);
-// extern ER tk_clr_flg(ID flgid, UINT clrptn);
+extern ER tk_clr_flg(ID flgid, UINT clrptn);
 extern ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn,
                      TMO tmout);
 
