@@ -41,10 +41,6 @@ ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
     return E_RSATR;
   }
 
-  if (flgatr & TA_TPRI || flgatr & TA_WMUL) {
-    return E_NOMEM; // temporary
-  }
-
   UINT intsts = 0;
   FLGCB *new_flgcb = NULL;
   ID new_flgid = 0;
@@ -123,10 +119,7 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
     return E_TMOUT;
   }
 
-  // === Timeout specified or infinite wait ===
   TCB *tcb = current;
-
-  // WSGL allows only one task to wait; if already waiting, return error
   if ((flgcb->flgatr & TA_WMUL) == 0) {
     if (!tkmc_list_empty(&flgcb->wait_queue)) {
       EI(intsts);
@@ -140,8 +133,22 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
   tcb->winfo.flgptn = 0;
 
   tkmc_init_list_head(&tcb->winfo.wait_queue); // Initialize for safety
-  tkmc_list_add_tail(&tcb->winfo.wait_queue, &flgcb->wait_queue);
 
+  if (flgcb->flgatr & TA_TPRI) {
+    if (tkmc_list_empty(&flgcb->wait_queue) != FALSE) {
+      tkmc_list_add_tail(&tcb->winfo.wait_queue, &flgcb->wait_queue);
+    } else {
+      TCB *pos;
+      tkmc_list_for_each_entry(pos, &flgcb->wait_queue, winfo.wait_queue) {
+        if (tcb->itskpri < pos->itskpri) {
+          tkmc_list_add(&tcb->winfo.wait_queue, pos->winfo.wait_queue.prev);
+          break;
+        }
+      }
+    }
+  } else {
+    tkmc_list_add_tail(&tcb->winfo.wait_queue, &flgcb->wait_queue);
+  }
   if (tmout > 0) {
     tkmc_schedule_timer(tcb, ((tmout + 9) / 10) + 1,
                         TTW_FLG); // Convert to ticks
@@ -175,9 +182,7 @@ ER tk_set_flg(ID flgid, UINT setptn) {
     return E_ID;
   }
 
-  ER ercd = E_OK;
   FLGCB *flgcb = &tkmc_flgcbs[flgid - 1];
-
   UINT intsts = 0;
   DI(intsts);
 
