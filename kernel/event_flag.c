@@ -6,7 +6,10 @@
 
 #include <tk/tkernel.h>
 
+#include "dispatch.h"
 #include "event_flag.h"
+#include "task.h"
+#include "timer.h"
 
 FLGCB tkmc_flgcbs[CFN_MAX_FLGID];
 static tkmc_list_head tkmc_free_flbcb;
@@ -98,32 +101,68 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
   UINT intsts = 0;
   DI(intsts);
   if ((flgcb->flgid & NOEXS_MASK) != 0) {
-    ercd = E_NOEXS;
+    EI(intsts);
+    return E_NOEXS;
   }
 
-  if (ercd == E_OK) {
-    UINT flgptn = flgcb->flgptn;
+  UINT flgptn = flgcb->flgptn;
 
-    if (check_ptn(flgptn, waiptn, wfmode) != FALSE) {
-      *p_flgptn = flgptn;
-      if ((wfmode & TWF_CLR) != 0) {
-        flgcb->flgptn = 0;
-      } else if ((wfmode & TWF_BITCLR) != 0) {
-        flgcb->flgptn &= ~waiptn;
-      }
-      ercd = E_OK;
-    } else {
-      if (tmout == TMO_POL) {
-        ercd = E_TMOUT;
-      } else if (tmout > 0) {
-        ercd = E_TMOUT; // temporary
-      } else if (tmout == TMO_FEVR) {
-        ercd = E_TMOUT; // temporary
-      } else {
-        ercd = E_TMOUT; // temporary
-      }
+  if (check_ptn(flgptn, waiptn, wfmode) != FALSE) {
+    *p_flgptn = flgptn;
+    if ((wfmode & TWF_CLR) != 0) {
+      flgcb->flgptn = 0;
+    } else if ((wfmode & TWF_BITCLR) != 0) {
+      flgcb->flgptn &= ~waiptn;
     }
+    EI(intsts);
+    return E_OK;
   }
+
+  if (tmout == TMO_POL) {
+    EI(intsts);
+    return E_TMOUT;
+  }
+
+  // === Timeout specified or infinite wait ===
+  TCB *tcb = current;
+
+  // WSGL allows only one task to wait; if already waiting, return error
+  if (!tkmc_list_empty(&flgcb->wait_queue)) {
+    EI(intsts);
+    return E_OBJ; // Illegal use
+  }
+
+  // Set wait information
+  tcb->winfo.waiptn = waiptn;
+  tcb->winfo.wfmode = wfmode;
+  tcb->winfo.flgptn = 0;
+
+  tkmc_init_list_head(&tcb->winfo.wait_queue); // Initialize for safety
+  tkmc_list_add_tail(&tcb->winfo.wait_queue, &flgcb->wait_queue);
+
+  if (tmout > 0) {
+    tkmc_schedule_timer(tcb, ((tmout + 9) / 10) + 1,
+                        TTW_FLG); // Convert to ticks
+  } else {
+    // Infinite wait
+    tcb->tskstat = TTS_WAI;
+    tcb->tskwait = TTW_FLG;
+    tcb->delay_ticks = 0;
+    tkmc_list_del(&tcb->head);
+    tkmc_init_list_head(&tcb->head);
+    next = tkmc_get_highest_priority_task();
+    dispatch();
+  }
+
+  EI(intsts);
+
+  // Block until the wait is released (resumed by an interrupt)
+  DI(intsts);
+  ercd = ((volatile TCB *)current)->wupcause;
+  if (ercd == E_OK) {
+    *p_flgptn = current->winfo.flgptn;
+  }
+  current->wupcause = E_OK;
   EI(intsts);
 
   return ercd;
@@ -133,18 +172,58 @@ ER tk_set_flg(ID flgid, UINT setptn) {
   if (flgid > CFN_MAX_FLGID) {
     return E_ID;
   }
-  
+
   ER ercd = E_OK;
   FLGCB *flgcb = &tkmc_flgcbs[flgid - 1];
 
   UINT intsts = 0;
   DI(intsts);
+
   if ((flgcb->flgid & NOEXS_MASK) != 0) {
-    ercd = E_NOEXS;
+    EI(intsts);
+    return E_NOEXS;
   }
 
-  if (ercd == E_OK) {
-    flgcb->flgptn |= setptn;
+  // Set the pattern bits
+  flgcb->flgptn |= setptn;
+
+  // WSGL assumption: handle only the first waiting task
+  if (!tkmc_list_empty(&flgcb->wait_queue)) {
+    TCB *tcb = tkmc_list_first_entry(&flgcb->wait_queue, TCB, winfo.wait_queue);
+
+    // Check if the wait condition is satisfied
+    if (check_ptn(flgcb->flgptn, tcb->winfo.waiptn, tcb->winfo.wfmode)) {
+      // Remove from event flag wait queue
+      tkmc_list_del(&tcb->winfo.wait_queue);
+
+      // Remove from timer queue if present
+      if (tcb->delay_ticks > 0) {
+        tkmc_list_del(&tcb->head); // Remove from timer queue
+        tcb->delay_ticks = 0;
+      }
+
+      // Set result
+      tcb->winfo.flgptn = flgcb->flgptn;
+      tcb->wupcause = E_OK;
+
+      // Clear pattern
+      if (tcb->winfo.wfmode & TWF_CLR) {
+        flgcb->flgptn = 0;
+      } else if (tcb->winfo.wfmode & TWF_BITCLR) {
+        flgcb->flgptn &= ~(tcb->winfo.waiptn);
+      }
+
+      // State transition
+      tcb->tskstat = TTS_RDY;
+      tcb->tskwait = 0;
+      tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+
+      // Context switch if a higher-priority task is ready
+      next = tkmc_get_highest_priority_task();
+      if (next != current) {
+        dispatch();
+      }
+    }
   }
 
   EI(intsts);

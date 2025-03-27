@@ -69,6 +69,26 @@ void task3(INT stacd, void *exinf) {
     putstring("TASK3: E_OK\n");
   }
 
+  {
+    extern void task4(INT, void *);
+    static UW task4_stack[256] __attribute__((aligned(16)));
+    T_CTSK pk_ctsk4 = {
+        .exinf = NULL,
+        .tskatr = TA_USERBUF,
+        .task = (FP)task4,
+        .itskpri = 4,
+        .stksz = sizeof(task4_stack),
+        .bufptr = task4_stack,
+    };
+    ID task4_id = tk_cre_tsk(&pk_ctsk4);
+    tk_sta_tsk(task4_id, flgid);
+  }
+
+  ercd = tk_wai_flg(flgid, 0x00000008, TWF_ANDW | TWF_CLR, &flgptn, 1000);
+  if (ercd == E_OK) { // expect true
+    putstring("TASK3: E_OK. awaken by task\n");
+  }
+
   // Exit task
   tk_ext_tsk();
 }
