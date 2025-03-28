@@ -69,7 +69,7 @@ mtrap_handler:
 
   mv a0, sp
   call schedule
-  lw sp, 0(a0)
+  mv sp, a0
 
   lw a0, 28*4(sp)
   csrw mepc, a0
