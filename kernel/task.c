@@ -290,6 +290,7 @@ void tkmc_yield(void) {
  * Terminate the current task.
  * - Moves the task to the TTS_DMT state.
  * - Triggers a context switch to the next ready task.
+ * - This function does not return.
  */
 void tk_ext_tsk(void) {
   TCB *tmp = current;
@@ -297,13 +298,50 @@ void tk_ext_tsk(void) {
 
   /* Disable interrupts to ensure atomic operations */
   DI(intsts);
+
+  /* Remove the current task from the ready queue */
   tkmc_list_del(&tmp->head);
+
+  /* Set the task state to "dormant" */
   tmp->tskstat = TTS_DMT;
   tmp->tskwait = 0;
 
-  /* Update the next task to be scheduled */
+  /* Schedule the next task to be executed */
   next = tkmc_get_highest_priority_task();
   dispatch();
+
+  /* Re-enable interrupts */
+  EI(intsts);
+}
+
+/*
+ * Terminate and delete the current task.
+ * - Moves the task to the TTS_NOEXS state.
+ * - Returns the task to the free list for reuse.
+ * - Triggers a context switch to the next ready task.
+ * - This function does not return.
+ */
+void tk_exd_tsk(void) {
+  TCB *tmp = current;
+  UINT intsts = 0;
+
+  /* Disable interrupts to ensure atomic operations */
+  DI(intsts);
+
+  /* Remove the current task from the ready queue */
+  tkmc_list_del(&tmp->head);
+
+  /* Set the task state to "non-existent" */
+  tmp->tskstat = TTS_NOEXS;
+
+  /* Return the task to the free list */
+  tkmc_list_add_tail(&tmp->head, &tkmc_free_tcb);
+
+  /* Schedule the next task to be executed */
+  next = tkmc_get_highest_priority_task();
+  dispatch();
+
+  /* Re-enable interrupts */
   EI(intsts);
 }
 

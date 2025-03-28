@@ -93,6 +93,7 @@ typedef struct T_CTSK {
 } T_CTSK;
 
 extern void tk_ext_tsk(void);
+extern void tk_exd_tsk(void);
 extern ID tk_cre_tsk(CONST T_CTSK *pk_ctsk);
 extern ER tk_sta_tsk(ID tskid, INT stacd);
 extern ER tk_dly_tsk(TMO dlytm);
