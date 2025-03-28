@@ -138,5 +138,5 @@ void **schedule(void *sp) {
   current = next;
 
   /* Return the stack pointer of the next task. */
-  return &current->sp;
+  return current->sp;
 }
