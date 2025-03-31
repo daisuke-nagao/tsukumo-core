@@ -113,4 +113,13 @@ extern ER tk_clr_flg(ID flgid, UINT clrptn);
 extern ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn,
                      TMO tmout);
 
+typedef struct T_CSEM {
+  void *exinf; // Extended information
+  ATR sematr;  // Semaphore attributes
+  INT isemcnt; // Initial semaphore count
+  INT maxsem;  // Maximum semaphore count
+} T_CSEM;
+
+extern ID tk_cre_sem(CONST T_CSEM *pk_csem);
+
 #endif /* UUID_01946FAC_8E45_7658_B009_C10ED747A05C */

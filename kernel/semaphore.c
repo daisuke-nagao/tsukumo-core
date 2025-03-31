@@ -28,3 +28,37 @@ void tkmc_init_semcb(void) {
     tkmc_list_add_tail(&semcb->wait_queue, &tkmc_free_semcb);
   }
 }
+
+ID tk_cre_sem(CONST T_CSEM *pk_csem) {
+  const ATR sematr = pk_csem->sematr;
+  static const ATR VALID_SEMATR = TA_TFIFO | TA_TPRI;
+
+  if ((sematr & ~VALID_SEMATR) != 0) {
+    return E_RSATR;
+  }
+
+  UINT intsts = 0;
+  SEMCB *new_semcb = NULL;
+  ID new_semid = 0;
+
+  DI(intsts);
+
+  if (!tkmc_list_empty(&tkmc_free_semcb)) {
+    new_semcb = tkmc_list_first_entry(&tkmc_free_semcb, SEMCB, wait_queue);
+    tkmc_list_del(&new_semcb->wait_queue);
+    tkmc_init_list_head(&new_semcb->wait_queue);
+
+    new_semid = new_semcb->semid & ~NOEXS_MASK;
+    new_semcb->semid = new_semid;
+    new_semcb->exinf = pk_csem->exinf;
+    new_semcb->sematr = pk_csem->sematr;
+    new_semcb->semcnt = pk_csem->isemcnt;
+    new_semcb->maxsem = pk_csem->maxsem;
+  } else {
+    new_semid = (ID)E_LIMIT;
+  }
+
+  EI(intsts);
+
+  return new_semid;
+}
