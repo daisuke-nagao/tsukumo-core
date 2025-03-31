@@ -5,3 +5,6 @@
  */
 
 #include "semaphore.h"
+
+void tkmc_init_semcb(void) {
+}
