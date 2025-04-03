@@ -31,8 +31,11 @@ void tkmc_init_semcb(void) {
 
 ID tk_cre_sem(CONST T_CSEM *pk_csem) {
   const ATR sematr = pk_csem->sematr;
-  static const ATR VALID_SEMATR = TA_TFIFO | TA_TPRI;
 
+  // Define valid attribute mask (combination of supported attributes)
+  static const ATR VALID_SEMATR = TA_TFIFO | TA_TPRI | TA_CNT | TA_FIRST;
+
+  // Check for invalid attribute bits
   if ((sematr & ~VALID_SEMATR) != 0) {
     return E_RSATR;
   }
@@ -41,7 +44,7 @@ ID tk_cre_sem(CONST T_CSEM *pk_csem) {
   SEMCB *new_semcb = NULL;
   ID new_semid = 0;
 
-  DI(intsts);
+  DI(intsts); // Disable interrupts
 
   if (!tkmc_list_empty(&tkmc_free_semcb)) {
     new_semcb = tkmc_list_first_entry(&tkmc_free_semcb, SEMCB, wait_queue);
@@ -58,7 +61,7 @@ ID tk_cre_sem(CONST T_CSEM *pk_csem) {
     new_semid = (ID)E_LIMIT;
   }
 
-  EI(intsts);
+  EI(intsts); // Enable interrupts
 
   return new_semid;
 }
