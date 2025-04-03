@@ -46,6 +46,11 @@
 #define TA_WMUL 0x00000008     /* Allow waiting of multiple tasks */
 #define TA_NODISWAI 0x00000080 /* Prohibit wait disable */
 
+#define TA_FIRST                                                               \
+  0x00000000 /* Prioritise the task at the head of the wait queue */
+#define TA_CNT                                                                 \
+  0x00000002 /* Prioritise the task with the smallest request count */
+
 #define TTS_NOEXS 0x0000
 #define TTS_RUN 0x0001
 #define TTS_RDY 0x0002
