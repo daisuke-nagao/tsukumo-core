@@ -15,12 +15,12 @@
 extern "C" {
 #endif /* __cplusplus */
 
-typedef struct WINFO {
+typedef struct WaitInfo {
   tkmc_list_head wait_queue;
   UINT waiptn;
   UINT wfmode;
   UINT flgptn;
-} WINFO;
+} WaitInfo;
 
 /* Task Control Block */
 typedef struct TCB {
@@ -36,7 +36,7 @@ typedef struct TCB {
   UINT delay_ticks;
   ER wupcause;
   UINT wupcnt;
-  WINFO winfo;
+  WaitInfo winfo;
 } TCB;
 
 extern TCB *current;
