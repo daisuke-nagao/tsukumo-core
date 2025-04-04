@@ -82,15 +82,16 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
   }
 
   SEMCB *semcb = &tkmc_semcbs[semid - 1];
-  UINT intsts;
+
+  UINT intsts = 0;
   DI(intsts);
 
-  if (semcb->semid & NOEXS_MASK) {
+  if ((semcb->semid & NOEXS_MASK) != 0) {
     EI(intsts);
     return E_NOEXS;
   }
 
-  if (semcb->semcnt >= (UINT)cnt) {
+  if (semcb->semcnt >= cnt) {
     semcb->semcnt -= cnt;
     EI(intsts);
     return E_OK;
@@ -109,17 +110,23 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
 
   // Enqueue task to wait queue
   if (semcb->sematr & TA_TPRI) {
-    BOOL inserted = FALSE;
-    TCB *pos;
-    tkmc_list_for_each_entry(pos, &semcb->wait_queue, winfo.wait_queue) {
-      if (tcb->itskpri < pos->itskpri) {
-        tkmc_list_add(&tcb->winfo.wait_queue, pos->winfo.wait_queue.prev);
-        inserted = TRUE;
-        break;
-      }
-    }
-    if (!inserted) {
+    if (tkmc_list_empty(&semcb->wait_queue) != FALSE) {
+      // Queue is empty: simply add to the tail.
       tkmc_list_add_tail(&tcb->winfo.wait_queue, &semcb->wait_queue);
+    } else {
+      BOOL inserted = FALSE;
+      TCB *pos, *n;
+      tkmc_list_for_each_entry_safe(pos, n, &semcb->wait_queue,
+                                    winfo.wait_queue) {
+        if (tcb->itskpri < pos->itskpri) {
+          tkmc_list_add(&tcb->winfo.wait_queue, pos->winfo.wait_queue.prev);
+          inserted = TRUE;
+          break;
+        }
+      }
+      if (inserted == FALSE) {
+        tkmc_list_add_tail(&tcb->winfo.wait_queue, &semcb->wait_queue);
+      }
     }
   } else {
     tkmc_list_add_tail(&tcb->winfo.wait_queue, &semcb->wait_queue);
