@@ -126,5 +126,6 @@ typedef struct T_CSEM {
 } T_CSEM;
 
 extern ID tk_cre_sem(CONST T_CSEM *pk_csem);
+extern ER tk_wai_sem(ID semid, INT cnt, TMO tmout);
 
 #endif /* UUID_01946FAC_8E45_7658_B009_C10ED747A05C */
