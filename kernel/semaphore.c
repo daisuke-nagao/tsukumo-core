@@ -222,3 +222,104 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
 
   return ercd;
 }
+
+/**
+ * @brief Signals a semaphore to release resources.
+ *
+ * This function releases (returns) a given number of resources back to the
+ * semaphore. It first validates the input and ensures that releasing the
+ * requested count does not exceed the semaphore's maximum limit. Then, it
+ * iterates over the wait queue, checking if any waiting tasks can have their
+ * resource requests satisfied with the newly available resources. Each task
+ * whose request is met is:
+ *   - Removed from the wait queue.
+ *   - Removed from the timer queue if a timeout was pending.
+ *   - Marked as ready (wakeup cause set to E_OK) and added to the ready queue.
+ *   - Its resource requirement is subtracted from the semaphore count.
+ * Finally, if a higher-priority task is ready, a dispatch is requested.
+ *
+ * @param semid Semaphore identifier.
+ * @param cnt Number of resources to release.
+ * @return E_OK on success, or an error code such as E_ID, E_PAR, E_NOEXS, or
+ * E_QOVR.
+ */
+ER tk_sig_sem(ID semid, INT cnt) {
+  // Validate input parameters.
+  if (semid <= 0 || semid > CFN_MAX_SEMID) {
+    return E_ID;
+  }
+  if (cnt <= 0) {
+    return E_PAR;
+  }
+
+  ER ercd = E_OK;
+  SEMCB *semcb = &tkmc_semcbs[semid - 1];
+
+  UINT intsts = 0;
+  DI(intsts);
+
+  // Confirm that the semaphore object exists (i.e. is allocated).
+  if ((semcb->semid & NOEXS_MASK) != 0) {
+    EI(intsts);
+    return E_NOEXS;
+  }
+
+  // Check that releasing cnt resources does not exceed the maximum resource
+  // limit.
+  if (semcb->maxsem >= cnt && semcb->semcnt > semcb->maxsem - cnt) {
+    EI(intsts);
+    return E_QOVR; // Overflow error
+  }
+
+  // Increase the semaphore's resource count.
+  semcb->semcnt += cnt;
+
+  TCB *pos, *n;
+  // Traverse the wait queue safely; tasks are examined in FIFO order.
+  tkmc_list_for_each_entry_safe(pos, n, &semcb->wait_queue, winfo.wait_queue) {
+    INT req = pos->winfo.semaphore.semcnt;
+    // If resources are insufficient for the waiting task...
+    if (semcb->semcnt < req) {
+      // If the semaphore attribute TA_CNT is not set, break out of the loop.
+      if ((semcb->sematr & TA_CNT) == 0) {
+        break;
+      } else {
+        // Otherwise, continue checking the next waiting task.
+        continue;
+      }
+    }
+
+    TCB *tcb = pos;
+    // Remove the task from the wait queue as its request is satisfied.
+    tkmc_list_del(&tcb->winfo.wait_queue);
+    // If the task has a pending timer, remove it from the timer queue.
+    if (tcb->delay_ticks > 0) {
+      tkmc_list_del(&tcb->head);
+      tcb->delay_ticks = 0;
+    }
+
+    // Wake up the task by setting its wakeup cause and marking it ready.
+    tcb->wupcause = E_OK;
+    tcb->tskstat = TTS_RDY;
+    tcb->tskwait = 0;
+    // Add the task to the ready queue corresponding to its priority.
+    tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+
+    // Subtract the assigned resources from the semaphore count.
+    semcb->semcnt -= req;
+
+    // If resources have been depleted, exit the loop.
+    if (semcb->semcnt <= 0) {
+      break;
+    }
+  }
+
+  // Check if a higher-priority task is now ready for execution.
+  next = tkmc_get_highest_priority_task();
+  if (next != current) {
+    dispatch(); // Request a context switch if necessary.
+  }
+  EI(intsts);
+
+  return ercd;
+}
