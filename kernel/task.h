@@ -15,6 +15,16 @@
 extern "C" {
 #endif /* __cplusplus */
 
+typedef struct EventFlagInfo {
+  UINT waiptn;
+  UINT wfmode;
+  UINT flgptn;
+} EventFlagInfo;
+
+typedef struct SEMINFO {
+  INT semcnt;
+} SemaphoreInfo;
+
 typedef struct WaitInfo {
   tkmc_list_head wait_queue;
   UINT waiptn;
