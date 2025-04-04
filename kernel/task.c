@@ -41,8 +41,7 @@ static void reset_tcb(TCB *tcb) {
   tcb->delay_ticks = 0;
   tcb->wupcause = E_OK;
   tcb->wupcnt = 0;
-  tcb->winfo.flgptn = 0;
-  tcb->winfo.wfmode = 0;
+  memset(&tcb->winfo.dummy, 0, sizeof(tcb->winfo.dummy));
 
   tkmc_init_list_head(&tcb->head);
   tkmc_init_list_head(&tcb->winfo.wait_queue);

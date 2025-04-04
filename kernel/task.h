@@ -27,9 +27,11 @@ typedef struct SEMINFO {
 
 typedef struct WaitInfo {
   tkmc_list_head wait_queue;
-  UINT waiptn;
-  UINT wfmode;
-  UINT flgptn;
+  union {
+    EventFlagInfo event_flag;
+    SemaphoreInfo semaphore;
+    UB dummy[sizeof(EventFlagInfo)];
+  };
 } WaitInfo;
 
 /* Task Control Block */

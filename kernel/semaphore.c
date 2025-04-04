@@ -104,7 +104,7 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
   TCB *tcb = current;
 
   // Setup waiting info
-  tcb->winfo.waiptn = (UINT)cnt;
+  tcb->winfo.semaphore.semcnt = cnt;
   tkmc_init_list_head(&tcb->winfo.wait_queue); // safety
 
   // Enqueue task to wait queue
