@@ -10,29 +10,59 @@
 #include "task.h"
 #include "timer.h"
 
+// Array of semaphore control blocks
 SEMCB tkmc_semcbs[CFN_MAX_SEMID];
+// Free list that holds semaphore control blocks that are not yet allocated
 static tkmc_list_head tkmc_free_semcb;
 
-// Bitmask used to mark control blocks as non-existent
+// Bitmask used to mark control blocks as non-existent (i.e. not allocated)
 #define NOEXS_MASK 0x80000000u
 
+/**
+ * @brief Initializes the semaphore control block table.
+ *
+ * This function sets up all semaphore control blocks (SEMCB) by:
+ * - Initializing each SEMCB with a unique semid marked as non-existent
+ *   (using NOEXS_MASK).
+ * - Initializing the wait queue for each SEMCB.
+ * - Adding each SEMCB to the free list for later allocation.
+ */
 void tkmc_init_semcb(void) {
   tkmc_init_list_head(&tkmc_free_semcb);
 
   for (int i = 0; i < CFN_MAX_SEMID; ++i) {
     SEMCB *semcb = &tkmc_semcbs[i];
     *semcb = (SEMCB){
+        // Set semid to (i+1) and mark as non-existent initially.
         .semid = (i + 1) | NOEXS_MASK,
-        .exinf = NULL,
-        .sematr = 0,
-        .semcnt = 0,
-        .maxsem = 0,
+        .exinf = NULL, // Extended information (user data), initially NULL.
+        .sematr = 0,   // Semaphore attributes; will be set on creation.
+        .semcnt = 0,   // Current resource count, initially 0.
+        .maxsem = 0,   // Maximum resource count, initially 0.
     };
+    // Initialize the wait queue list head for each semaphore.
     tkmc_init_list_head(&semcb->wait_queue);
+    // Add the semaphore control block's wait queue to the free list.
     tkmc_list_add_tail(&semcb->wait_queue, &tkmc_free_semcb);
   }
 }
 
+/**
+ * @brief Creates a semaphore object.
+ *
+ * This function allocates a semaphore control block (SEMCB) from the free list,
+ * validates the given semaphore attributes, and initializes the SEMCB with the
+ * provided creation parameters. The semaphore is marked as allocated by
+ * removing the NOEXS_MASK from its semid.
+ *
+ * @param pk_csem Pointer to a creation parameter structure containing:
+ *                - sematr  : Semaphore attribute flags.
+ *                - isemcnt : Initial resource count.
+ *                - maxsem  : Maximum allowable resource count.
+ *                - exinf   : Extended user information.
+ * @return Semaphore identifier on success, or an error code such as E_RSATR or
+ * E_LIMIT.
+ */
 ID tk_cre_sem(CONST T_CSEM *pk_csem) {
   const ATR sematr = pk_csem->sematr;
 
@@ -41,39 +71,59 @@ ID tk_cre_sem(CONST T_CSEM *pk_csem) {
 
   // Check for invalid attribute bits
   if ((sematr & ~VALID_SEMATR) != 0) {
-    return E_RSATR;
+    return E_RSATR; // Return error if invalid attribute bits are set.
   }
 
   UINT intsts = 0;
   SEMCB *new_semcb = NULL;
   ID new_semid = 0;
 
-  DI(intsts); // Disable interrupts
+  DI(intsts); // Disable interrupts to protect shared data.
 
   if (!tkmc_list_empty(&tkmc_free_semcb)) {
+    // Allocate a new SEMCB from the free list.
     new_semcb = tkmc_list_first_entry(&tkmc_free_semcb, SEMCB, wait_queue);
     tkmc_list_del(&new_semcb->wait_queue);
     tkmc_init_list_head(&new_semcb->wait_queue);
 
+    // Remove the NOEXS_MASK to mark the semaphore as allocated.
     new_semid = new_semcb->semid & ~NOEXS_MASK;
     new_semcb->semid = new_semid;
+
+    // Initialize semaphore control block with parameters provided.
     new_semcb->exinf = pk_csem->exinf;
     new_semcb->sematr = pk_csem->sematr;
     new_semcb->semcnt = pk_csem->isemcnt;
     new_semcb->maxsem = pk_csem->maxsem;
   } else {
-    new_semid = (ID)E_LIMIT;
+    new_semid = (ID)E_LIMIT; // No available SEMCB found.
   }
 
-  EI(intsts); // Enable interrupts
+  EI(intsts); // Restore interrupts.
 
   return new_semid;
 }
 
 /**
- * @brief Acquire semaphore resources (tk_wai_sem)
+ * @brief Wait (pend) on a semaphore.
+ *
+ * This function causes the current task to wait for the specified number of
+ * semaphore resources. It performs parameter validation, checks for immediate
+ * availability, and if necessary, enqueues the task in the semaphore's wait
+ * queue. For polling (non-blocking) requests, it returns immediately if
+ * resources are insufficient. When resources become available or on timeout,
+ * the task is resumed.
+ *
+ * @param semid Semaphore identifier.
+ * @param cnt Number of resources requested.
+ * @param tmout Timeout period (TMO_POL for polling; TMO_FEVR for infinite wait
+ * or >0 for finite timeout).
+ * @return E_OK upon success, or an error code like E_ID, E_PAR, E_TMOUT, or
+ * E_NOEXS.
  */
 ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
+  // Validate parameters: semid must be within valid range, cnt positive,
+  // timeout valid.
   if (semid <= 0 || semid > CFN_MAX_SEMID) {
     return E_ID;
   }
@@ -81,22 +131,26 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
     return E_PAR;
   }
 
+  // Retrieve semaphore control block corresponding to semid.
   SEMCB *semcb = &tkmc_semcbs[semid - 1];
 
   UINT intsts = 0;
   DI(intsts);
 
+  // Check if the semaphore object exists by verifying NOEXS_MASK.
   if ((semcb->semid & NOEXS_MASK) != 0) {
     EI(intsts);
     return E_NOEXS;
   }
 
+  // Immediate check: if sufficient resources are available.
   if (semcb->semcnt >= cnt) {
     semcb->semcnt -= cnt;
     EI(intsts);
     return E_OK;
   }
 
+  // If polling is requested (non-blocking), return timeout immediately.
   if (tmout == TMO_POL) {
     EI(intsts);
     return E_TMOUT;
@@ -104,11 +158,15 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
 
   TCB *tcb = current;
 
-  // Setup waiting info
+  // Configure the waiting parameters for the task.
   tcb->winfo.semaphore.semcnt = cnt;
+
+  // Reset the task's wait queue link for safety.
   tkmc_init_list_head(&tcb->winfo.wait_queue); // safety
 
-  // Enqueue task to wait queue
+  // Insert the task into the semaphore's wait queue.
+  // Use priority-based insertion if the semaphore attribute TA_TPRI is set;
+  // otherwise, use FIFO.
   if (semcb->sematr & TA_TPRI) {
     if (tkmc_list_empty(&semcb->wait_queue) != FALSE) {
       // Queue is empty: simply add to the tail.
@@ -116,39 +174,49 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
     } else {
       BOOL inserted = FALSE;
       TCB *pos, *n;
+      // Traverse the wait queue safely to find the correct insertion point.
       tkmc_list_for_each_entry_safe(pos, n, &semcb->wait_queue,
                                     winfo.wait_queue) {
+        // Insert before the first task with a lower priority.
         if (tcb->itskpri < pos->itskpri) {
           tkmc_list_add(&tcb->winfo.wait_queue, pos->winfo.wait_queue.prev);
           inserted = TRUE;
           break;
         }
       }
+      // If no higher-priority task is found, add to tail.
       if (inserted == FALSE) {
         tkmc_list_add_tail(&tcb->winfo.wait_queue, &semcb->wait_queue);
       }
     }
   } else {
+    // FIFO insertion if priority scheduling is not required.
     tkmc_list_add_tail(&tcb->winfo.wait_queue, &semcb->wait_queue);
   }
 
   if (tmout > 0) {
+    // For a finite timeout, schedule a timer that will trigger wait
+    // termination.
     tkmc_schedule_timer(tcb, ((tmout + 9) / 10) + 1, TTW_SEM);
   } else {
+    // For infinite wait: update task state and perform a context switch.
     tcb->tskstat = TTS_WAI;
     tcb->tskwait = TTW_SEM;
     tcb->delay_ticks = 0;
+    // Remove task from its current ready queue list.
     tkmc_list_del(&tcb->head);
     tkmc_init_list_head(&tcb->head);
+    // Determine the next highest priority task to run.
     next = tkmc_get_highest_priority_task();
-    dispatch();
+    dispatch(); // Switch context to the selected task.
   }
 
   EI(intsts);
 
-  // Wait resume
+  // After the wait, re-disable interrupts and fetch the wakeup cause.
   DI(intsts);
   ER ercd = ((volatile TCB *)current)->wupcause;
+  // Reset wakeup cause for future wait operations.
   current->wupcause = E_OK;
   EI(intsts);
 
