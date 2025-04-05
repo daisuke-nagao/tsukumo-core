@@ -292,6 +292,7 @@ ER tk_sig_sem(ID semid, INT cnt) {
     TCB *tcb = pos;
     // Remove the task from the wait queue as its request is satisfied.
     tkmc_list_del(&tcb->winfo.wait_queue);
+    tkmc_init_list_head(&tcb->winfo.wait_queue);
     // If the task has a pending timer, remove it from the timer queue.
     if (tcb->delay_ticks > 0) {
       tkmc_list_del(&tcb->head);

@@ -255,6 +255,7 @@ ER tk_set_flg(ID flgid, UINT setptn) {
       if (check_ptn(flgcb->flgptn, tcb->winfo.event_flag.waiptn,
                     tcb->winfo.event_flag.wfmode)) {
         tkmc_list_del(&tcb->winfo.wait_queue);
+        tkmc_init_list_head(&tcb->winfo.wait_queue);
 
         // Remove from timer queue if registered
         if (tcb->delay_ticks > 0) {

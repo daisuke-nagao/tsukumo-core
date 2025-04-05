@@ -396,6 +396,11 @@ ER tk_rel_wai(ID tskid) {
     if (!tkmc_list_empty(&tcb->head)) {
       tkmc_list_del(&tcb->head);
     }
+    // When the task is in a waiting state, remove it from the wait queue
+    if (!tkmc_list_empty(&tcb->winfo.wait_queue)) {
+      tkmc_list_del(&tcb->winfo.wait_queue);
+      tkmc_init_list_head(&tcb->winfo.wait_queue);
+    }
 
     // Add the task to the appropriate ready queue based on its priority
     tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
