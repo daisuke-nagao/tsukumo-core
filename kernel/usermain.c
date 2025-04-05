@@ -63,7 +63,7 @@ void usermain(int _a0) {
     };
     ID task2_id = tk_cre_tsk(&pk_ctsk2);
     s_id_map[TASK2] = task2_id;
-    tk_sta_tsk(task2_id, 0);
+    // tk_sta_tsk(task2_id, 0);
   }
   {
     T_CTSK pk_ctsk3 = {
@@ -76,6 +76,6 @@ void usermain(int _a0) {
     };
     ID task3_id = tk_cre_tsk(&pk_ctsk3);
     s_id_map[TASK3] = task3_id;
-    tk_sta_tsk(task3_id, 0);
+    // tk_sta_tsk(task3_id, 0);
   }
 }

@@ -17,6 +17,9 @@ enum TASK_INDEX {
 };
 
 void task2(INT stacd, void *exinf) {
+  ID task3_id = get_tskid(TASK3);
+  tk_sta_tsk(task3_id, stacd);
+#if 0
   putstring("Hello, world\n");
 
   const char *msg = (const char *)exinf;
@@ -33,4 +36,6 @@ void task2(INT stacd, void *exinf) {
       putstring(" TASK2 !\n");
     }
   }
+#endif
+  tk_exd_tsk();
 }
