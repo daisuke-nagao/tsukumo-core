@@ -54,7 +54,7 @@ void task2(INT stacd, void *exinf) {
 
   tk_slp_tsk(TMO_FEVR); // Sleep until woken up by task2_a
 
-  ID task3_id = get_tskid(TASK2);
+  ID task3_id = get_tskid(TASK3);
   tk_sta_tsk(task3_id, 0); // Start task3
 
   // Terminate task2
