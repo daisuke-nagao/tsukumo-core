@@ -26,13 +26,13 @@ enum TASK_INDEX {
 static void task1_a(INT stacd, void *exinf);
 static void task1_b(INT stacd, void *exinf);
 
-static const char task1_a_exinf[] = "Task1_a";
-static const char task1_b_exinf[] = "Task1_b";
+static const char task1_a_exinf[] = "task1_a";
+static const char task1_b_exinf[] = "task1_b";
 
 // task1 launches task1_a, which in turn creates task1_b and executes it.
 void task1(INT stacd, void *exinf) {
 
-  putstring("Task1\n");
+  putstring("task1 start\n");
 
   ID task1_a_id = tk_cre_tsk(&(T_CTSK){.exinf = (void *)task1_a_exinf,
                                        .tskatr = TA_HLNG | TA_USERBUF,
@@ -54,6 +54,7 @@ void task1(INT stacd, void *exinf) {
   }
 
   tk_slp_tsk(TMO_FEVR); // wait for task1_a to finish
+
   ID task2_id = get_tskid(TASK2);
   tk_sta_tsk(task2_id, stacd);
 
@@ -61,7 +62,7 @@ void task1(INT stacd, void *exinf) {
 }
 
 static void task1_a(INT stacd, void *exinf) {
-  putstring("Hello, world\n");
+  putstring("task1_a start\n");
 
   ID task1_b_id = tk_cre_tsk(&(T_CTSK){.exinf = (void *)task1_b_exinf,
                                        .tskatr = TA_HLNG | TA_USERBUF,
@@ -95,7 +96,7 @@ static void task1_a(INT stacd, void *exinf) {
       tk_wup_tsk(task1_b_id);
       tk_wup_tsk(task1_b_id);
     }
-    putstring(" TASK1_A\n");
+    putstring(" task1_a\n");
   }
 
   ID task1_id = get_tskid(TASK1);
@@ -104,20 +105,20 @@ static void task1_a(INT stacd, void *exinf) {
 }
 
 static void task1_b(INT stacd, void *exinf) {
-  putstring("Hello, world\n");
+  putstring("task1_b start\n");
 
   const char *msg = (const char *)exinf;
   for (int i = 0; i < 30; ++i) {
     ER ercd = tk_slp_tsk(300);
     putstring(msg);
     if (ercd == E_OK) {
-      putstring(" TASK1_B E_OK\n");
+      putstring(" task1_b E_OK\n");
     } else if (ercd == E_RLWAI) {
-      putstring(" TASK1_B E_RLWAI\n");
+      putstring(" task1_b E_RLWAI\n");
     } else if (ercd == E_TMOUT) {
-      putstring(" TASK1_B E_TMOUT\n");
+      putstring(" task1_b E_TMOUT\n");
     } else {
-      putstring(" TASK1_B !\n");
+      putstring(" task1_b !\n");
     }
   }
 
