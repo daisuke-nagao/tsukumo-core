@@ -29,18 +29,36 @@ enum TASK_INDEX {
   TASK_NBOF, // Number of tasks
 };
 
+ID s_flgid = 0; // Event flag ID
+
 /// Entry point for TASK3
 /// @param stacd Start code (startup information)
 /// @param exinf Extended information passed at task creation
 void task3(INT stacd, void *exinf) {
   putstring("task3 start\n");
 
+  //! @todo create event flag that is used to wake me up on task3_a and task3_b
+  //! exit
+  // Create an event flag
+  T_CFLG pk_cflg = {
+      .exinf = NULL,      // No extended information
+      .flgatr = TA_TFIFO, // FIFO order
+      .iflgptn = 0,       // Initial pattern
+  };
+  ID flgid = tk_cre_flg(&pk_cflg);
+  if (flgid < 0) {
+    putstring("task3: failed to create event flag\n");
+    tk_exd_tsk();
+  }
+  s_flgid = flgid;
+  putstring("task3: created event flag\n");
+
   // Create a semaphore
   T_CSEM pk_csem = {
-      .exinf = NULL,          // No extended information
-      .sematr = TA_TFIFO,     // FIFO order
-      .isemcnt = 1,           // Initial count
-      .maxsem = 1,            // Maximum count
+      .exinf = NULL,      // No extended information
+      .sematr = TA_TFIFO, // FIFO order
+      .isemcnt = 1,       // Initial count
+      .maxsem = 1,        // Maximum count
   };
 
   ID semid = tk_cre_sem(&pk_csem);
@@ -86,7 +104,20 @@ void task3(INT stacd, void *exinf) {
   }
 
   // Wait for task3_a and task3_b to finish
-  tk_slp_tsk(TMO_FEVR);
+  // tk_slp_tsk(TMO_FEVR);
+  // Wait for the event flag to be set by task3_a and task3_b by waiting until 2
+  // bits are set in the event flag. This is a blocking wait.
+  UINT flgptn;
+  ercd = tk_wai_flg(flgid, 0x0003, TWF_ANDW | TWF_CLR, &flgptn, TMO_FEVR);
+  if (ercd != E_OK) {
+    putstring("tk_wai_flg(flgid, 0x0003, TWF_ANDW | TWF_CLR, &flgptn, "
+              "TMO_FEVR) != E_OK\n");
+    tk_exd_tsk();
+  }
+  putstring("task3: event flag set\n");
+
+  //! @todo delete event flag and semaphore
+  //! @todo deleting function is note implemented for event flag and semaphore
 
   // Terminate task3
   tk_exd_tsk();
@@ -125,9 +156,10 @@ static void task3_a(INT stacd, void *exinf) {
     tk_dly_tsk(500);
   }
 
-  // Wake up task3
-  ID task3_id = get_tskid(TASK3);
-  tk_wup_tsk(task3_id);
+  // Set the event flag to indicate task3_a is done
+  putstring("task3_a: setting event flag\n");
+  tk_set_flg(s_flgid, 0x0001); // Set the first bit of the event flag
+  putstring("task3_a: event flag set\n");
 
   // Exit task
   tk_exd_tsk();
@@ -165,6 +197,11 @@ static void task3_b(INT stacd, void *exinf) {
 
     tk_dly_tsk(500);
   }
+
+  // Set the event flag to indicate task3_b is done
+  putstring("task3_b: setting event flag\n");
+  tk_set_flg(s_flgid, 0x0002); // Set the second bit of the event flag
+  putstring("task3_b: event flag set\n");
 
   // Exit task
   tk_exd_tsk();
