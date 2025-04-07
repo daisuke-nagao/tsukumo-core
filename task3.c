@@ -10,14 +10,15 @@
 extern ID get_tskid(unsigned int index);
 
 // Define stacks for task3_a and task3_b
-// aligned(16) is required for RISC-V
+// Each stack is aligned to 16 bytes, which is required for RISC-V
 static char task3_a_stack[1024 * 4] __attribute__((aligned(16)));
 static char task3_b_stack[1024 * 4] __attribute__((aligned(16)));
 
-// Prototype declarations for task3_a and task3_b
+// Function prototypes for task3_a and task3_b
 static void task3_a(INT stacd, void *exinf);
 static void task3_b(INT stacd, void *exinf);
 
+// Extended information for task3_a and task3_b
 static const char task3_a_exinf[] = "task3_a";
 static const char task3_b_exinf[] = "task3_b";
 
@@ -29,7 +30,7 @@ enum TASK_INDEX {
   TASK_NBOF, // Number of tasks
 };
 
-ID s_flgid = 0; // Event flag ID
+ID s_flgid = 0; // Global event flag ID
 
 /// Entry point for TASK3
 /// @param stacd Start code (startup information)
@@ -37,13 +38,11 @@ ID s_flgid = 0; // Event flag ID
 void task3(INT stacd, void *exinf) {
   putstring("task3 start\n");
 
-  //! @todo create event flag that is used to wake me up on task3_a and task3_b
-  //! exit
-  // Create an event flag
+  // Create an event flag to synchronize task3_a and task3_b with task3
   T_CFLG pk_cflg = {
       .exinf = NULL,      // No extended information
       .flgatr = TA_TFIFO, // FIFO order
-      .iflgptn = 0,       // Initial pattern
+      .iflgptn = 0,       // Initial flag pattern
   };
   ID flgid = tk_cre_flg(&pk_cflg);
   if (flgid < 0) {
@@ -53,7 +52,7 @@ void task3(INT stacd, void *exinf) {
   s_flgid = flgid;
   putstring("task3: created event flag\n");
 
-  // Create a semaphore
+  // Create a semaphore to synchronize access between task3_a and task3_b
   T_CSEM pk_csem = {
       .exinf = NULL,      // No extended information
       .sematr = TA_TFIFO, // FIFO order
@@ -103,10 +102,7 @@ void task3(INT stacd, void *exinf) {
     tk_exd_tsk();
   }
 
-  // Wait for task3_a and task3_b to finish
-  // tk_slp_tsk(TMO_FEVR);
-  // Wait for the event flag to be set by task3_a and task3_b by waiting until 2
-  // bits are set in the event flag. This is a blocking wait.
+  // Wait for task3_a and task3_b to signal completion via the event flag
   UINT flgptn;
   ercd = tk_wai_flg(flgid, 0x0003, TWF_ANDW | TWF_CLR, &flgptn, TMO_FEVR);
   if (ercd != E_OK) {
@@ -132,7 +128,7 @@ static void task3_a(INT stacd, void *exinf) {
   ID semid = (ID)stacd;
 
   for (int i = 0; i < 5; ++i) {
-    // Wait for the semaphore
+    // Attempt to acquire the semaphore
     putstring("task3_a: trying to acquire semaphore\n");
     ER ercd = tk_wai_sem(semid, 1, TMO_FEVR);
     if (ercd == E_OK) {
@@ -156,7 +152,7 @@ static void task3_a(INT stacd, void *exinf) {
     tk_dly_tsk(500);
   }
 
-  // Set the event flag to indicate task3_a is done
+  // Signal completion by setting the event flag
   putstring("task3_a: setting event flag\n");
   tk_set_flg(s_flgid, 0x0001); // Set the first bit of the event flag
   putstring("task3_a: event flag set\n");
@@ -174,7 +170,7 @@ static void task3_b(INT stacd, void *exinf) {
   ID semid = (ID)stacd;
 
   for (int i = 0; i < 5; ++i) {
-    // Wait for the semaphore
+    // Attempt to acquire the semaphore
     putstring("task3_b: trying to acquire semaphore\n");
     ER ercd = tk_wai_sem(semid, 1, TMO_FEVR);
     if (ercd == E_OK) {
@@ -198,7 +194,7 @@ static void task3_b(INT stacd, void *exinf) {
     tk_dly_tsk(500);
   }
 
-  // Set the event flag to indicate task3_b is done
+  // Signal completion by setting the event flag
   putstring("task3_b: setting event flag\n");
   tk_set_flg(s_flgid, 0x0002); // Set the second bit of the event flag
   putstring("task3_b: event flag set\n");
