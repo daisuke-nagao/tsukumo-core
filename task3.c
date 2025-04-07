@@ -102,6 +102,7 @@ static void task3_a(INT stacd, void *exinf) {
 
   for (int i = 0; i < 5; ++i) {
     // Wait for the semaphore
+    putstring("task3_a: trying to acquire semaphore\n");
     ER ercd = tk_wai_sem(semid, 1, TMO_FEVR);
     if (ercd == E_OK) {
       putstring("task3_a: acquired semaphore\n");
@@ -113,6 +114,7 @@ static void task3_a(INT stacd, void *exinf) {
     tk_dly_tsk(500);
 
     // Release the semaphore
+    putstring("task3_a: trying to release semaphore\n");
     ercd = tk_sig_sem(semid, 1);
     if (ercd == E_OK) {
       putstring("task3_a: released semaphore\n");
@@ -141,6 +143,7 @@ static void task3_b(INT stacd, void *exinf) {
 
   for (int i = 0; i < 5; ++i) {
     // Wait for the semaphore
+    putstring("task3_b: trying to acquire semaphore\n");
     ER ercd = tk_wai_sem(semid, 1, TMO_FEVR);
     if (ercd == E_OK) {
       putstring("task3_b: acquired semaphore\n");
@@ -152,6 +155,7 @@ static void task3_b(INT stacd, void *exinf) {
     tk_dly_tsk(500);
 
     // Release the semaphore
+    putstring("task3_b: trying to release semaphore\n");
     ercd = tk_sig_sem(semid, 1);
     if (ercd == E_OK) {
       putstring("task3_b: released semaphore\n");
