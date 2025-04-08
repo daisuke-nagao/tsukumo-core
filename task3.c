@@ -110,12 +110,19 @@ void task3(INT stacd, void *exinf) {
               "TMO_FEVR) != E_OK\n");
     tk_exd_tsk();
   }
+  if(flgptn == 3) {
+    putstring("task3: task3_a and task3_b completed successfully\n");
+  } else {
+    putstring("task3: task3_a and/or task3_b failed\n");
+  }
   putstring("task3: event flag set\n");
+
+  tk_dly_tsk(100); // Delay to allow other tasks to finish
 
   //! @todo delete event flag and semaphore
   //! @todo deleting function is note implemented for event flag and semaphore
-
-  tk_dly_tsk(1); // Delay to allow other tasks to finish
+  tk_del_sem(semid); // Delete the semaphore
+  putstring("task3: deleted semaphore\n");
 
   // Terminate task3
   tk_exd_tsk();

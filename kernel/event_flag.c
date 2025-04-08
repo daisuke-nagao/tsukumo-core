@@ -98,10 +98,13 @@ ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
  */
 static BOOL check_ptn(UINT flgptn, UINT waiptn, UINT wfmode) {
   BOOL cond;
-  if ((wfmode & TWF_ANDW) != 0) {
-    cond = (flgptn & waiptn) == waiptn;
-  } else {
+  // Check if the waiting pattern is a subset of the flag pattern
+  if ((wfmode & TWF_ORW) != 0) {
+    // Check if any bits in the waiting pattern are set in the flag pattern
     cond = (flgptn & waiptn) != 0;
+  } else {
+    // Check if all bits in the waiting pattern are set in the flag pattern
+    cond = (flgptn & waiptn) == waiptn;
   }
   return cond ? TRUE : FALSE;
 }

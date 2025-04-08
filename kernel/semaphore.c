@@ -324,3 +324,44 @@ ER tk_sig_sem(ID semid, INT cnt) {
 
   return ercd;
 }
+
+/**
+ * @brief Deletes a semaphore object.
+ * 
+ * This function deallocates a semaphore control block (SEMCB) and marks it as
+ * non-existent. It clears the semaphore attributes and counts, and adds the
+ * SEMCB back to the free list for future allocation. The function also
+ * validates the semaphore ID and checks if the semaphore object exists before
+ * proceeding with the deletion.
+ */
+ER tk_del_sem(ID semid) {
+  // Validate the semaphore ID.
+  if (semid <= 0 || semid > CFN_MAX_SEMID) {
+    return E_ID;
+  }
+
+  SEMCB *semcb = &tkmc_semcbs[semid - 1];
+  UINT intsts = 0;
+  DI(intsts);
+
+  // Check if the semaphore object exists (i.e. is allocated).
+  if ((semcb->semid & NOEXS_MASK) != 0) {
+    EI(intsts);
+    return E_NOEXS;
+  }
+
+  // Mark the semaphore as non-existent by setting the NOEXS_MASK.
+  semcb->semid |= NOEXS_MASK;
+
+  // Clear the semaphore attributes and counts.
+  semcb->exinf = NULL;
+  semcb->sematr = 0;
+  semcb->semcnt = 0;
+  semcb->maxsem = 0;
+
+  // Add the semaphore control block back to the free list.
+  tkmc_list_add_tail(&semcb->wait_queue, &tkmc_free_semcb);
+
+  EI(intsts);
+  return E_OK;
+}
