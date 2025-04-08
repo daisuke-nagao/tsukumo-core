@@ -115,6 +115,8 @@ void task3(INT stacd, void *exinf) {
   //! @todo delete event flag and semaphore
   //! @todo deleting function is note implemented for event flag and semaphore
 
+  tk_dly_tsk(1); // Delay to allow other tasks to finish
+
   // Terminate task3
   tk_exd_tsk();
 }
