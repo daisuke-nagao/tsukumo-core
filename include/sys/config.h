@@ -28,7 +28,7 @@ _Static_assert(CFN_MAX_PRI >= 16, "CFN_MAX_PRI must be greater than or equal to 
 #define CFN_MAX_TSKID 32
 
 /* Maximum number of semaphores */
-// #define CFN_MAX_SEMID 16
+#define CFN_MAX_SEMID 16
 
 /* Maximum number of event flags */
 #define CFN_MAX_FLGID 16

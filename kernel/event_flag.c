@@ -98,10 +98,13 @@ ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
  */
 static BOOL check_ptn(UINT flgptn, UINT waiptn, UINT wfmode) {
   BOOL cond;
-  if ((wfmode & TWF_ANDW) != 0) {
-    cond = (flgptn & waiptn) == waiptn;
-  } else {
+  // Check if the waiting pattern is a subset of the flag pattern
+  if ((wfmode & TWF_ORW) != 0) {
+    // Check if any bits in the waiting pattern are set in the flag pattern
     cond = (flgptn & waiptn) != 0;
+  } else {
+    // Check if all bits in the waiting pattern are set in the flag pattern
+    cond = (flgptn & waiptn) == waiptn;
   }
   return cond ? TRUE : FALSE;
 }
@@ -170,9 +173,9 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
   }
 
   // Setup wait parameters
-  tcb->winfo.waiptn = waiptn;
-  tcb->winfo.wfmode = wfmode;
-  tcb->winfo.flgptn = 0;
+  tcb->winfo.event_flag.waiptn = waiptn;
+  tcb->winfo.event_flag.wfmode = wfmode;
+  tcb->winfo.event_flag.flgptn = 0;
 
   tkmc_init_list_head(&tcb->winfo.wait_queue); // For safety
 
@@ -218,7 +221,7 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
   DI(intsts);
   ercd = ((volatile TCB *)current)->wupcause;
   if (ercd == E_OK) {
-    *p_flgptn = current->winfo.flgptn;
+    *p_flgptn = current->winfo.event_flag.flgptn;
   }
   current->wupcause = E_OK;
   EI(intsts);
@@ -252,8 +255,10 @@ ER tk_set_flg(ID flgid, UINT setptn) {
     // Check each waiting task and wake up if condition met
     tkmc_list_for_each_entry_safe(tcb, n, &flgcb->wait_queue,
                                   winfo.wait_queue) {
-      if (check_ptn(flgcb->flgptn, tcb->winfo.waiptn, tcb->winfo.wfmode)) {
+      if (check_ptn(flgcb->flgptn, tcb->winfo.event_flag.waiptn,
+                    tcb->winfo.event_flag.wfmode)) {
         tkmc_list_del(&tcb->winfo.wait_queue);
+        tkmc_init_list_head(&tcb->winfo.wait_queue);
 
         // Remove from timer queue if registered
         if (tcb->delay_ticks > 0) {
@@ -261,14 +266,14 @@ ER tk_set_flg(ID flgid, UINT setptn) {
           tcb->delay_ticks = 0;
         }
 
-        tcb->winfo.flgptn = flgcb->flgptn;
+        tcb->winfo.event_flag.flgptn = flgcb->flgptn;
         tcb->wupcause = E_OK;
 
         // Optional clearing of flags
-        if (tcb->winfo.wfmode & TWF_CLR) {
+        if (tcb->winfo.event_flag.wfmode & TWF_CLR) {
           flgcb->flgptn = 0;
-        } else if (tcb->winfo.wfmode & TWF_BITCLR) {
-          flgcb->flgptn &= ~(tcb->winfo.waiptn);
+        } else if (tcb->winfo.event_flag.wfmode & TWF_BITCLR) {
+          flgcb->flgptn &= ~(tcb->winfo.event_flag.waiptn);
         }
 
         // Move task to ready state

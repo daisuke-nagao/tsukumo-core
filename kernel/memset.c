@@ -6,7 +6,7 @@
 
 #include <tk/tkernel.h>
 
-typedef typeof(sizeof(void *)) size_t;
+#include "memset.h"
 
 /*
  * tkmc_memset - Fills a block of memory with a specified value.

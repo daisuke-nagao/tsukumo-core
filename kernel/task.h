@@ -15,12 +15,24 @@
 extern "C" {
 #endif /* __cplusplus */
 
-typedef struct WINFO {
-  tkmc_list_head wait_queue;
+typedef struct EventFlagInfo {
   UINT waiptn;
   UINT wfmode;
   UINT flgptn;
-} WINFO;
+} EventFlagInfo;
+
+typedef struct SEMINFO {
+  INT semcnt;
+} SemaphoreInfo;
+
+typedef struct WaitInfo {
+  tkmc_list_head wait_queue;
+  union {
+    EventFlagInfo event_flag;
+    SemaphoreInfo semaphore;
+    UB dummy[sizeof(EventFlagInfo)];
+  };
+} WaitInfo;
 
 /* Task Control Block */
 typedef struct TCB {
@@ -36,7 +48,7 @@ typedef struct TCB {
   UINT delay_ticks;
   ER wupcause;
   UINT wupcnt;
-  WINFO winfo;
+  WaitInfo winfo;
 } TCB;
 
 extern TCB *current;
