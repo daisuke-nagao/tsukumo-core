@@ -9,19 +9,23 @@
 extern void task1(INT stacd, void *exinf);
 extern void task2(INT stacd, void *exinf);
 extern void task3(INT stacd, void *exinf);
+extern void task4(INT stacd, void *exinf);
 
 static UW task1_stack[256] __attribute__((aligned(16)));
 static UW task2_stack[256] __attribute__((aligned(16)));
 static UW task3_stack[256] __attribute__((aligned(16)));
+static UW task4_stack[256] __attribute__((aligned(16)));
 
 enum TASK_INDEX {
   TASK1 = 0,
   TASK2,
   TASK3,
+  TASK4,
   TASK_NBOF,
 };
 
 static ID s_id_map[TASK_NBOF] = {
+    0,
     0,
     0,
     0,
@@ -77,5 +81,18 @@ void usermain(int _a0) {
     ID task3_id = tk_cre_tsk(&pk_ctsk3);
     s_id_map[TASK3] = task3_id;
     // tk_sta_tsk(task3_id, 0);
+  }
+  {
+    T_CTSK pk_ctsk4 = {
+        .exinf = (void *)NULL,
+        .tskatr = TA_USERBUF,
+        .task = (FP)task4,
+        .itskpri = 3,
+        .stksz = sizeof(task4_stack),
+        .bufptr = task4_stack,
+    };
+    ID task4_id = tk_cre_tsk(&pk_ctsk4);
+    s_id_map[TASK4] = task4_id;
+    // tk_sta_tsk(task4_id, 0);
   }
 }

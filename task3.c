@@ -27,6 +27,7 @@ enum TASK_INDEX {
   TASK1 = 0,
   TASK2,
   TASK3,
+  TASK4,
   TASK_NBOF, // Number of tasks
 };
 
@@ -127,6 +128,8 @@ void task3(INT stacd, void *exinf) {
   //! @todo deleting function is note implemented for event flag and semaphore
   tk_del_sem(semid); // Delete the semaphore
   putstring("task3: deleted semaphore\n");
+
+  tk_sta_tsk(get_tskid(TASK4), 0); // Start TASK4
 
   // Terminate task3
   tk_exd_tsk();
