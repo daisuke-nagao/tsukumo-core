@@ -9,18 +9,18 @@
 
 extern ID get_tskid(unsigned int index);
 
-// Define stacks for task3_a and task3_b
+// Define stacks for sem_tsk_hi and sem_tsk_lo
 // Each stack is aligned to 16 bytes, which is required for RISC-V
-static char task3_a_stack[1024 * 4] __attribute__((aligned(16)));
-static char task3_b_stack[1024 * 4] __attribute__((aligned(16)));
+static char sem_tsk_hi_stack[1024 * 4] __attribute__((aligned(16)));
+static char sem_tsk_lo_stack[1024 * 4] __attribute__((aligned(16)));
 
-// Function prototypes for task3_a and task3_b
-static void task3_a(INT stacd, void *exinf);
-static void task3_b(INT stacd, void *exinf);
+// Function prototypes for sem_tsk_hi and sem_tsk_lo
+static void sem_tsk_hi(INT stacd, void *exinf);
+static void sem_tsk_lo(INT stacd, void *exinf);
 
-// Extended information for task3_a and task3_b
-static const char task3_a_exinf[] = "task3_a";
-static const char task3_b_exinf[] = "task3_b";
+// Extended information for sem_tsk_hi and sem_tsk_lo
+static const char sem_tsk_hi_exinf[] = "sem_tsk_hi";
+static const char sem_tsk_lo_exinf[] = "sem_tsk_lo";
 
 /// Enum to identify each task by index
 enum TASK_INDEX {
@@ -38,7 +38,8 @@ ID s_flgid = 0; // Global event flag ID
 void task3(INT stacd, void *exinf) {
   putstring("task3 start\n");
 
-  // Create an event flag to synchronize task3_a and task3_b with task3
+  // Create an event flag to synchronize sem_tsk_hi and
+  // sem_tsk_lo with task3
   T_CFLG pk_cflg = {
       .exinf = NULL,      // No extended information
       .flgatr = TA_TFIFO, // FIFO order
@@ -52,7 +53,8 @@ void task3(INT stacd, void *exinf) {
   s_flgid = flgid;
   putstring("task3: created event flag\n");
 
-  // Create a semaphore to synchronize access between task3_a and task3_b
+  // Create a semaphore to synchronize access between sem_tsk_hi and
+  // sem_tsk_lo
   T_CSEM pk_csem = {
       .exinf = NULL,      // No extended information
       .sematr = TA_TFIFO, // FIFO order
@@ -66,43 +68,44 @@ void task3(INT stacd, void *exinf) {
     tk_exd_tsk();
   }
 
-  // Create and start task3_a
-  ID task3_a_id = tk_cre_tsk(&(T_CTSK){.exinf = (void *)task3_a_exinf,
-                                       .tskatr = TA_HLNG | TA_USERBUF,
-                                       .task = task3_a,
-                                       .itskpri = 2,
-                                       .stksz = sizeof(task3_a_stack),
-                                       .bufptr = task3_a_stack});
-  if (task3_a_id < 0) {
-    putstring("task3_a_id < 0\n");
+  // Create and start sem_tsk_hi
+  ID sem_tsk_hi_id = tk_cre_tsk(&(T_CTSK){.exinf = (void *)sem_tsk_hi_exinf,
+                                          .tskatr = TA_HLNG | TA_USERBUF,
+                                          .task = sem_tsk_hi,
+                                          .itskpri = 2,
+                                          .stksz = sizeof(sem_tsk_hi_stack),
+                                          .bufptr = sem_tsk_hi_stack});
+  if (sem_tsk_hi_id < 0) {
+    putstring("sem_tsk_hi_id < 0\n");
     tk_exd_tsk();
   }
 
-  ER ercd = tk_sta_tsk(task3_a_id, semid);
+  ER ercd = tk_sta_tsk(sem_tsk_hi_id, semid);
   if (ercd != E_OK) {
-    putstring("tk_sta_tsk(task3_a_id, semid) != E_OK\n");
+    putstring("tk_sta_tsk(sem_tsk_hi_id, semid) != E_OK\n");
     tk_exd_tsk();
   }
 
-  // Create and start task3_b
-  ID task3_b_id = tk_cre_tsk(&(T_CTSK){.exinf = (void *)task3_b_exinf,
-                                       .tskatr = TA_HLNG | TA_USERBUF,
-                                       .task = task3_b,
-                                       .itskpri = 3,
-                                       .stksz = sizeof(task3_b_stack),
-                                       .bufptr = task3_b_stack});
-  if (task3_b_id < 0) {
-    putstring("task3_b_id < 0\n");
+  // Create and start sem_tsk_lo
+  ID sem_tsk_lo_id = tk_cre_tsk(&(T_CTSK){.exinf = (void *)sem_tsk_lo_exinf,
+                                          .tskatr = TA_HLNG | TA_USERBUF,
+                                          .task = sem_tsk_lo,
+                                          .itskpri = 3,
+                                          .stksz = sizeof(sem_tsk_lo_stack),
+                                          .bufptr = sem_tsk_lo_stack});
+  if (sem_tsk_lo_id < 0) {
+    putstring("sem_tsk_lo_id < 0\n");
     tk_exd_tsk();
   }
 
-  ercd = tk_sta_tsk(task3_b_id, semid);
+  ercd = tk_sta_tsk(sem_tsk_lo_id, semid);
   if (ercd != E_OK) {
-    putstring("tk_sta_tsk(task3_b_id, semid) != E_OK\n");
+    putstring("tk_sta_tsk(sem_tsk_lo_id, semid) != E_OK\n");
     tk_exd_tsk();
   }
 
-  // Wait for task3_a and task3_b to signal completion via the event flag
+  // Wait for sem_tsk_hi and sem_tsk_lo to signal
+  // completion via the event flag
   UINT flgptn;
   ercd = tk_wai_flg(flgid, 0x0003, TWF_ANDW | TWF_CLR, &flgptn, TMO_FEVR);
   if (ercd != E_OK) {
@@ -110,10 +113,11 @@ void task3(INT stacd, void *exinf) {
               "TMO_FEVR) != E_OK\n");
     tk_exd_tsk();
   }
-  if(flgptn == 3) {
-    putstring("task3: task3_a and task3_b completed successfully\n");
+  if (flgptn == 3) {
+    putstring("task3: sem_tsk_hi and sem_tsk_lo "
+              "completed successfully\n");
   } else {
-    putstring("task3: task3_a and/or task3_b failed\n");
+    putstring("task3: sem_tsk_hi and/or sem_tsk_lo failed\n");
   }
   putstring("task3: event flag set\n");
 
@@ -131,40 +135,40 @@ void task3(INT stacd, void *exinf) {
 /// Entry point for TASK3_A
 /// @param stacd Start code (startup information)
 /// @param exinf Extended information passed at task creation
-static void task3_a(INT stacd, void *exinf) {
-  putstring("task3_a start\n");
+static void sem_tsk_hi(INT stacd, void *exinf) {
+  putstring("sem_tsk_hi start\n");
 
   ID semid = (ID)stacd;
 
   for (int i = 0; i < 5; ++i) {
     // Attempt to acquire the semaphore
-    putstring("task3_a: trying to acquire semaphore\n");
+    putstring("sem_tsk_hi: trying to acquire semaphore\n");
     ER ercd = tk_wai_sem(semid, 1, TMO_FEVR);
     if (ercd == E_OK) {
-      putstring("task3_a: acquired semaphore\n");
+      putstring("sem_tsk_hi: acquired semaphore\n");
     } else {
-      putstring("task3_a: failed to acquire semaphore\n");
+      putstring("sem_tsk_hi: failed to acquire semaphore\n");
     }
 
     // Simulate some work
-    tk_dly_tsk(500);
+    tk_dly_tsk(50);
 
     // Release the semaphore
-    putstring("task3_a: trying to release semaphore\n");
+    putstring("sem_tsk_hi: trying to release semaphore\n");
     ercd = tk_sig_sem(semid, 1);
     if (ercd == E_OK) {
-      putstring("task3_a: released semaphore\n");
+      putstring("sem_tsk_hi: released semaphore\n");
     } else {
-      putstring("task3_a: failed to release semaphore\n");
+      putstring("sem_tsk_hi: failed to release semaphore\n");
     }
 
-    tk_dly_tsk(500);
+    tk_dly_tsk(50);
   }
 
   // Signal completion by setting the event flag
-  putstring("task3_a: setting event flag\n");
+  putstring("sem_tsk_hi: setting event flag\n");
   tk_set_flg(s_flgid, 0x0001); // Set the first bit of the event flag
-  putstring("task3_a: event flag set\n");
+  putstring("sem_tsk_hi: event flag set\n");
 
   // Exit task
   tk_exd_tsk();
@@ -173,40 +177,40 @@ static void task3_a(INT stacd, void *exinf) {
 /// Entry point for TASK3_B
 /// @param stacd Start code (startup information)
 /// @param exinf Extended information passed at task creation
-static void task3_b(INT stacd, void *exinf) {
-  putstring("task3_b start\n");
+static void sem_tsk_lo(INT stacd, void *exinf) {
+  putstring("sem_tsk_lo start\n");
 
   ID semid = (ID)stacd;
 
   for (int i = 0; i < 5; ++i) {
     // Attempt to acquire the semaphore
-    putstring("task3_b: trying to acquire semaphore\n");
+    putstring("sem_tsk_lo: trying to acquire semaphore\n");
     ER ercd = tk_wai_sem(semid, 1, TMO_FEVR);
     if (ercd == E_OK) {
-      putstring("task3_b: acquired semaphore\n");
+      putstring("sem_tsk_lo: acquired semaphore\n");
     } else {
-      putstring("task3_b: failed to acquire semaphore\n");
+      putstring("sem_tsk_lo: failed to acquire semaphore\n");
     }
 
     // Simulate some work
-    tk_dly_tsk(500);
+    tk_dly_tsk(50);
 
     // Release the semaphore
-    putstring("task3_b: trying to release semaphore\n");
+    putstring("sem_tsk_lo: trying to release semaphore\n");
     ercd = tk_sig_sem(semid, 1);
     if (ercd == E_OK) {
-      putstring("task3_b: released semaphore\n");
+      putstring("sem_tsk_lo: released semaphore\n");
     } else {
-      putstring("task3_b: failed to release semaphore\n");
+      putstring("sem_tsk_lo: failed to release semaphore\n");
     }
 
-    tk_dly_tsk(500);
+    tk_dly_tsk(50);
   }
 
   // Signal completion by setting the event flag
-  putstring("task3_b: setting event flag\n");
+  putstring("sem_tsk_lo: setting event flag\n");
   tk_set_flg(s_flgid, 0x0002); // Set the second bit of the event flag
-  putstring("task3_b: event flag set\n");
+  putstring("sem_tsk_lo: event flag set\n");
 
   // Exit task
   tk_exd_tsk();
