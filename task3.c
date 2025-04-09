@@ -30,7 +30,7 @@ enum TASK_INDEX {
   TASK_NBOF, // Number of tasks
 };
 
-ID s_flgid = 0; // Global event flag ID
+static ID s_flgid = 0; // Global event flag ID
 
 /// Entry point for TASK3
 /// @param stacd Start code (startup information)
