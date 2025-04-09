@@ -155,8 +155,11 @@ static void sem_tsk_1(INT stacd, void *exinf) {
 
     // Release the semaphore
     putstring("sem_tsk_1: trying to release semaphore\n");
+    putstring("sem_tsk_1: releasing semaphore (1st call)\n");
     ercd = tk_sig_sem(semid, 1);
+    putstring("sem_tsk_1: releasing semaphore (2nd call)\n");
     ercd = tk_sig_sem(semid, 1);
+    putstring("sem_tsk_1: releasing semaphore (3rd call)\n");
     ercd = tk_sig_sem(semid, 1);
     if (ercd == E_OK) {
       putstring("sem_tsk_1: released semaphore\n");
@@ -199,8 +202,11 @@ static void sem_tsk_2(INT stacd, void *exinf) {
 
     // Release the semaphore
     putstring("sem_tsk_2: trying to release semaphore\n");
+    putstring("sem_tsk_2: releasing semaphore (1st call)\n");
     ercd = tk_sig_sem(semid, 1);
+    putstring("sem_tsk_2: releasing semaphore (2nd call)\n");
     ercd = tk_sig_sem(semid, 1);
+    putstring("sem_tsk_2: releasing semaphore (3rd call)\n");
     ercd = tk_sig_sem(semid, 1);
     if (ercd == E_OK) {
       putstring("sem_tsk_2: released semaphore\n");
