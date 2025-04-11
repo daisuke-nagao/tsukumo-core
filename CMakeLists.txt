@@ -63,6 +63,7 @@ tkmc_add_executable(
   ${EXECUTABLE}
   SOURCES
   usermain.c
+  userstack.c
   task1.c
   task2.c
   task3.c
