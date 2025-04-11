@@ -41,57 +41,48 @@ ID get_tskid(unsigned int index) {
 static const char task1_exinf[] = "Task1";
 static const char task2_exinf[] = "Task2";
 
-void usermain(int _a0) {
-  {
-    T_CTSK pk_ctsk1 = {
+T_CTSK s_pk_ctsk[] = {
+    {
         .exinf = (void *)task1_exinf,
         .tskatr = TA_USERBUF,
         .task = (FP)task1,
         .itskpri = 2,
         .stksz = sizeof(task1_stack),
         .bufptr = task1_stack,
-    };
-    ID task1_id = tk_cre_tsk(&pk_ctsk1);
-    s_id_map[TASK1] = task1_id;
-    tk_sta_tsk(task1_id, 0);
-  }
-  {
-    T_CTSK pk_ctsk2 = {
+    },
+    {
         .exinf = (void *)task2_exinf,
         .tskatr = TA_USERBUF,
         .task = (FP)task2,
         .itskpri = 2,
         .stksz = sizeof(task2_stack),
         .bufptr = task2_stack,
-    };
-    ID task2_id = tk_cre_tsk(&pk_ctsk2);
-    s_id_map[TASK2] = task2_id;
-    // tk_sta_tsk(task2_id, 0);
-  }
-  {
-    T_CTSK pk_ctsk3 = {
+    },
+    {
         .exinf = (void *)NULL,
         .tskatr = TA_USERBUF,
         .task = (FP)task3,
         .itskpri = 3,
         .stksz = sizeof(task3_stack),
         .bufptr = task3_stack,
-    };
-    ID task3_id = tk_cre_tsk(&pk_ctsk3);
-    s_id_map[TASK3] = task3_id;
-    // tk_sta_tsk(task3_id, 0);
-  }
-  {
-    T_CTSK pk_ctsk4 = {
+    },
+    {
         .exinf = (void *)NULL,
         .tskatr = TA_USERBUF,
         .task = (FP)task4,
         .itskpri = 3,
         .stksz = sizeof(task4_stack),
         .bufptr = task4_stack,
-    };
-    ID task4_id = tk_cre_tsk(&pk_ctsk4);
-    s_id_map[TASK4] = task4_id;
-    // tk_sta_tsk(task4_id, 0);
+    },
+};
+
+void usermain(int _a0) {
+  for (int i = 0; i < sizeof(s_pk_ctsk) / sizeof(s_pk_ctsk[0]); ++i) {
+    ID tskid = tk_cre_tsk(&s_pk_ctsk[i]);
+    if (tskid > 0) {
+      s_id_map[i] = tskid;
+    }
   }
+
+  tk_sta_tsk(get_tskid(TASK1), TASK1);
 }
