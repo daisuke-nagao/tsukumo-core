@@ -6,13 +6,9 @@
 #include <tk/tkernel.h>
 
 #include "putstring.h"
+#include "userstack.h"
 
 extern ID get_tskid(unsigned int index);
-
-// Define stacks for sem_tsk_hi and sem_tsk_lo
-// Each stack is aligned to 16 bytes, which is required for RISC-V
-static char sem_tsk_hi_stack[1024 * 4] __attribute__((aligned(16)));
-static char sem_tsk_lo_stack[1024 * 4] __attribute__((aligned(16)));
 
 // Function prototypes for sem_tsk_hi and sem_tsk_lo
 static void sem_tsk_hi(INT stacd, void *exinf);
@@ -74,8 +70,8 @@ void task3(INT stacd, void *exinf) {
                                           .tskatr = TA_HLNG | TA_USERBUF,
                                           .task = sem_tsk_hi,
                                           .itskpri = 2,
-                                          .stksz = sizeof(sem_tsk_hi_stack),
-                                          .bufptr = sem_tsk_hi_stack});
+                                          .stksz = sizeof(g_stack1_1024B),
+                                          .bufptr = g_stack1_1024B});
   if (sem_tsk_hi_id < 0) {
     putstring("sem_tsk_hi_id < 0\n");
     tk_exd_tsk();
@@ -92,8 +88,8 @@ void task3(INT stacd, void *exinf) {
                                           .tskatr = TA_HLNG | TA_USERBUF,
                                           .task = sem_tsk_lo,
                                           .itskpri = 3,
-                                          .stksz = sizeof(sem_tsk_lo_stack),
-                                          .bufptr = sem_tsk_lo_stack});
+                                          .stksz = sizeof(g_stack2_1024B),
+                                          .bufptr = g_stack2_1024B});
   if (sem_tsk_lo_id < 0) {
     putstring("sem_tsk_lo_id < 0\n");
     tk_exd_tsk();
