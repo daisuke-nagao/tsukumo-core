@@ -41,7 +41,6 @@ ID get_tskid(unsigned int index) {
 static const char task1_exinf[] = "Task1";
 static const char task2_exinf[] = "Task2";
 
-void usermain(int _a0) __attribute__((weak));
 void usermain(int _a0) {
   {
     T_CTSK pk_ctsk1 = {
