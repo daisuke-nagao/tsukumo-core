@@ -6,13 +6,9 @@
 #include <tk/tkernel.h>
 
 #include "putstring.h"
+#include "userstack.h"
 
 extern ID get_tskid(unsigned int index);
-
-// allocate stack for task1_a/b
-// aligned(16) is required for RISC-V
-static char task1_a_stack[1024 * 4] __attribute__((aligned(16)));
-static char task1_b_stack[1024 * 4] __attribute__((aligned(16)));
 
 enum TASK_INDEX {
   TASK1 = 0,
@@ -38,8 +34,8 @@ void task1(INT stacd, void *exinf) {
                                        .tskatr = TA_HLNG | TA_USERBUF,
                                        .task = task1_a,
                                        .itskpri = 1,
-                                       .stksz = sizeof(task1_a_stack),
-                                       .bufptr = task1_a_stack});
+                                       .stksz = sizeof(g_stack1_1024B),
+                                       .bufptr = g_stack1_1024B});
   if (task1_a_id < 0) {
     putstring("task1_a_id < 0\n");
     tk_exd_tsk();
@@ -68,8 +64,8 @@ static void task1_a(INT stacd, void *exinf) {
                                        .tskatr = TA_HLNG | TA_USERBUF,
                                        .task = task1_b,
                                        .itskpri = 1,
-                                       .stksz = sizeof(task1_b_stack),
-                                       .bufptr = task1_b_stack});
+                                       .stksz = sizeof(g_stack2_1024B),
+                                       .bufptr = g_stack2_1024B});
   if (task1_b_id < 0) {
     putstring("task1_b_id < 0\n");
     // task1_a must be deleted here, but tk_del_tsk() is not implemented yet.

@@ -6,6 +6,7 @@
 #include <tk/tkernel.h>
 
 #include "putstring.h"
+#include "userstack.h"
 
 extern ID get_tskid(unsigned int index);
 
@@ -15,11 +16,6 @@ enum TASK_INDEX {
   TASK3,
   TASK_NBOF,
 };
-
-// Define stacks for task2_a and task2_b
-// aligned(16) is required for RISC-V
-static char task2_a_stack[1024 * 4] __attribute__((aligned(16)));
-static char task2_b_stack[1024 * 4] __attribute__((aligned(16)));
 
 // Prototype declarations for task2_a and task2_b
 static void task2_a(INT stacd, void *exinf);
@@ -39,8 +35,8 @@ void task2(INT stacd, void *exinf) {
                                        .tskatr = TA_HLNG | TA_USERBUF,
                                        .task = task2_a,
                                        .itskpri = 1,
-                                       .stksz = sizeof(task2_a_stack),
-                                       .bufptr = task2_a_stack});
+                                       .stksz = sizeof(g_stack1_1024B),
+                                       .bufptr = g_stack1_1024B});
   if (task2_a_id < 0) {
     putstring("task2_a_id < 0\n");
     tk_exd_tsk();
@@ -125,8 +121,8 @@ static void task2_a(INT stacd, void *exinf) {
                                        .tskatr = TA_HLNG | TA_USERBUF,
                                        .task = task2_b,
                                        .itskpri = 2,
-                                       .stksz = sizeof(task2_b_stack),
-                                       .bufptr = task2_b_stack});
+                                       .stksz = sizeof(g_stack2_1024B),
+                                       .bufptr = g_stack2_1024B});
   if (task2_b_id < 0) {
     putstring("task2_b_id < 0\n");
     tk_exd_tsk();

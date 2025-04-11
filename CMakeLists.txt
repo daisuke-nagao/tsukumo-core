@@ -59,7 +59,15 @@ function(tkmc_add_executable exec_name)
 endfunction()
 
 # Add main executable with user task sources
-tkmc_add_executable(${EXECUTABLE} SOURCES task1.c task2.c task3.c task4.c)
+tkmc_add_executable(
+  ${EXECUTABLE}
+  SOURCES
+  usermain.c
+  userstack.c
+  task1.c
+  task2.c
+  task3.c
+  task4.c)
 
 # Set CMake compilation flags
 target_compile_options(
