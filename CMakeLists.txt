@@ -78,6 +78,10 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/ThrowTheSwitch/Unity.git
   GIT_TAG v2.6.1)
 
+# Include directories for Unity to allow unity_config.h to be used in the test framework.
+# This ensures the test framework functions correctly.
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/test)
+
 # Make Unity available
 FetchContent_MakeAvailable(Unity)
 
@@ -92,22 +96,7 @@ target_compile_options(
 # Set required standards
 target_compile_features(${EXECUTABLE} PRIVATE c_std_11)
 
-target_compile_definitions(
-  unity
-  PUBLIC # -UUNITY_INCLUDE_CONFIG_H
-         -DUNITY_EXCLUDE_SETJMP_H
-         -DUNITY_EXCLUDE_MATH_H
-         -DUNITY_EXCLUDE_STDDEF_H
-         # -UUNITY_INCLUDE_PRINT_FORMATTED
-         -DUNITY_EXCLUDE_STDINT_H
-         -DUNITY_EXCLUDE_LIMITS_H
-         -DUNITY_OUTPUT_CHAR=outputChar
-          -DUNITY_OUTPUT_CHAR_HEADER_DECLARATION=\(*outputChar\)\(int\)
-         # -DUNITY_OUTPUT_FLUSH
-         -DUNITY_EXCLUDE_FLOAT
-         -DUNITY_EXCLUDE_FLOAT_PRINT
-         -DNULL=0
-)
+target_compile_definitions(unity PUBLIC -DUNITY_INCLUDE_CONFIG_H)
 
 # Convert to BIN file
 add_custom_command(
