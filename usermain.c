@@ -6,6 +6,8 @@
 
 #include <tk/tkernel.h>
 
+#include "putstring.h"
+
 #include <unity.h>
 
 extern void task1(INT stacd, void *exinf);
@@ -81,19 +83,22 @@ T_CTSK s_pk_ctsk[] = {
 void usermain(int _a0) {
   for (int i = 0; i < sizeof(s_pk_ctsk) / sizeof(s_pk_ctsk[0]); ++i) {
     ID tskid = tk_cre_tsk(&s_pk_ctsk[i]);
+    TEST_ASSERT_TRUE(tskid > 0);
     if (tskid > 0) {
       s_id_map[i] = tskid;
     }
   }
 
   ER ercd = tk_sta_tsk(get_tskid(TASK1), TASK1);
-
   TEST_ASSERT_TRUE(ercd == E_OK);
 }
 
-#include "putstring.h"
-static void putchar(int c) { out_w(UART0_BASE, c); }
-void (*outputChar)(int) = putchar;
+void (*outputChar)(int) = tkmc_putchar;
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void) {
+  // Initialization code for tests can be added here.
+}
+
+void tearDown(void) {
+  // Cleanup code for tests can be added here.
+}
