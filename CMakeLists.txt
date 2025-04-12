@@ -44,6 +44,11 @@ target_compile_options(
 target_compile_features(tsukumo-core-kernel PRIVATE c_std_11)
 
 # Define macro function to create an executable with linked kernel library
+# This function simplifies the process of adding executables by automatically linking
+# the kernel static library and applying necessary compile-time definitions.
+# Arguments:
+#   exec_name: Name of the executable to be created.
+#   SOURCES: List of source files to be included in the executable.
 function(tkmc_add_executable exec_name)
   # Parse arguments, expecting SOURCES keyword
   cmake_parse_arguments(TKMC "" "" "SOURCES" ${ARGN})
@@ -52,13 +57,18 @@ function(tkmc_add_executable exec_name)
   add_executable(${exec_name} ${TKMC_SOURCES})
 
   # Link against the prebuilt kernel static library
+  # This ensures that the executable has access to the core kernel functionality.
   target_link_libraries(${exec_name} PRIVATE tsukumo-core-kernel)
 
-  # Add compile-time definitions (e.g. for CONST checking)
+  # Add compile-time definitions (e.g., for CONST checking)
+  # TKERNEL_CHECK_CONST is used to enforce const correctness in system calls,
+  # enhancing code safety by preventing unintended modifications to pointer parameters.
   target_compile_definitions(${exec_name} PUBLIC TKERNEL_CHECK_CONST)
 endfunction()
 
 # Add main executable with user task sources
+# This creates the main application executable and links it with the kernel library.
+# The user task sources (e.g., task1.c, task2.c) define the application-specific logic.
 tkmc_add_executable(
   ${EXECUTABLE}
   SOURCES
@@ -86,9 +96,13 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/test)
 FetchContent_MakeAvailable(Unity)
 
 # Link Unity to the unit test target
+# Unity is a lightweight test framework for C. Linking it here allows the
+# executable to include and run unit tests defined using Unity's API.
 target_link_libraries(${EXECUTABLE} PRIVATE unity::framework)
 
 # Set CMake compilation flags
+# These flags are essential for bare-metal development, ensuring no standard
+# libraries or headers are included and enabling stack usage analysis.
 target_compile_options(
   ${EXECUTABLE} PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS} -fstack-usage>
                         $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
