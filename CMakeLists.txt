@@ -69,6 +69,21 @@ tkmc_add_executable(
   task3.c
   task4.c)
 
+# download external libraries by using FetchContent
+include(FetchContent)
+
+# fetch the unity test framework
+FetchContent_Declare(
+  Unity
+  GIT_REPOSITORY https://github.com/ThrowTheSwitch/Unity.git
+  GIT_TAG v2.6.1)
+
+# Make Unity available
+FetchContent_MakeAvailable(Unity)
+
+# Link Unity to the unit test target
+target_link_libraries(${EXECUTABLE} PRIVATE unity::framework)
+
 # Set CMake compilation flags
 target_compile_options(
   ${EXECUTABLE} PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS} -fstack-usage>
@@ -76,6 +91,23 @@ target_compile_options(
 
 # Set required standards
 target_compile_features(${EXECUTABLE} PRIVATE c_std_11)
+
+target_compile_definitions(
+  unity
+  PUBLIC # -UUNITY_INCLUDE_CONFIG_H
+         -DUNITY_EXCLUDE_SETJMP_H
+         -DUNITY_EXCLUDE_MATH_H
+         -DUNITY_EXCLUDE_STDDEF_H
+         # -UUNITY_INCLUDE_PRINT_FORMATTED
+         -DUNITY_EXCLUDE_STDINT_H
+         -DUNITY_EXCLUDE_LIMITS_H
+         -DUNITY_OUTPUT_CHAR=outputChar
+          -DUNITY_OUTPUT_CHAR_HEADER_DECLARATION=\(*outputChar\)\(int\)
+         # -DUNITY_OUTPUT_FLUSH
+         -DUNITY_EXCLUDE_FLOAT
+         -DUNITY_EXCLUDE_FLOAT_PRINT
+         -DNULL=0
+)
 
 # Convert to BIN file
 add_custom_command(

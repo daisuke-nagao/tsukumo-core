@@ -6,6 +6,8 @@
 
 #include <tk/tkernel.h>
 
+#include <unity.h>
+
 extern void task1(INT stacd, void *exinf);
 extern void task2(INT stacd, void *exinf);
 extern void task3(INT stacd, void *exinf);
@@ -84,5 +86,14 @@ void usermain(int _a0) {
     }
   }
 
-  tk_sta_tsk(get_tskid(TASK1), TASK1);
+  ER ercd = tk_sta_tsk(get_tskid(TASK1), TASK1);
+
+  TEST_ASSERT_TRUE(ercd == E_OK);
 }
+
+#include "putstring.h"
+static void putchar(int c) { out_w(UART0_BASE, c); }
+void (*outputChar)(int) = putchar;
+
+void setUp(void) {}
+void tearDown(void) {}
