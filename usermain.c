@@ -83,14 +83,14 @@ T_CTSK s_pk_ctsk[] = {
 void usermain(int _a0) {
   for (int i = 0; i < sizeof(s_pk_ctsk) / sizeof(s_pk_ctsk[0]); ++i) {
     ID tskid = tk_cre_tsk(&s_pk_ctsk[i]);
-    TEST_ASSERT_TRUE(tskid > 0);
+    TEST_ASSERT_GREATER_THAN(0, tskid);
     if (tskid > 0) {
       s_id_map[i] = tskid;
     }
   }
 
   ER ercd = tk_sta_tsk(get_tskid(TASK1), TASK1);
-  TEST_ASSERT_TRUE(ercd == E_OK);
+  TEST_ASSERT_EQUAL(E_OK, ercd);
 }
 
 void (*outputChar)(int) = tkmc_putchar;
