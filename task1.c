@@ -25,35 +25,32 @@ static void task1_test_release_wait(INT stacd, void *exinf);
 static void task1_test_wakeup_multiple(INT stacd, void *exinf);
 static void task1_test_sleep_with_releases(INT stacd, void *exinf);
 static void task1_test_sleep_with_wakeups(INT stacd, void *exinf);
+static void task1_test_sleep_with_releases(INT, void *);
 
-static const char task1_a_exinf[] = "task1_a";
-static const char task1_b_exinf[] = "task1_b";
-
-// task1 launches task1_test_timeout, which in turn creates task1_test_release_wait and executes it.
 void task1(INT stacd, void *exinf) {
-
   putstring("task1 start\n");
 
-  // task1_test_timeout is expected to be in TMO state because no one will wake it up
+  // task1_test_timeout is expected to be in TMO state because no one will wake
+  // it up
   {
     // create task1_test_timeout and start it
-    ID task1_test_timeout_id = tk_cre_tsk(&(T_CTSK){
+    ID tskid = tk_cre_tsk(&(T_CTSK){
         .exinf = NULL,
         .tskatr = TA_HLNG | TA_USERBUF,
         .task = task1_test_timeout,
         .itskpri = 1, // task1_test_timeout is higher priority than task1
         .stksz = sizeof(g_stack1_1024B),
         .bufptr = g_stack1_1024B});
-    TEST_ASSERT_GREATER_THAN(0, task1_test_timeout_id);
-    if (task1_test_timeout_id < 0) {
-      putstring("task1_test_timeout_id < 0\n");
+    TEST_ASSERT_GREATER_THAN(0, tskid);
+    if (tskid < 0) {
+      putstring("tskid < 0\n");
       tk_exd_tsk();
     }
 
-    ER ercd = tk_sta_tsk(task1_test_timeout_id, stacd); // task1 is preempted
+    ER ercd = tk_sta_tsk(tskid, stacd); // task1 is preempted
     TEST_ASSERT_EQUAL(E_OK, ercd);
     if (ercd != E_OK) {
-      putstring("tk_sta_tsk(task1_test_timeout_id, stacd) != E_OK\n");
+      putstring("tk_sta_tsk(tskid, stacd) != E_OK\n");
       tk_exd_tsk();
     }
   }
@@ -62,48 +59,50 @@ void task1(INT stacd, void *exinf) {
 
   {
     // Add code to start task1_test_release_wait
-    ID task1_test_release_wait_id =
-        tk_cre_tsk(&(T_CTSK){.exinf = (void *)"task1_test_release_wait",
-                             .tskatr = TA_HLNG | TA_USERBUF,
-                             .task = task1_test_release_wait,
-                             .itskpri = 1, // Same priority as task1_test_sleep_with_releases
-                             .stksz = sizeof(g_stack1_1024B),
-                             .bufptr = g_stack1_1024B});
-    TEST_ASSERT_GREATER_THAN(0, task1_test_release_wait_id);
-    if (task1_test_release_wait_id < 0) {
-      putstring("task1_test_release_wait_id < 0\n");
+    ID tskid = tk_cre_tsk(&(T_CTSK){
+        .exinf = (void *)"task1_test_release_wait",
+        .tskatr = TA_HLNG | TA_USERBUF,
+        .task = task1_test_release_wait,
+        .itskpri = 1, // Same priority as task1_test_sleep_with_releases
+        .stksz = sizeof(g_stack1_1024B),
+        .bufptr = g_stack1_1024B});
+    TEST_ASSERT_GREATER_THAN(0, tskid);
+    if (tskid < 0) {
+      putstring("tskid < 0\n");
       tk_exd_tsk();
     }
 
-    ER ercd = tk_sta_tsk(task1_test_release_wait_id, stacd);
+    ER ercd = tk_sta_tsk(tskid, stacd);
     TEST_ASSERT_EQUAL(E_OK, ercd);
     if (ercd != E_OK) {
-      putstring("tk_sta_tsk(task1_test_release_wait_id, stacd) != E_OK\n");
+      putstring("tk_sta_tsk(tskid, stacd) != E_OK\n");
       tk_exd_tsk();
     }
   }
 
   tk_dly_tsk(100); // sleep 100 ms to let task1_test_release_wait finish
   {
-    ID task1_test_wakeup_multiple_id = tk_cre_tsk(
-        &(T_CTSK){.exinf = (void *)task1_a_exinf,
-                  .tskatr = TA_HLNG | TA_USERBUF,
-                  .task = task1_test_wakeup_multiple,
-                  .itskpri = 1, // task1_test_wakeup_multiple is higher priority than task1
-                  .stksz = sizeof(g_stack1_1024B),
-                  .bufptr = g_stack1_1024B});
-    TEST_ASSERT_GREATER_THAN(0, task1_test_wakeup_multiple_id);
-    if (task1_test_wakeup_multiple_id < 0) {
-      putstring("task1_test_wakeup_multiple_id < 0\n");
+    ID tskid = tk_cre_tsk(&(T_CTSK){
+        .exinf = NULL,
+        .tskatr = TA_HLNG | TA_USERBUF,
+        .task = task1_test_wakeup_multiple,
+        .itskpri =
+            1, // task1_test_wakeup_multiple is higher priority than task1
+        .stksz = sizeof(g_stack1_1024B),
+        .bufptr = g_stack1_1024B});
+    TEST_ASSERT_GREATER_THAN(0, tskid);
+    if (tskid < 0) {
+      putstring("tskid < 0\n");
       tk_exd_tsk();
     }
 
-    ER ercd = tk_sta_tsk(task1_test_wakeup_multiple_id, stacd);
+    ER ercd = tk_sta_tsk(tskid, stacd);
     // this task is preempted by task1_test_wakeup_multiple
     TEST_ASSERT_EQUAL(E_OK, ercd);
     if (ercd != E_OK) {
-      putstring("tk_sta_tsk(task1_test_wakeup_multiple_id, stacd) != E_OK\n");
-      // task1_test_sleep_with_releases must be deleted here, but tk_del_tsk() is not implemented yet.
+      putstring("tk_sta_tsk(tskid, stacd) != E_OK\n");
+      // task1_test_sleep_with_releases must be deleted here, but tk_del_tsk()
+      // is not implemented yet.
       tk_exd_tsk();
     }
 
@@ -116,10 +115,10 @@ void task1(INT stacd, void *exinf) {
   TEST_ASSERT_EQUAL(E_OK, ercd);
 
   // start next task
-  ID task2_id = get_tskid(TASK2);
-  TEST_ASSERT_GREATER_THAN(0, task2_id);
-  if (task2_id > 0) {
-    tk_sta_tsk(task2_id, stacd);
+  ID next_tskid = get_tskid(TASK2);
+  TEST_ASSERT_GREATER_THAN(0, next_tskid);
+  if (next_tskid > 0) {
+    tk_sta_tsk(next_tskid, stacd);
   }
 
   putstring("task1 finish\n");
@@ -138,22 +137,22 @@ static void task1_test_timeout(INT stacd, void *exinf) {
   tk_exd_tsk();
 }
 
-static void task1_test_sleep_with_releases(INT, void *);
-
 static void task1_test_release_wait(INT stacd, void *exinf) {
   putstring("task1_test_release_wait start\n");
 
-  ID task1_b_id = tk_cre_tsk(
-      &(T_CTSK){.exinf = (void *)task1_b_exinf,
-                .tskatr = TA_HLNG | TA_USERBUF,
-                .task = task1_test_sleep_with_releases, // Expect tk_slp_tsk to be RELWAI
-                .itskpri = 1, // task1_b is the same priority as task1_test_sleep_with_releases
-                .stksz = sizeof(g_stack2_1024B),
-                .bufptr = g_stack2_1024B});
+  ID task1_b_id = tk_cre_tsk(&(T_CTSK){
+      .exinf = NULL,
+      .tskatr = TA_HLNG | TA_USERBUF,
+      .task = task1_test_sleep_with_releases, // Expect tk_slp_tsk to be RELWAI
+      .itskpri =
+          1, // task1_b is the same priority as task1_test_sleep_with_releases
+      .stksz = sizeof(g_stack2_1024B),
+      .bufptr = g_stack2_1024B});
   TEST_ASSERT_GREATER_THAN(0, task1_b_id);
   if (task1_b_id < 0) {
     putstring("task1_b_id < 0\n");
-    // task1_test_sleep_with_releases must be deleted here, but tk_del_tsk() is not implemented yet.
+    // task1_test_sleep_with_releases must be deleted here, but tk_del_tsk() is
+    // not implemented yet.
     tk_exd_tsk();
   }
   ER ercd = E_OK;
@@ -193,7 +192,8 @@ void task1_test_sleep_with_releases(INT stacd, void *exinf) {
   tk_exd_tsk();
 }
 
-// task1_test_sleep_with_wakeups is similar to task1_test_sleep_with_releases but expects 3 E_OK results and 1 E_TMOUT
+// task1_test_sleep_with_wakeups is similar to task1_test_sleep_with_releases
+// but expects 3 E_OK results and 1 E_TMOUT
 static void task1_test_sleep_with_wakeups(INT stacd, void *exinf) {
   putstring("task1_test_sleep_with_wakeups start\n");
 
@@ -211,17 +211,19 @@ static void task1_test_sleep_with_wakeups(INT stacd, void *exinf) {
   tk_exd_tsk();
 }
 
-// task1_test_wakeup_multiple executes tk_wup_tsk 3 times, similar to task1_test_release_wait
+// task1_test_wakeup_multiple executes tk_wup_tsk 3 times, similar to
+// task1_test_release_wait
 static void task1_test_wakeup_multiple(INT stacd, void *exinf) {
   putstring("task1_test_wakeup_multiple start\n");
 
-  ID task1_b_id = tk_cre_tsk(
-      &(T_CTSK){.exinf = (void *)task1_b_exinf,
-                .tskatr = TA_HLNG | TA_USERBUF,
-                .task = task1_test_sleep_with_wakeups,
-                .itskpri = 1, // task1_b has the same priority as task1_test_sleep_with_releases
-                .stksz = sizeof(g_stack2_1024B),
-                .bufptr = g_stack2_1024B});
+  ID task1_b_id = tk_cre_tsk(&(T_CTSK){
+      .exinf = NULL,
+      .tskatr = TA_HLNG | TA_USERBUF,
+      .task = task1_test_sleep_with_wakeups,
+      .itskpri =
+          1, // task1_b has the same priority as task1_test_sleep_with_releases
+      .stksz = sizeof(g_stack2_1024B),
+      .bufptr = g_stack2_1024B});
   TEST_ASSERT_GREATER_THAN(0, task1_b_id);
   if (task1_b_id < 0) {
     putstring("task1_b_id < 0\n");
