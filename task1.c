@@ -20,18 +20,13 @@ enum TASK_INDEX {
 };
 
 // Prototype declaration of static functions
-static void task1_test_timeout(INT stacd,
-                               void *exinf); // Tests timeout behavior
-static void task1_test_release_wait(INT stacd,
-                                    void *exinf); // Tests release wait behavior
-static void task1_test_wakeup_multiple(INT stacd,
-                                       void *exinf); // Tests multiple wakeups
-static void
-task1_test_sleep_with_releases(INT stacd,
-                               void *exinf); // Tests sleep with releases
-static void
-task1_test_sleep_with_wakeups(INT stacd,
-                              void *exinf); // Tests sleep with wakeups
+static void task1_test_timeout(INT, void *);      // Tests timeout behavior
+static void task1_test_release_wait(INT, void *); // Tests release wait behavior
+static void task1_test_wakeup_multiple(INT, void *); // Tests multiple wakeups
+static void task1_test_sleep_with_releases(INT,
+                                           void *); // Tests sleep with releases
+static void task1_test_sleep_with_wakeups(INT,
+                                          void *); // Tests sleep with wakeups
 static void task1_test_sleep_with_releases(
     INT, void *); // Duplicate declaration (to be removed if unnecessary)
 
