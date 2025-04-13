@@ -13,156 +13,170 @@
 extern ID get_tskid(unsigned int index);
 
 enum TASK_INDEX {
-  TASK1 = 0,
-  TASK2,
-  TASK3,
-  TASK_NBOF,
+  TASK1 = 0, // Index for task1
+  TASK2,     // Index for task2
+  TASK3,     // Index for task3
+  TASK_NBOF, // Total number of tasks
 };
 
-// Prototype declaration of static functions with updated names
-static void task1_test_timeout(INT stacd, void *exinf);
-static void task1_test_release_wait(INT stacd, void *exinf);
-static void task1_test_wakeup_multiple(INT stacd, void *exinf);
-static void task1_test_sleep_with_releases(INT stacd, void *exinf);
-static void task1_test_sleep_with_wakeups(INT stacd, void *exinf);
-static void task1_test_sleep_with_releases(INT, void *);
+// Prototype declaration of static functions
+static void task1_test_timeout(INT stacd,
+                               void *exinf); // Tests timeout behavior
+static void task1_test_release_wait(INT stacd,
+                                    void *exinf); // Tests release wait behavior
+static void task1_test_wakeup_multiple(INT stacd,
+                                       void *exinf); // Tests multiple wakeups
+static void
+task1_test_sleep_with_releases(INT stacd,
+                               void *exinf); // Tests sleep with releases
+static void
+task1_test_sleep_with_wakeups(INT stacd,
+                              void *exinf); // Tests sleep with wakeups
+static void task1_test_sleep_with_releases(
+    INT, void *); // Duplicate declaration (to be removed if unnecessary)
 
 void task1(INT stacd, void *exinf) {
   putstring("task1 start\n");
 
-  // task1_test_timeout is expected to be in TMO state because no one will wake
-  // it up
+  // Test case: task1_test_timeout is expected to enter TMO state because no one
+  // will wake it up
   {
-    // create task1_test_timeout and start it
+    // Create and start task1_test_timeout
     ID tskid = tk_cre_tsk(&(T_CTSK){
         .exinf = NULL,
-        .tskatr = TA_HLNG | TA_USERBUF,
-        .task = task1_test_timeout,
-        .itskpri = 1, // task1_test_timeout is higher priority than task1
-        .stksz = sizeof(g_stack1_1024B),
-        .bufptr = g_stack1_1024B});
+        .tskatr =
+            TA_HLNG | TA_USERBUF,   // High-level language task with user buffer
+        .task = task1_test_timeout, // Task function
+        .itskpri = 1,               // Higher priority than task1
+        .stksz = sizeof(g_stack1_1024B), // Stack size
+        .bufptr = g_stack1_1024B});      // Stack buffer
     TEST_ASSERT_GREATER_THAN(0, tskid);
     if (tskid < 0) {
-      putstring("tskid < 0\n");
-      tk_exd_tsk();
+      putstring("tskid < 0\n"); // Error message
+      tk_exd_tsk();             // Exit task
     }
 
-    ER ercd = tk_sta_tsk(tskid, stacd); // task1 is preempted
+    ER ercd = tk_sta_tsk(tskid, stacd); // Start task1_test_timeout
     TEST_ASSERT_EQUAL(E_OK, ercd);
     if (ercd != E_OK) {
-      putstring("tk_sta_tsk(tskid, stacd) != E_OK\n");
-      tk_exd_tsk();
+      putstring("tk_sta_tsk(tskid, stacd) != E_OK\n"); // Error message
+      tk_exd_tsk();                                    // Exit task
     }
   }
 
-  tk_dly_tsk(100); // sleep 100 ms because task1_test_timeout waits for 50 ms
+  tk_dly_tsk(100); // Delay for 100 ms to allow task1_test_timeout to complete
 
+  // Test case: Start task1_test_release_wait
   {
-    // Add code to start task1_test_release_wait
     ID tskid = tk_cre_tsk(&(T_CTSK){
-        .exinf = (void *)"task1_test_release_wait",
-        .tskatr = TA_HLNG | TA_USERBUF,
-        .task = task1_test_release_wait,
+        .exinf = (void *)"task1_test_release_wait", // Task-specific information
+        .tskatr =
+            TA_HLNG | TA_USERBUF, // High-level language task with user buffer
+        .task = task1_test_release_wait, // Task function
         .itskpri = 1, // Same priority as task1_test_sleep_with_releases
-        .stksz = sizeof(g_stack1_1024B),
-        .bufptr = g_stack1_1024B});
+        .stksz = sizeof(g_stack1_1024B), // Stack size
+        .bufptr = g_stack1_1024B});      // Stack buffer
     TEST_ASSERT_GREATER_THAN(0, tskid);
     if (tskid < 0) {
-      putstring("tskid < 0\n");
-      tk_exd_tsk();
+      putstring("tskid < 0\n"); // Error message
+      tk_exd_tsk();             // Exit task
     }
 
-    ER ercd = tk_sta_tsk(tskid, stacd);
+    ER ercd = tk_sta_tsk(tskid, stacd); // Start task1_test_release_wait
     TEST_ASSERT_EQUAL(E_OK, ercd);
     if (ercd != E_OK) {
-      putstring("tk_sta_tsk(tskid, stacd) != E_OK\n");
-      tk_exd_tsk();
+      putstring("tk_sta_tsk(tskid, stacd) != E_OK\n"); // Error message
+      tk_exd_tsk();                                    // Exit task
     }
   }
 
-  tk_dly_tsk(100); // sleep 100 ms to let task1_test_release_wait finish
+  tk_dly_tsk(
+      100); // Delay for 100 ms to allow task1_test_release_wait to complete
+
+  // Test case: Start task1_test_wakeup_multiple
   {
     ID tskid = tk_cre_tsk(&(T_CTSK){
         .exinf = NULL,
-        .tskatr = TA_HLNG | TA_USERBUF,
-        .task = task1_test_wakeup_multiple,
-        .itskpri =
-            1, // task1_test_wakeup_multiple is higher priority than task1
-        .stksz = sizeof(g_stack1_1024B),
-        .bufptr = g_stack1_1024B});
+        .tskatr =
+            TA_HLNG | TA_USERBUF, // High-level language task with user buffer
+        .task = task1_test_wakeup_multiple, // Task function
+        .itskpri = 1,                       // Higher priority than task1
+        .stksz = sizeof(g_stack1_1024B),    // Stack size
+        .bufptr = g_stack1_1024B});         // Stack buffer
     TEST_ASSERT_GREATER_THAN(0, tskid);
     if (tskid < 0) {
-      putstring("tskid < 0\n");
-      tk_exd_tsk();
+      putstring("tskid < 0\n"); // Error message
+      tk_exd_tsk();             // Exit task
     }
 
-    ER ercd = tk_sta_tsk(tskid, stacd);
-    // this task is preempted by task1_test_wakeup_multiple
+    ER ercd = tk_sta_tsk(tskid, stacd); // Start task1_test_wakeup_multiple
     TEST_ASSERT_EQUAL(E_OK, ercd);
     if (ercd != E_OK) {
-      putstring("tk_sta_tsk(tskid, stacd) != E_OK\n");
-      // task1_test_sleep_with_releases must be deleted here, but tk_del_tsk()
-      // is not implemented yet.
-      tk_exd_tsk();
+      putstring("tk_sta_tsk(tskid, stacd) != E_OK\n"); // Error message
+      tk_exd_tsk();                                    // Exit task
     }
 
-    tk_slp_tsk(TMO_FEVR); // wait for task1_test_wakeup_multiple to finish
+    tk_slp_tsk(TMO_FEVR); // Wait indefinitely for task1_test_wakeup_multiple to
+                          // complete
   }
 
-  tk_dly_tsk(100); // sleep 100 ms to let task1_test_wakeup_multiple finish
+  tk_dly_tsk(
+      100); // Delay for 100 ms to allow task1_test_wakeup_multiple to complete
 
-  ER ercd = tk_slp_tsk(TMO_FEVR); // wait for all tasks to finish
+  ER ercd = tk_slp_tsk(TMO_FEVR); // Wait indefinitely for all tasks to complete
   TEST_ASSERT_EQUAL(E_OK, ercd);
 
-  // start next task
+  // Start the next task (task2)
   ID next_tskid = get_tskid(TASK2);
   TEST_ASSERT_GREATER_THAN(0, next_tskid);
   if (next_tskid > 0) {
-    tk_sta_tsk(next_tskid, stacd);
+    tk_sta_tsk(next_tskid, stacd); // Start task2
   }
 
   putstring("task1 finish\n");
-  tk_exd_tsk();
+  tk_exd_tsk(); // Exit task1
 }
 
-// this task is expected to be in TMO state because no one will wake it up
+// Task function: task1_test_timeout
+// This task is expected to enter TMO (timeout) state because no one will wake
+// it up
 static void task1_test_timeout(INT stacd, void *exinf) {
   putstring("task1_test_timeout start\n");
 
-  ER ercd = tk_slp_tsk(50); // expect to be in TMO state
+  ER ercd = tk_slp_tsk(50); // Sleep for 50 ms and expect timeout
   TEST_ASSERT_EQUAL(E_TMOUT, ercd);
 
   putstring("task1_test_timeout finish\n");
 
-  tk_exd_tsk();
+  tk_exd_tsk(); // Exit task
 }
 
 static void task1_test_release_wait(INT stacd, void *exinf) {
   putstring("task1_test_release_wait start\n");
 
+  // Create and start task1_test_sleep_with_releases
   ID task1_b_id = tk_cre_tsk(&(T_CTSK){
       .exinf = NULL,
-      .tskatr = TA_HLNG | TA_USERBUF,
-      .task = task1_test_sleep_with_releases, // Expect tk_slp_tsk to be RELWAI
-      .itskpri =
-          1, // task1_b is the same priority as task1_test_sleep_with_releases
-      .stksz = sizeof(g_stack2_1024B),
-      .bufptr = g_stack2_1024B});
+      .tskatr =
+          TA_HLNG | TA_USERBUF, // High-level language task with user buffer
+      .task = task1_test_sleep_with_releases, // Task function
+      .itskpri = 1, // Same priority as task1_test_sleep_with_releases
+      .stksz = sizeof(g_stack2_1024B), // Stack size
+      .bufptr = g_stack2_1024B});      // Stack buffer
   TEST_ASSERT_GREATER_THAN(0, task1_b_id);
   if (task1_b_id < 0) {
-    putstring("task1_b_id < 0\n");
-    // task1_test_sleep_with_releases must be deleted here, but tk_del_tsk() is
-    // not implemented yet.
-    tk_exd_tsk();
+    putstring("task1_b_id < 0\n"); // Error message
+    tk_exd_tsk();                  // Exit task
   }
-  ER ercd = E_OK;
 
-  ercd = tk_sta_tsk(task1_b_id, stacd);
+  ER ercd =
+      tk_sta_tsk(task1_b_id, stacd); // Start task1_test_sleep_with_releases
   TEST_ASSERT_EQUAL(E_OK, ercd);
 
   extern void tkmc_yield(void);
-  tkmc_yield();
+  tkmc_yield(); // Yield control to other tasks
 
+  // Release wait state for task1_test_sleep_with_releases
   ercd = tk_rel_wai(task1_b_id);
   TEST_ASSERT_EQUAL(E_OK, ercd);
   tkmc_yield();
@@ -170,84 +184,91 @@ static void task1_test_release_wait(INT stacd, void *exinf) {
   TEST_ASSERT_EQUAL(E_OK, ercd);
   tkmc_yield();
 
+  // Wake up task1
   ID task1_id = get_tskid(TASK1);
   tk_wup_tsk(task1_id);
 
   putstring("task1_test_release_wait finish\n");
-  tk_exd_tsk();
+  tk_exd_tsk(); // Exit task
 }
 
 void task1_test_sleep_with_releases(INT stacd, void *exinf) {
   putstring("task1_test_sleep_with_releases start\n");
 
   ER ercd;
-  ercd = tk_slp_tsk(50);
+  ercd = tk_slp_tsk(50); // Sleep for 50 ms and expect release wait
   TEST_ASSERT_EQUAL(E_RLWAI, ercd);
-  ercd = tk_slp_tsk(50);
+  ercd = tk_slp_tsk(50); // Sleep for 50 ms and expect release wait
   TEST_ASSERT_EQUAL(E_RLWAI, ercd);
-  ercd = tk_slp_tsk(50);
+  ercd = tk_slp_tsk(50); // Sleep for 50 ms and expect timeout
   TEST_ASSERT_EQUAL(E_TMOUT, ercd);
 
   putstring("task1_test_sleep_with_releases finish\n");
-  tk_exd_tsk();
+  tk_exd_tsk(); // Exit task
 }
 
-// task1_test_sleep_with_wakeups is similar to task1_test_sleep_with_releases
-// but expects 3 E_OK results and 1 E_TMOUT
+// Task function: task1_test_sleep_with_wakeups
+// Similar to task1_test_sleep_with_releases but expects 3 E_OK results and 1
+// E_TMOUT
 static void task1_test_sleep_with_wakeups(INT stacd, void *exinf) {
   putstring("task1_test_sleep_with_wakeups start\n");
 
   ER ercd;
-  ercd = tk_slp_tsk(50);
+  ercd = tk_slp_tsk(50); // Sleep for 50 ms and expect wakeup
   TEST_ASSERT_EQUAL(E_OK, ercd);
-  ercd = tk_slp_tsk(50);
+  ercd = tk_slp_tsk(50); // Sleep for 50 ms and expect wakeup
   TEST_ASSERT_EQUAL(E_OK, ercd);
-  ercd = tk_slp_tsk(50);
+  ercd = tk_slp_tsk(50); // Sleep for 50 ms and expect wakeup
   TEST_ASSERT_EQUAL(E_OK, ercd);
-  ercd = tk_slp_tsk(50);
+  ercd = tk_slp_tsk(50); // Sleep for 50 ms and expect timeout
   TEST_ASSERT_EQUAL(E_TMOUT, ercd);
 
   putstring("task1_test_sleep_with_wakeups finish\n");
-  tk_exd_tsk();
+  tk_exd_tsk(); // Exit task
 }
 
-// task1_test_wakeup_multiple executes tk_wup_tsk 3 times, similar to
-// task1_test_release_wait
+// Task function: task1_test_wakeup_multiple
+// Executes tk_wup_tsk 3 times, similar to task1_test_release_wait
 static void task1_test_wakeup_multiple(INT stacd, void *exinf) {
   putstring("task1_test_wakeup_multiple start\n");
 
+  // Create and start task1_test_sleep_with_wakeups
   ID task1_b_id = tk_cre_tsk(&(T_CTSK){
       .exinf = NULL,
-      .tskatr = TA_HLNG | TA_USERBUF,
-      .task = task1_test_sleep_with_wakeups,
-      .itskpri =
-          1, // task1_b has the same priority as task1_test_sleep_with_releases
-      .stksz = sizeof(g_stack2_1024B),
-      .bufptr = g_stack2_1024B});
+      .tskatr =
+          TA_HLNG | TA_USERBUF, // High-level language task with user buffer
+      .task = task1_test_sleep_with_wakeups, // Task function
+      .itskpri = 1, // Same priority as task1_test_sleep_with_releases
+      .stksz = sizeof(g_stack2_1024B), // Stack size
+      .bufptr = g_stack2_1024B});      // Stack buffer
   TEST_ASSERT_GREATER_THAN(0, task1_b_id);
   if (task1_b_id < 0) {
-    putstring("task1_b_id < 0\n");
-    tk_exd_tsk();
+    putstring("task1_b_id < 0\n"); // Error message
+    tk_exd_tsk();                  // Exit task
   }
-  ER ercd = tk_sta_tsk(task1_b_id, stacd);
+
+  ER ercd =
+      tk_sta_tsk(task1_b_id, stacd); // Start task1_test_sleep_with_wakeups
   TEST_ASSERT_EQUAL(E_OK, ercd);
 
   extern void tkmc_yield(void);
+  tkmc_yield(); // Yield control to other tasks
+
+  // Wake up task1_test_sleep_with_wakeups multiple times
+  ercd = tk_wup_tsk(task1_b_id);
+  TEST_ASSERT_EQUAL(E_OK, ercd);
+  tkmc_yield();
+  ercd = tk_wup_tsk(task1_b_id);
+  TEST_ASSERT_EQUAL(E_OK, ercd);
+  tkmc_yield();
+  ercd = tk_wup_tsk(task1_b_id);
+  TEST_ASSERT_EQUAL(E_OK, ercd);
   tkmc_yield();
 
-  ercd = tk_wup_tsk(task1_b_id);
-  TEST_ASSERT_EQUAL(E_OK, ercd);
-  tkmc_yield();
-  ercd = tk_wup_tsk(task1_b_id);
-  TEST_ASSERT_EQUAL(E_OK, ercd);
-  tkmc_yield();
-  ercd = tk_wup_tsk(task1_b_id);
-  TEST_ASSERT_EQUAL(E_OK, ercd);
-  tkmc_yield();
-
+  // Wake up task1
   ID task1_id = get_tskid(TASK1);
   tk_wup_tsk(task1_id);
 
   putstring("task1_test_wakeup_multiple finish\n");
-  tk_exd_tsk();
+  tk_exd_tsk(); // Exit task
 }
