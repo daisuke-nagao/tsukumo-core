@@ -19,7 +19,6 @@ enum TASK_INDEX {
   TASK_NBOF,
 };
 
-// comment must be written in English
 // Prototype declaration of static functions with updated names
 static void task1_test_timeout(INT stacd, void *exinf);
 static void task1_test_release_wait(INT stacd, void *exinf);
@@ -194,8 +193,25 @@ void task1_test_sleep_with_releases(INT stacd, void *exinf) {
   tk_exd_tsk();
 }
 
-static void task1_test_sleep_with_wakeups(INT stacd, void *exinf);
-// task1_test_release_waitみたいに、tk_wup_tskを3回実行するタスクを実装する
+// task1_test_sleep_with_wakeups is similar to task1_test_sleep_with_releases but expects 3 E_OK results and 1 E_TMOUT
+static void task1_test_sleep_with_wakeups(INT stacd, void *exinf) {
+  putstring("task1_test_sleep_with_wakeups start\n");
+
+  ER ercd;
+  ercd = tk_slp_tsk(50);
+  TEST_ASSERT_EQUAL(E_OK, ercd);
+  ercd = tk_slp_tsk(50);
+  TEST_ASSERT_EQUAL(E_OK, ercd);
+  ercd = tk_slp_tsk(50);
+  TEST_ASSERT_EQUAL(E_OK, ercd);
+  ercd = tk_slp_tsk(50);
+  TEST_ASSERT_EQUAL(E_TMOUT, ercd);
+
+  putstring("task1_test_sleep_with_wakeups finish\n");
+  tk_exd_tsk();
+}
+
+// task1_test_wakeup_multiple executes tk_wup_tsk 3 times, similar to task1_test_release_wait
 static void task1_test_wakeup_multiple(INT stacd, void *exinf) {
   putstring("task1_test_wakeup_multiple start\n");
 
@@ -203,18 +219,15 @@ static void task1_test_wakeup_multiple(INT stacd, void *exinf) {
       &(T_CTSK){.exinf = (void *)task1_b_exinf,
                 .tskatr = TA_HLNG | TA_USERBUF,
                 .task = task1_test_sleep_with_wakeups,
-                .itskpri = 1, // task1_b is the same priority as task1_test_sleep_with_releases
+                .itskpri = 1, // task1_b has the same priority as task1_test_sleep_with_releases
                 .stksz = sizeof(g_stack2_1024B),
                 .bufptr = g_stack2_1024B});
   TEST_ASSERT_GREATER_THAN(0, task1_b_id);
   if (task1_b_id < 0) {
     putstring("task1_b_id < 0\n");
-    // task1_test_sleep_with_releases must be deleted here, but tk_del_tsk() is not implemented yet.
     tk_exd_tsk();
   }
-  ER ercd = E_OK;
-
-  ercd = tk_sta_tsk(task1_b_id, stacd);
+  ER ercd = tk_sta_tsk(task1_b_id, stacd);
   TEST_ASSERT_EQUAL(E_OK, ercd);
 
   extern void tkmc_yield(void);
@@ -234,23 +247,5 @@ static void task1_test_wakeup_multiple(INT stacd, void *exinf) {
   tk_wup_tsk(task1_id);
 
   putstring("task1_test_wakeup_multiple finish\n");
-  tk_exd_tsk();
-}
-
-// task1_test_sleep_with_releasesみたいなタスクだけど期待結果は３回E_OKで４回目にE_TMOUTになること
-static void task1_test_sleep_with_wakeups(INT stacd, void *exinf) {
-  putstring("task1_test_sleep_with_wakeups start\n");
-
-  ER ercd;
-  ercd = tk_slp_tsk(50);
-  TEST_ASSERT_EQUAL(E_OK, ercd);
-  ercd = tk_slp_tsk(50);
-  TEST_ASSERT_EQUAL(E_OK, ercd);
-  ercd = tk_slp_tsk(50);
-  TEST_ASSERT_EQUAL(E_OK, ercd);
-  ercd = tk_slp_tsk(50);
-  TEST_ASSERT_EQUAL(E_TMOUT, ercd);
-
-  putstring("task1_test_sleep_with_wakeups finish\n");
   tk_exd_tsk();
 }
