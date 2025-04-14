@@ -12,9 +12,10 @@
 
 extern ID get_tskid(unsigned int index);
 
-// Prototype declarations for task2_a and task2_b
-static void task2_a(INT stacd, void *exinf);
-static void task2_b(INT stacd, void *exinf);
+// Prototype declarations for task2_test_event_flag and
+// task2_test_event_flag_operations
+static void task2_test_event_flag(INT stacd, void *exinf);
+static void task2_test_event_flag_operations(INT stacd, void *exinf);
 
 /// Entry point for TASK2
 /// @param stacd Start code (startup information)
@@ -22,10 +23,10 @@ static void task2_b(INT stacd, void *exinf);
 void task2(INT stacd, void *exinf) {
   putstring("task2 start\n");
 
-  // Create and start task2_a
+  // Create and start task2_test_event_flag
   ID task2_a_id = tk_cre_tsk(&(T_CTSK){.exinf = NULL,
                                        .tskatr = TA_HLNG | TA_USERBUF,
-                                       .task = task2_a,
+                                       .task = task2_test_event_flag,
                                        .itskpri = 1,
                                        .stksz = sizeof(g_stack1_1024B),
                                        .bufptr = g_stack1_1024B});
@@ -44,7 +45,7 @@ void task2(INT stacd, void *exinf) {
     tk_exd_tsk();
   }
 
-  ercd = tk_slp_tsk(TMO_FEVR); // Sleep until woken up by task2_a
+  ercd = tk_slp_tsk(TMO_FEVR); // Sleep until woken up by task2_test_event_flag
   TEST_ASSERT_EQUAL(E_OK, ercd);
 
   ID task3_id = get_tskid(stacd + 1);
@@ -57,11 +58,11 @@ void task2(INT stacd, void *exinf) {
   tk_exd_tsk();
 }
 
-/// Entry point for TASK2_A
+/// Entry point for TASK2_TEST_EVENT_FLAG
 /// @param stacd Start code (startup information)
 /// @param exinf Extended information passed at task creation
-static void task2_a(INT stacd, void *exinf) {
-  putstring("task2_a start\n");
+static void task2_test_event_flag(INT stacd, void *exinf) {
+  putstring("task2_test_event_flag start\n");
 
   // Create an event flag
   T_CFLG pk_cflg = {
@@ -74,7 +75,7 @@ static void task2_a(INT stacd, void *exinf) {
   ID flgid = tk_cre_flg(&pk_cflg);
   TEST_ASSERT_GREATER_THAN(E_OK, flgid);
   if (flgid < 0) {
-    putstring("task2_a: failed to create flag\n");
+    putstring("task2_test_event_flag: failed to create flag\n");
     tk_exd_tsk();
   }
 
@@ -105,10 +106,10 @@ static void task2_a(INT stacd, void *exinf) {
   ercd = tk_wai_flg(flgid, 0x00000008, TWF_ANDW | TWF_CLR, &flgptn, TMO_POL);
   TEST_ASSERT_EQUAL(E_OK, ercd);
 
-  // Create and start task2_b
+  // Create and start task2_test_event_flag_operations
   ID task2_b_id = tk_cre_tsk(&(T_CTSK){.exinf = NULL,
                                        .tskatr = TA_HLNG | TA_USERBUF,
-                                       .task = task2_b,
+                                       .task = task2_test_event_flag_operations,
                                        .itskpri = 2,
                                        .stksz = sizeof(g_stack2_1024B),
                                        .bufptr = g_stack2_1024B});
@@ -123,16 +124,16 @@ static void task2_a(INT stacd, void *exinf) {
   ID task2_id = get_tskid(TASK2);
   tk_wup_tsk(task2_id); // Release wait for task2
 
-  putstring("task2_a finish\n");
+  putstring("task2_test_event_flag finish\n");
   // Exit task
   tk_exd_tsk();
 }
 
-/// Entry point for TASK2_B
+/// Entry point for TASK2_TEST_EVENT_FLAG_OPERATIONS
 /// @param stacd Start code (startup information)
 /// @param exinf Extended information passed at task creation
-static void task2_b(INT stacd, void *exinf) {
-  putstring("task2_b start\n");
+static void task2_test_event_flag_operations(INT stacd, void *exinf) {
+  putstring("task2_test_event_flag_operations start\n");
 
   // Operate on the event flag
   ID flgid = (ID)stacd;
@@ -144,7 +145,7 @@ static void task2_b(INT stacd, void *exinf) {
 
   tk_set_flg(flgid, setptn);
 
-  putstring("task2_b finish\n");
+  putstring("task2_test_event_flag_operations finish\n");
   // Exit task
   tk_exd_tsk();
 }
