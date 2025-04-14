@@ -8,16 +8,10 @@
 #include <unity.h>
 
 #include "putstring.h"
+#include "tasks.h"
 #include "userstack.h"
 
 extern ID get_tskid(unsigned int index);
-
-enum TASK_INDEX {
-  TASK1 = 0, // Index for task1
-  TASK2,     // Index for task2
-  TASK3,     // Index for task3
-  TASK_NBOF, // Total number of tasks
-};
 
 // Prototype declaration of static functions
 static void task1_test_timeout(INT, void *);      // Tests timeout behavior
@@ -122,10 +116,10 @@ void task1(INT stacd, void *exinf) {
   TEST_ASSERT_EQUAL(E_OK, ercd);
 
   // Start the next task (task2)
-  ID next_tskid = get_tskid(TASK2);
+  ID next_tskid = get_tskid(stacd + 1);
   TEST_ASSERT_GREATER_THAN(0, next_tskid);
   if (next_tskid > 0) {
-    tk_sta_tsk(next_tskid, stacd); // Start task2
+    tk_sta_tsk(next_tskid, stacd + 1); // Start task2
   }
 
   putstring("task1 finish\n");
