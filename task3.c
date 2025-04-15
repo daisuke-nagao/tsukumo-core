@@ -6,26 +6,12 @@
 #include <tk/tkernel.h>
 
 #include "putstring.h"
+#include "tasks.h"
 #include "userstack.h"
-
-extern ID get_tskid(unsigned int index);
 
 // Function prototypes for sem_tsk_hi and sem_tsk_lo
 static void sem_tsk_hi(INT stacd, void *exinf);
 static void sem_tsk_lo(INT stacd, void *exinf);
-
-// Extended information for sem_tsk_hi and sem_tsk_lo
-static const char sem_tsk_hi_exinf[] = "sem_tsk_hi";
-static const char sem_tsk_lo_exinf[] = "sem_tsk_lo";
-
-/// Enum to identify each task by index
-enum TASK_INDEX {
-  TASK1 = 0,
-  TASK2,
-  TASK3,
-  TASK4,
-  TASK_NBOF, // Number of tasks
-};
 
 static ID s_flgid = 0; // Global event flag ID
 
@@ -66,7 +52,7 @@ void task3(INT stacd, void *exinf) {
   }
 
   // Create and start sem_tsk_hi
-  ID sem_tsk_hi_id = tk_cre_tsk(&(T_CTSK){.exinf = (void *)sem_tsk_hi_exinf,
+  ID sem_tsk_hi_id = tk_cre_tsk(&(T_CTSK){.exinf = NULL,
                                           .tskatr = TA_HLNG | TA_USERBUF,
                                           .task = sem_tsk_hi,
                                           .itskpri = 2,
@@ -84,7 +70,7 @@ void task3(INT stacd, void *exinf) {
   }
 
   // Create and start sem_tsk_lo
-  ID sem_tsk_lo_id = tk_cre_tsk(&(T_CTSK){.exinf = (void *)sem_tsk_lo_exinf,
+  ID sem_tsk_lo_id = tk_cre_tsk(&(T_CTSK){.exinf = NULL,
                                           .tskatr = TA_HLNG | TA_USERBUF,
                                           .task = sem_tsk_lo,
                                           .itskpri = 3,
