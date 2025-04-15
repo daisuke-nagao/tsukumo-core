@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include <tk/tkernel.h>
+#include <unity.h>
 
 #include "putstring.h"
 #include "tasks.h"
@@ -29,12 +30,8 @@ void task3(INT stacd, void *exinf) {
       .iflgptn = 0,       // Initial flag pattern
   };
   ID flgid = tk_cre_flg(&pk_cflg);
-  if (flgid < 0) {
-    putstring("task3: failed to create event flag\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_GREATER_THAN(E_OK, flgid);
   s_flgid = flgid;
-  putstring("task3: created event flag\n");
 
   // Create a semaphore to synchronize access between sem_tsk_hi and
   // sem_tsk_lo
@@ -46,10 +43,7 @@ void task3(INT stacd, void *exinf) {
   };
 
   ID semid = tk_cre_sem(&pk_csem);
-  if (semid < 0) {
-    putstring("task3: failed to create semaphore\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_GREATER_THAN(E_OK, semid);
 
   // Create and start sem_tsk_hi
   ID sem_tsk_hi_id = tk_cre_tsk(&(T_CTSK){.exinf = NULL,
@@ -58,16 +52,10 @@ void task3(INT stacd, void *exinf) {
                                           .itskpri = 2,
                                           .stksz = sizeof(g_stack1_1024B),
                                           .bufptr = g_stack1_1024B});
-  if (sem_tsk_hi_id < 0) {
-    putstring("sem_tsk_hi_id < 0\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_GREATER_THAN(E_OK, sem_tsk_hi_id);
 
   ER ercd = tk_sta_tsk(sem_tsk_hi_id, semid);
-  if (ercd != E_OK) {
-    putstring("tk_sta_tsk(sem_tsk_hi_id, semid) != E_OK\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_EQUAL(E_OK, ercd);
 
   // Create and start sem_tsk_lo
   ID sem_tsk_lo_id = tk_cre_tsk(&(T_CTSK){.exinf = NULL,
@@ -76,43 +64,31 @@ void task3(INT stacd, void *exinf) {
                                           .itskpri = 3,
                                           .stksz = sizeof(g_stack2_1024B),
                                           .bufptr = g_stack2_1024B});
-  if (sem_tsk_lo_id < 0) {
-    putstring("sem_tsk_lo_id < 0\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_GREATER_THAN(E_OK, sem_tsk_lo_id);
 
   ercd = tk_sta_tsk(sem_tsk_lo_id, semid);
-  if (ercd != E_OK) {
-    putstring("tk_sta_tsk(sem_tsk_lo_id, semid) != E_OK\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_EQUAL(E_OK, ercd);
 
   // Wait for sem_tsk_hi and sem_tsk_lo to signal
   // completion via the event flag
   UINT flgptn;
   ercd = tk_wai_flg(flgid, 0x0003, TWF_ANDW | TWF_CLR, &flgptn, TMO_FEVR);
-  if (ercd != E_OK) {
-    putstring("tk_wai_flg(flgid, 0x0003, TWF_ANDW | TWF_CLR, &flgptn, "
-              "TMO_FEVR) != E_OK\n");
-    tk_exd_tsk();
-  }
-  if (flgptn == 3) {
-    putstring("task3: sem_tsk_hi and sem_tsk_lo "
-              "completed successfully\n");
-  } else {
-    putstring("task3: sem_tsk_hi and/or sem_tsk_lo failed\n");
-  }
-  putstring("task3: event flag set\n");
+  TEST_ASSERT_EQUAL(E_OK, ercd);
+  TEST_ASSERT_EQUAL(0x0003, flgptn);
 
   tk_dly_tsk(100); // Delay to allow other tasks to finish
 
-  //! @todo delete event flag and semaphore
-  //! @todo deleting function is note implemented for event flag and semaphore
-  tk_del_sem(semid); // Delete the semaphore
-  putstring("task3: deleted semaphore\n");
+  //! @todo delete event flag
+  //! @todo deleting function is note implemented for event flag
+  ercd = tk_del_sem(semid); // Delete the semaphore
+  TEST_ASSERT_EQUAL(E_OK, ercd);
 
-  tk_sta_tsk(get_tskid(TASK4), 0); // Start TASK4
+  ID task4_id = get_tskid(stacd + 1);
+  if (task4_id > 0) {
+    tk_sta_tsk(task4_id, stacd + 1); // Start task4
+  }
 
+  putstring("task3 finish\n");
   // Terminate task3
   tk_exd_tsk();
 }
