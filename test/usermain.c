@@ -5,43 +5,20 @@
  */
 
 #include <tk/tkernel.h>
+#include <unity.h>
 
-extern void task1(INT stacd, void *exinf);
-extern void task2(INT stacd, void *exinf);
-extern void task3(INT stacd, void *exinf);
-extern void task4(INT stacd, void *exinf);
+#include "putstring.h"
+#include "tasks.h"
 
 static UW task1_stack[256] __attribute__((aligned(16)));
 static UW task2_stack[256] __attribute__((aligned(16)));
 static UW task3_stack[256] __attribute__((aligned(16)));
 static UW task4_stack[256] __attribute__((aligned(16)));
 
-enum TASK_INDEX {
-  TASK1 = 0,
-  TASK2,
-  TASK3,
-  TASK4,
-  TASK_NBOF,
-};
-
-static ID s_id_map[TASK_NBOF] = {
-    0,
-    0,
-    0,
-    0,
-};
-
-ID get_tskid(unsigned int index) {
-  if (index >= TASK_NBOF) {
-    return E_PAR;
-  }
-  return s_id_map[index];
-}
-
 static const char task1_exinf[] = "Task1";
 static const char task2_exinf[] = "Task2";
 
-T_CTSK s_pk_ctsk[] = {
+T_CTSK s_pk_ctsk[TASK_NBOF] = {
     {
         .exinf = (void *)task1_exinf,
         .tskatr = TA_USERBUF,
@@ -79,10 +56,23 @@ T_CTSK s_pk_ctsk[] = {
 void usermain(int _a0) {
   for (int i = 0; i < sizeof(s_pk_ctsk) / sizeof(s_pk_ctsk[0]); ++i) {
     ID tskid = tk_cre_tsk(&s_pk_ctsk[i]);
+    TEST_ASSERT_GREATER_THAN(0, tskid);
     if (tskid > 0) {
-      s_id_map[i] = tskid;
+      ER ercd = set_tskid(i, tskid);
+      (void)ercd;
     }
   }
 
-  tk_sta_tsk(get_tskid(TASK1), TASK1);
+  ER ercd = tk_sta_tsk(get_tskid(TASK1), TASK1);
+  TEST_ASSERT_EQUAL(E_OK, ercd);
+}
+
+void (*outputChar)(int) = tkmc_putchar;
+
+void setUp(void) {
+  // Initialization code for tests can be added here.
+}
+
+void tearDown(void) {
+  // Cleanup code for tests can be added here.
 }

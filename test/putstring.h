@@ -10,9 +10,11 @@
 
 static const INT UART0_BASE = (INT)0x10000000;
 
+static inline void tkmc_putchar(INT c) { out_w(UART0_BASE, c); }
+
 static void putstring(const char *str) {
   while (*str != '\0') {
-    out_w(UART0_BASE, *str);
+    tkmc_putchar(*str);
     ++str;
   }
 }

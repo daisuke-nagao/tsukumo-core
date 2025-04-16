@@ -4,25 +4,18 @@
  * SPDX-License-Identifier: MIT
  */
 #include <tk/tkernel.h>
+#include <unity.h>
 
 #include "putstring.h"
+#include "tasks.h"
 #include "userstack.h"
 
 extern ID get_tskid(unsigned int index);
 
-enum TASK_INDEX {
-  TASK1 = 0,
-  TASK2,
-  TASK3,
-  TASK_NBOF,
-};
-
-// Prototype declarations for task2_a and task2_b
-static void task2_a(INT stacd, void *exinf);
-static void task2_b(INT stacd, void *exinf);
-
-static const char task2_a_exinf[] = "task2_a";
-static const char task2_b_exinf[] = "task2_b";
+// Prototype declarations for task2_test_event_flag and
+// task2_test_event_flag_operations
+static void task2_test_event_flag(INT stacd, void *exinf);
+static void task2_test_event_flag_operations(INT stacd, void *exinf);
 
 /// Entry point for TASK2
 /// @param stacd Start code (startup information)
@@ -30,38 +23,46 @@ static const char task2_b_exinf[] = "task2_b";
 void task2(INT stacd, void *exinf) {
   putstring("task2 start\n");
 
-  // Create and start task2_a
-  ID task2_a_id = tk_cre_tsk(&(T_CTSK){.exinf = (void *)task2_a_exinf,
+  // Create and start task2_test_event_flag
+  ID task2_a_id = tk_cre_tsk(&(T_CTSK){.exinf = NULL,
                                        .tskatr = TA_HLNG | TA_USERBUF,
-                                       .task = task2_a,
+                                       .task = task2_test_event_flag,
                                        .itskpri = 1,
                                        .stksz = sizeof(g_stack1_1024B),
                                        .bufptr = g_stack1_1024B});
+  TEST_ASSERT_GREATER_THAN(0, task2_a_id);
   if (task2_a_id < 0) {
     putstring("task2_a_id < 0\n");
     tk_exd_tsk();
   }
 
-  ER ercd = tk_sta_tsk(task2_a_id, stacd);
+  ER ercd;
+
+  ercd = tk_sta_tsk(task2_a_id, stacd);
+  TEST_ASSERT_EQUAL(E_OK, ercd);
   if (ercd != E_OK) {
     putstring("tk_sta_tsk(task2_a_id, stacd) != E_OK\n");
     tk_exd_tsk();
   }
 
-  tk_slp_tsk(TMO_FEVR); // Sleep until woken up by task2_a
+  ercd = tk_slp_tsk(TMO_FEVR); // Sleep until woken up by task2_test_event_flag
+  TEST_ASSERT_EQUAL(E_OK, ercd);
 
-  ID task3_id = get_tskid(TASK3);
-  tk_sta_tsk(task3_id, 0); // Start task3
+  ID task3_id = get_tskid(stacd + 1);
+  if (task3_id > 0) {
+    tk_sta_tsk(task3_id, stacd + 1); // Start task3
+  }
 
+  putstring("task2 finish\n");
   // Terminate task2
   tk_exd_tsk();
 }
 
-/// Entry point for TASK2_A
+/// Entry point for TASK2_TEST_EVENT_FLAG
 /// @param stacd Start code (startup information)
 /// @param exinf Extended information passed at task creation
-static void task2_a(INT stacd, void *exinf) {
-  putstring("task2_a start\n");
+static void task2_test_event_flag(INT stacd, void *exinf) {
+  putstring("task2_test_event_flag start\n");
 
   // Create an event flag
   T_CFLG pk_cflg = {
@@ -72,8 +73,9 @@ static void task2_a(INT stacd, void *exinf) {
 
   // Create an event flag object
   ID flgid = tk_cre_flg(&pk_cflg);
+  TEST_ASSERT_GREATER_THAN(E_OK, flgid);
   if (flgid < 0) {
-    putstring("task2_a: failed to create flag\n");
+    putstring("task2_test_event_flag: failed to create flag\n");
     tk_exd_tsk();
   }
 
@@ -83,74 +85,55 @@ static void task2_a(INT stacd, void *exinf) {
   // Attempt to wait for all bits 0x00a5a5a5 to be set and then cleared
   // (TWF_BITCLR) Expected: immediate success since all bits are initially set
   ercd = tk_wai_flg(flgid, 0x00a5a5a5, TWF_ANDW | TWF_BITCLR, &flgptn, TMO_POL);
-  if (ercd == E_OK) { // expect true
-    putstring("task2_a: E_OK\n");
-  }
+  TEST_ASSERT_EQUAL(E_OK, ercd);
 
   // Retry with same condition, expecting timeout because bits were cleared in
   // previous wait
   ercd = tk_wai_flg(flgid, 0x00a5a5a5, TWF_ANDW | TWF_BITCLR, &flgptn, TMO_POL);
-  if (ercd == E_TMOUT) { // expect true
-    putstring("task2_a: E_TMOUT\n");
-  }
+  TEST_ASSERT_EQUAL(E_TMOUT, ercd);
 
   // Try with OR condition for a slightly different pattern
   // Expected: success, since lower bits still match at least part of 0x00a5a5a7
   ercd = tk_wai_flg(flgid, 0x00a5a5a7, TWF_ORW | TWF_CLR, &flgptn, TMO_POL);
-  if (ercd == E_OK) { // expect true
-    putstring("task2_a: E_OK\n");
-  }
+  TEST_ASSERT_EQUAL(E_OK, ercd);
 
   ercd = tk_wai_flg(flgid, 0xFFFFFFFF, TWF_ORW, &flgptn, TMO_POL);
-  if (ercd == E_TMOUT) { // expect true
-    putstring("task2_a: E_TMOUT\n");
-  }
+  TEST_ASSERT_EQUAL(E_TMOUT, ercd);
 
   ercd = tk_set_flg(flgid, 0x00000008);
-  if (ercd == E_OK) {
-    putstring("task2_a: E_OK\n");
-  }
+  TEST_ASSERT_EQUAL(E_OK, ercd);
 
   ercd = tk_wai_flg(flgid, 0x00000008, TWF_ANDW | TWF_CLR, &flgptn, TMO_POL);
-  if (ercd == E_OK) { // expect true
-    putstring("task2_a: E_OK\n");
-  }
+  TEST_ASSERT_EQUAL(E_OK, ercd);
 
-  // Create and start task2_b
-  ID task2_b_id = tk_cre_tsk(&(T_CTSK){.exinf = (void *)task2_b_exinf,
+  // Create and start task2_test_event_flag_operations
+  ID task2_b_id = tk_cre_tsk(&(T_CTSK){.exinf = NULL,
                                        .tskatr = TA_HLNG | TA_USERBUF,
-                                       .task = task2_b,
+                                       .task = task2_test_event_flag_operations,
                                        .itskpri = 2,
                                        .stksz = sizeof(g_stack2_1024B),
                                        .bufptr = g_stack2_1024B});
-  if (task2_b_id < 0) {
-    putstring("task2_b_id < 0\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_GREATER_THAN(0, task2_b_id);
 
   ercd = tk_sta_tsk(task2_b_id, flgid);
-  if (ercd != E_OK) {
-    putstring("tk_sta_tsk(task2_b_id, flgid) != E_OK\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_EQUAL(E_OK, ercd);
 
   ercd = tk_wai_flg(flgid, 0x00000008, TWF_ANDW | TWF_CLR, &flgptn, 1000);
-  if (ercd == E_OK) { // expect true
-    putstring("task2_a: E_OK. awaken by task\n");
-  }
+  TEST_ASSERT_EQUAL(E_OK, ercd);
 
   ID task2_id = get_tskid(TASK2);
-  tk_rel_wai(task2_id); // Release wait for task2
+  tk_wup_tsk(task2_id); // Release wait for task2
 
+  putstring("task2_test_event_flag finish\n");
   // Exit task
   tk_exd_tsk();
 }
 
-/// Entry point for TASK2_B
+/// Entry point for TASK2_TEST_EVENT_FLAG_OPERATIONS
 /// @param stacd Start code (startup information)
 /// @param exinf Extended information passed at task creation
-static void task2_b(INT stacd, void *exinf) {
-  putstring("task2_b start\n");
+static void task2_test_event_flag_operations(INT stacd, void *exinf) {
+  putstring("task2_test_event_flag_operations start\n");
 
   // Operate on the event flag
   ID flgid = (ID)stacd;
@@ -158,11 +141,11 @@ static void task2_b(INT stacd, void *exinf) {
 
   UINT flgptn;
   ER ercd = tk_wai_flg(flgid, 0xFFFFFFFF, TWF_ORW, &flgptn, TMO_FEVR);
-  if (ercd == E_OBJ) {
-    putstring("task2_b: E_OBJ\n");
-  }
+  TEST_ASSERT_EQUAL(E_OBJ, ercd);
+
   tk_set_flg(flgid, setptn);
 
+  putstring("task2_test_event_flag_operations finish\n");
   // Exit task
   tk_exd_tsk();
 }

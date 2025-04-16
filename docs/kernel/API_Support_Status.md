@@ -14,7 +14,7 @@
 * [ ] `tk_cre_mpf` - Create fixed-size memory pool
 * [ ] `tk_cre_mpl` - Create variable-size memory pool
 * [ ] `tk_cre_mtx` - Create mutex
-* [ ] `tk_cre_sem` - Create semaphore
+* [x] `tk_cre_sem` - Create semaphore
 * [x] `tk_cre_tsk` - Create task
 * [ ] `tk_def_int` - Define interrupt handler
 * [ ] `tk_def_ssy` - Define subsystem
@@ -27,7 +27,7 @@
 * [ ] `tk_del_mpf` - Delete fixed-size memory pool
 * [ ] `tk_del_mpl` - Delete variable-size memory pool
 * [ ] `tk_del_mtx` - Delete mutex
-* [ ] `tk_del_sem` - Delete semaphore
+* [x] `tk_del_sem` - Delete semaphore
 * [ ] `tk_del_tsk` - Delete task
 * [ ] `tk_dis_dsp` - Disable dispatch
 * [ ] `tk_dis_tex` - Disable task exception
@@ -92,7 +92,7 @@
 * [ ] `tk_set_tim_u` - Set system time (TRON expression, microsecond unit)
 * [ ] `tk_set_utc` - Set system time
 * [ ] `tk_set_utc_u` - Set system time (microsecond unit)
-* [ ] `tk_sig_sem` - Return semaphore resource
+* [x] `tk_sig_sem` - Return semaphore resource
 * [ ] `tk_sig_tev` - Send task event
 * [x] `tk_slp_tsk` - Transition self-task to wakeup wait state
 * [ ] `tk_slp_tsk_u` - Transition self-task to wakeup wait state (microsecond unit)
@@ -110,7 +110,7 @@
 * [ ] `tk_unl_mtx` - Unlock mutex
 * [x] `tk_wai_flg` - Wait for event flag
 * [ ] `tk_wai_flg_u` - Wait for event flag (microsecond unit)
-* [ ] `tk_wai_sem` - Acquire semaphore resource
+* [x] `tk_wai_sem` - Acquire semaphore resource
 * [ ] `tk_wai_sem_u` - Acquire semaphore resource (microsecond unit)
 * [ ] `tk_wai_tev` - Wait for task event
 * [ ] `tk_wai_tev_u` - Wait for task event (microsecond unit)
