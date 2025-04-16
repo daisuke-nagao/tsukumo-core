@@ -103,33 +103,25 @@ static void sem_tsk_hi(INT stacd, void *exinf) {
 
   for (int i = 0; i < 5; ++i) {
     // Attempt to acquire the semaphore
-    putstring("sem_tsk_hi: trying to acquire semaphore\n");
-    ER ercd = tk_wai_sem(semid, 1, TMO_FEVR);
-    if (ercd == E_OK) {
-      putstring("sem_tsk_hi: acquired semaphore\n");
-    } else {
-      putstring("sem_tsk_hi: failed to acquire semaphore\n");
-    }
+    ER ercd;
+
+    ercd = tk_wai_sem(semid, 1, 100);
+    TEST_ASSERT_EQUAL(E_OK, ercd);
 
     // Simulate some work
     tk_dly_tsk(50);
 
     // Release the semaphore
-    putstring("sem_tsk_hi: trying to release semaphore\n");
     ercd = tk_sig_sem(semid, 1);
-    if (ercd == E_OK) {
-      putstring("sem_tsk_hi: released semaphore\n");
-    } else {
-      putstring("sem_tsk_hi: failed to release semaphore\n");
-    }
+    TEST_ASSERT_EQUAL(E_OK, ercd);
 
     tk_dly_tsk(50);
   }
 
   // Signal completion by setting the event flag
-  putstring("sem_tsk_hi: setting event flag\n");
   tk_set_flg(s_flgid, 0x0001); // Set the first bit of the event flag
-  putstring("sem_tsk_hi: event flag set\n");
+
+  putstring("sem_tsk_hi finish\n");
 
   // Exit task
   tk_exd_tsk();
@@ -145,33 +137,25 @@ static void sem_tsk_lo(INT stacd, void *exinf) {
 
   for (int i = 0; i < 5; ++i) {
     // Attempt to acquire the semaphore
-    putstring("sem_tsk_lo: trying to acquire semaphore\n");
-    ER ercd = tk_wai_sem(semid, 1, TMO_FEVR);
-    if (ercd == E_OK) {
-      putstring("sem_tsk_lo: acquired semaphore\n");
-    } else {
-      putstring("sem_tsk_lo: failed to acquire semaphore\n");
-    }
+    ER ercd;
+
+    ercd = tk_wai_sem(semid, 1, 100);
+    TEST_ASSERT_EQUAL(E_OK, ercd);
 
     // Simulate some work
     tk_dly_tsk(50);
 
     // Release the semaphore
-    putstring("sem_tsk_lo: trying to release semaphore\n");
     ercd = tk_sig_sem(semid, 1);
-    if (ercd == E_OK) {
-      putstring("sem_tsk_lo: released semaphore\n");
-    } else {
-      putstring("sem_tsk_lo: failed to release semaphore\n");
-    }
+    TEST_ASSERT_EQUAL(E_OK, ercd);
 
     tk_dly_tsk(50);
   }
 
   // Signal completion by setting the event flag
-  putstring("sem_tsk_lo: setting event flag\n");
   tk_set_flg(s_flgid, 0x0002); // Set the second bit of the event flag
-  putstring("sem_tsk_lo: event flag set\n");
+
+  putstring("sem_tsk_lo finish\n");
 
   // Exit task
   tk_exd_tsk();
