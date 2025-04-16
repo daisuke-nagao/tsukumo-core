@@ -4,27 +4,15 @@
  * SPDX-License-Identifier: MIT
  */
 #include <tk/tkernel.h>
+#include <unity.h>
 
 #include "putstring.h"
+#include "tasks.h"
 #include "userstack.h"
-
-extern ID get_tskid(unsigned int index);
 
 // Function prototypes for sem_tsk_1 and sem_tsk_2
 static void sem_tsk_1(INT stacd, void *exinf);
 static void sem_tsk_2(INT stacd, void *exinf);
-
-// Extended information for sem_tsk_1 and sem_tsk_2
-static const char sem_tsk_1_exinf[] = "sem_tsk_1";
-static const char sem_tsk_2_exinf[] = "sem_tsk_2";
-
-/// Enum to identify each task by index
-enum TASK_INDEX {
-  TASK1 = 0,
-  TASK2,
-  TASK3,
-  TASK_NBOF, // Number of tasks
-};
 
 static ID s_flgid = 0; // Global event flag ID
 
@@ -42,12 +30,8 @@ void task4(INT stacd, void *exinf) {
       .iflgptn = 0,       // Initial flag pattern
   };
   ID flgid = tk_cre_flg(&pk_cflg);
-  if (flgid < 0) {
-    putstring("task4: failed to create event flag\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_GREATER_THAN(E_OK, flgid);
   s_flgid = flgid;
-  putstring("task4: created event flag\n");
 
   // Create a semaphore to synchronize access between sem_tsk_1 and
   // sem_tsk_2
@@ -59,70 +43,54 @@ void task4(INT stacd, void *exinf) {
   };
 
   ID semid = tk_cre_sem(&pk_csem);
-  if (semid < 0) {
-    putstring("task4: failed to create semaphore\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_GREATER_THAN(E_OK, semid);
 
   // Create and start sem_tsk_1
-  ID sem_tsk_1_id = tk_cre_tsk(&(T_CTSK){.exinf = (void *)sem_tsk_1_exinf,
+  ID sem_tsk_1_id = tk_cre_tsk(&(T_CTSK){.exinf = NULL,
                                          .tskatr = TA_HLNG | TA_USERBUF,
                                          .task = sem_tsk_1,
                                          .itskpri = 3,
                                          .stksz = sizeof(g_stack1_1024B),
                                          .bufptr = g_stack1_1024B});
-  if (sem_tsk_1_id < 0) {
-    putstring("sem_tsk_1_id < 0\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_GREATER_THAN(E_OK, sem_tsk_1_id);
 
   ER ercd = tk_sta_tsk(sem_tsk_1_id, semid);
-  if (ercd != E_OK) {
-    putstring("tk_sta_tsk(sem_tsk_1_id, semid) != E_OK\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_EQUAL(E_OK, ercd);
 
   // Create and start sem_tsk_2
-  ID sem_tsk_2_id = tk_cre_tsk(&(T_CTSK){.exinf = (void *)sem_tsk_2_exinf,
+  ID sem_tsk_2_id = tk_cre_tsk(&(T_CTSK){.exinf = NULL,
                                          .tskatr = TA_HLNG | TA_USERBUF,
                                          .task = sem_tsk_2,
                                          .itskpri = 3,
                                          .stksz = sizeof(g_stack2_1024B),
                                          .bufptr = g_stack2_1024B});
-  if (sem_tsk_2_id < 0) {
-    putstring("sem_tsk_2_id < 0\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_GREATER_THAN(E_OK, sem_tsk_2_id);
 
   ercd = tk_sta_tsk(sem_tsk_2_id, semid);
-  if (ercd != E_OK) {
-    putstring("tk_sta_tsk(sem_tsk_2_id, semid) != E_OK\n");
-    tk_exd_tsk();
-  }
+  TEST_ASSERT_EQUAL(E_OK, ercd);
 
   // Wait for sem_tsk_1 and sem_tsk_2 to signal
   // completion via the event flag
   UINT flgptn;
   ercd = tk_wai_flg(flgid, 0x0003, TWF_ANDW | TWF_CLR, &flgptn, TMO_FEVR);
-  if (ercd != E_OK) {
-    putstring("tk_wai_flg(flgid, 0x0003, TWF_ANDW | TWF_CLR, &flgptn, "
-              "TMO_FEVR) != E_OK\n");
-    tk_exd_tsk();
-  }
-  if (flgptn == 3) {
-    putstring("task4: sem_tsk_1 and sem_tsk_2 "
-              "completed successfully\n");
-  } else {
-    putstring("task4: sem_tsk_1 and/or sem_tsk_2 failed\n");
-  }
-  putstring("task4: event flag set\n");
+  TEST_ASSERT_EQUAL(E_OK, ercd);
+  TEST_ASSERT_EQUAL(0x0003, flgptn);
 
   tk_dly_tsk(100); // Delay to allow other tasks to finish
 
   //! @todo delete event flag and semaphore
   //! @todo deleting function is note implemented for event flag and semaphore
-  tk_del_sem(semid); // Delete the semaphore
-  putstring("task4: deleted semaphore\n");
+  ercd = tk_del_sem(semid); // Delete the semaphore
+  TEST_ASSERT_EQUAL(E_OK, ercd);
+
+  ID next_task_id = get_tskid(stacd + 1);
+  if (next_task_id > 0) {
+    // Start the next task if it exists
+    ercd = tk_sta_tsk(next_task_id, stacd + 1); // Start the next task
+    TEST_ASSERT_EQUAL(E_OK, ercd);
+  }
+
+  putstring("task4 finish\n");
 
   // Terminate task4
   tk_exd_tsk();
@@ -138,38 +106,27 @@ static void sem_tsk_1(INT stacd, void *exinf) {
 
   for (int i = 0; i < 5; ++i) {
     // Attempt to acquire the semaphore
-    putstring("sem_tsk_1: trying to acquire semaphore\n");
     ER ercd = tk_wai_sem(semid, 3, TMO_FEVR);
-    if (ercd == E_OK) {
-      putstring("sem_tsk_1: acquired semaphore\n");
-    } else {
-      putstring("sem_tsk_1: failed to acquire semaphore\n");
-    }
+    TEST_ASSERT_EQUAL(E_OK, ercd);
 
     // Simulate some work
     tk_dly_tsk(50);
 
     // Release the semaphore
-    putstring("sem_tsk_1: trying to release semaphore\n");
-    putstring("sem_tsk_1: releasing semaphore (1st call)\n");
     ercd = tk_sig_sem(semid, 1);
-    putstring("sem_tsk_1: releasing semaphore (2nd call)\n");
+    TEST_ASSERT_EQUAL(E_OK, ercd);
     ercd = tk_sig_sem(semid, 1);
-    putstring("sem_tsk_1: releasing semaphore (3rd call)\n");
+    TEST_ASSERT_EQUAL(E_OK, ercd);
     ercd = tk_sig_sem(semid, 1);
-    if (ercd == E_OK) {
-      putstring("sem_tsk_1: released semaphore\n");
-    } else {
-      putstring("sem_tsk_1: failed to release semaphore\n");
-    }
+    TEST_ASSERT_EQUAL(E_OK, ercd);
 
     tk_dly_tsk(50);
   }
 
   // Signal completion by setting the event flag
-  putstring("sem_tsk_1: setting event flag\n");
   tk_set_flg(s_flgid, 0x0001); // Set the first bit of the event flag
-  putstring("sem_tsk_1: event flag set\n");
+
+  putstring("sem_tsk_1 finish\n");
 
   // Exit task
   tk_exd_tsk();
@@ -185,38 +142,27 @@ static void sem_tsk_2(INT stacd, void *exinf) {
 
   for (int i = 0; i < 5; ++i) {
     // Attempt to acquire the semaphore
-    putstring("sem_tsk_2: trying to acquire semaphore\n");
     ER ercd = tk_wai_sem(semid, 3, TMO_FEVR);
-    if (ercd == E_OK) {
-      putstring("sem_tsk_2: acquired semaphore\n");
-    } else {
-      putstring("sem_tsk_2: failed to acquire semaphore\n");
-    }
+    TEST_ASSERT_EQUAL(E_OK, ercd);
 
     // Simulate some work
     tk_dly_tsk(50);
 
     // Release the semaphore
-    putstring("sem_tsk_2: trying to release semaphore\n");
-    putstring("sem_tsk_2: releasing semaphore (1st call)\n");
     ercd = tk_sig_sem(semid, 1);
-    putstring("sem_tsk_2: releasing semaphore (2nd call)\n");
+    TEST_ASSERT_EQUAL(E_OK, ercd);
     ercd = tk_sig_sem(semid, 1);
-    putstring("sem_tsk_2: releasing semaphore (3rd call)\n");
+    TEST_ASSERT_EQUAL(E_OK, ercd);
     ercd = tk_sig_sem(semid, 1);
-    if (ercd == E_OK) {
-      putstring("sem_tsk_2: released semaphore\n");
-    } else {
-      putstring("sem_tsk_2: failed to release semaphore\n");
-    }
+    TEST_ASSERT_EQUAL(E_OK, ercd);
 
     tk_dly_tsk(50);
   }
 
   // Signal completion by setting the event flag
-  putstring("sem_tsk_2: setting event flag\n");
   tk_set_flg(s_flgid, 0x0002); // Set the second bit of the event flag
-  putstring("sem_tsk_2: event flag set\n");
+
+  putstring("sem_tsk_2 finish\n");
 
   // Exit task
   tk_exd_tsk();
