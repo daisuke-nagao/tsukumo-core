@@ -32,13 +32,13 @@ add_library(
 
 # Set include paths for the kernel library
 target_include_directories(tsukumo-core-kernel
-                           PUBLIC include ${CMAKE_BINARY_DIR}/include/)
+  PUBLIC include ${CMAKE_BINARY_DIR}/include/)
 
 # Set compile options for the kernel library
 target_compile_options(
   tsukumo-core-kernel
   PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS} -fstack-usage>
-          $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
+  $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
 
 # Set required language standard for the kernel library
 target_compile_features(tsukumo-core-kernel PRIVATE c_std_11)
@@ -72,13 +72,13 @@ endfunction()
 tkmc_add_executable(
   ${EXECUTABLE}
   SOURCES
-  usermain.c
-  userstack.c
-  tasks.c
-  task1.c
-  task2.c
-  task3.c
-  task4.c)
+  test/usermain.c
+  test/userstack.c
+  test/tasks.c
+  test/task1.c
+  test/task2.c
+  test/task3.c
+  test/task4.c)
 
 # download external libraries by using FetchContent
 include(FetchContent)
@@ -106,7 +106,7 @@ target_link_libraries(${EXECUTABLE} PRIVATE unity::framework)
 # libraries or headers are included and enabling stack usage analysis.
 target_compile_options(
   ${EXECUTABLE} PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS} -fstack-usage>
-                        $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
+  $<$<COMPILE_LANGUAGE:ASM>:-x assembler-with-cpp>)
 
 # Set required standards
 target_compile_features(${EXECUTABLE} PRIVATE c_std_11)
@@ -159,7 +159,7 @@ find_program(
 if(NOT QEMU_EXECUTABLE)
   message(
     WARNING
-      "qemu-system-riscv32 not found. Please check PATH, CMAKE_PREFIX_PATH, or install QEMU."
+    "qemu-system-riscv32 not found. Please check PATH, CMAKE_PREFIX_PATH, or install QEMU."
   )
 else()
 
