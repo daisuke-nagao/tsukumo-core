@@ -144,4 +144,6 @@ typedef struct T_MSG_PRI {
   PRI msgpri;   // Message priority
 } T_MSG_PRI;
 
+extern ID tk_cre_mbx(CONST T_CMBX *pk_cmbx);
+
 #endif /* UUID_01946FAC_8E45_7658_B009_C10ED747A05C */
