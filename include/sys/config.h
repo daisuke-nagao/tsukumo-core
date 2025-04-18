@@ -35,7 +35,7 @@ _Static_assert(CFN_MAX_PRI >= 16, "CFN_MAX_PRI must be greater than or equal to 
 _Static_assert(CFN_MAX_FLGID < 0x80000000, "CFN_MAX_FLGID must be less than 2147483648 (0x80000000).");
 
 /* Maximum number of mailboxes */
-// #define CFN_MAX_MBXID 8
+#define CFN_MAX_MBXID 8
 
 /* Maximum number of mutexes */
 // #define CFN_MAX_MTXID 4
