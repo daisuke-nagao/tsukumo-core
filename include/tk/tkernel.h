@@ -135,4 +135,13 @@ typedef struct T_CMBX {
   ATR mbxatr;  // Mailbox attributes
 } T_CMBX;
 
+typedef struct T_MSG {
+  // tkmc_list_head list; /* List of messages in the mailbox */
+} T_MSG;
+
+typedef struct T_MSG_PRI {
+  T_MSG msgque; // Message queue
+  PRI msgpri;   // Message priority
+} T_MSG_PRI;
+
 #endif /* UUID_01946FAC_8E45_7658_B009_C10ED747A05C */
