@@ -130,4 +130,9 @@ extern ER tk_wai_sem(ID semid, INT cnt, TMO tmout);
 extern ER tk_sig_sem(ID semid, INT cnt);
 extern ER tk_del_sem(ID semid);
 
+typedef struct T_CMBX {
+  void *exinf; // Extended information
+  ATR mbxatr;  // Mailbox attributes
+} T_CMBX;
+
 #endif /* UUID_01946FAC_8E45_7658_B009_C10ED747A05C */
