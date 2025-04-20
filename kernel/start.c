@@ -8,6 +8,7 @@
 
 #include "event_flag.h"
 #include "ini_tsk.h"
+#include "mailbox.h"
 #include "semaphore.h"
 #include "task.h"
 #include "timer.h"
@@ -45,6 +46,7 @@ void tkmc_start(int a0, int a1) {
   tkmc_init_flgcb();
   tkmc_init_semcb();
   tkmc_init_timer();
+  tkmc_init_mbxcb();
 
   /* create tkmc_ini_tsk */
   {
