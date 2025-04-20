@@ -30,6 +30,10 @@ void tkmc_init_mbxcb(void) {
     };
     // Initialize the wait queue list head for each mailbox.
     tkmc_init_list_head(&mbxcb->wait_queue);
+
+    // Initialize the mailbox queue list head for each mailbox.
+    tkmc_init_list_head(&mbxcb->mbx_queue);
+
     // Add the mailbox control block's wait queue to the free list.
     tkmc_list_add_tail(&mbxcb->wait_queue, &tkmc_free_mbxcb);
   }

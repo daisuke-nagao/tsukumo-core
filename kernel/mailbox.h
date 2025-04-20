@@ -17,6 +17,7 @@ extern "C" {
 
 typedef struct MBXCB {
   tkmc_list_head wait_queue; // Wait queue
+  tkmc_list_head mbx_queue;  // Mailbox queue
   ID mbxid;                  // Mailbox ID
   void *exinf;               // Extended information
   ATR mbxatr;                // Mailbox attributes
