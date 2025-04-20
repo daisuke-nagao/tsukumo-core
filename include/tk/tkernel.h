@@ -135,8 +135,14 @@ typedef struct T_CMBX {
   ATR mbxatr;  // Mailbox attributes
 } T_CMBX;
 
+// this struct is used to make sure that the size of the struct is 8 bytes
+struct dummy_struct {
+  void *sekva;   // no meaning, just to make the size occupy 4 bytes
+  void *antauxa; // no meaning, just to make the size occupy 4 bytes
+};
+
 typedef struct T_MSG {
-  // tkmc_list_head list; /* List of messages in the mailbox */
+  struct dummy_struct list;
 } T_MSG;
 
 typedef struct T_MSG_PRI {

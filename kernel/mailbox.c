@@ -9,6 +9,9 @@
 
 #include <tk/tkernel.h>
 
+_Static_assert(sizeof(tkmc_list_head) == sizeof(struct dummy_struct),
+               "Size of dummy_struct must be equal to size of tkmc_list_head");
+
 // Array of mailbox control blocks
 MBXCB tkmc_mbxcbs[CFN_MAX_MBXID];
 // Free list that holds mailbox control blocks that are not yet allocated
@@ -40,3 +43,10 @@ void tkmc_init_mbxcb(void) {
 }
 
 ID tk_cre_mbx(CONST T_CMBX *pk_cmbx) { return E_LIMIT; }
+
+// memo:
+// please translate this comment to English.
+// dummy_struct is a structure needed for sizeof(T_MSG), and in the
+// implementation, tkmc_list_head is actually used. However, exposing this
+// structure externally would excessively expose the internal implementation and
+// increase the header files. Therefore, I will use dummy_struct.
