@@ -20,9 +20,21 @@ static tkmc_list_head tkmc_free_mbxcb;
 // Bitmask used to mark control blocks as non-existent (i.e. not allocated)
 #define NOEXS_MASK 0x80000000u
 
+/**
+ * @brief Initialize the mailbox control block (MBXCB) system.
+ *
+ * This function sets up the free list of mailbox control blocks (MBXCBs)
+ * and initializes each control block with default values.
+ *
+ * @pre CFN_MAX_MBXID > 0
+ * @post All MBXCBs are added to the free list and marked as non-existent.
+ * @invariant The free list must always contain unallocated MBXCBs.
+ */
 void tkmc_init_mbxcb(void) {
+  // Initialize the free list head.
   tkmc_init_list_head(&tkmc_free_mbxcb);
 
+  // Iterate through all mailbox control blocks and initialize them.
   for (int i = 0; i < CFN_MAX_MBXID; ++i) {
     MBXCB *mbxcb = &tkmc_mbxcbs[i];
     *mbxcb = (MBXCB){
@@ -31,6 +43,7 @@ void tkmc_init_mbxcb(void) {
         .exinf = NULL, // Extended information (user data), initially NULL.
         .mbxatr = 0,   // Mailbox attributes; will be set on creation.
     };
+
     // Initialize the wait queue list head for each mailbox.
     tkmc_init_list_head(&mbxcb->wait_queue);
 
@@ -42,7 +55,20 @@ void tkmc_init_mbxcb(void) {
   }
 }
 
-// Function to create a mailbox object
+/**
+ * @brief Create a mailbox object.
+ *
+ * This function allocates a mailbox control block (MBXCB) from the free list
+ * and initializes it with the specified attributes and extended information.
+ *
+ * @param[in] pk_cmbx Pointer to the mailbox creation parameter structure.
+ * @return The ID of the created mailbox, or an error code if creation fails.
+ *
+ * @pre pk_cmbx != NULL
+ * @pre The attribute `mbxatr` in `pk_cmbx` must only contain valid bits.
+ * @post If successful, a new mailbox is created and removed from the free list.
+ * @invariant The free list must always contain unallocated MBXCBs.
+ */
 ID tk_cre_mbx(CONST T_CMBX *pk_cmbx) {
   const ATR mbxatr = pk_cmbx->mbxatr;
   static const ATR VALID_MBXATR =
@@ -54,39 +80,40 @@ ID tk_cre_mbx(CONST T_CMBX *pk_cmbx) {
   // This check ensures that only supported attributes are used, preventing
   // undefined behavior or misuse of the mailbox creation function.
   if ((mbxatr & ~VALID_MBXATR) != 0) {
-    return E_RSATR;
+    return E_RSATR; // Return error for invalid attributes.
   }
 
-  ID new_mbxid = 0; // Initialize mailbox ID to 0
+  ID new_mbxid = 0; // Initialize mailbox ID to 0.
 
-  UINT intsts = 0;
+  UINT intsts = 0; // Variable to store interrupt status.
   MBXCB *new_mbxcb = NULL;
-  // Allocate a MBXCB from the free list.
-  // The free list is a linked list of pre-allocated mailbox control blocks
-  // (MBXCBs) that are not currently in use. It is used to efficiently manage
-  // memory and avoid dynamic memory allocation during runtime.
-  new_mbxcb = tkmc_list_first_entry(&tkmc_free_mbxcb, MBXCB, wait_queue);
 
+  // Check if the free list is empty.
   if (tkmc_list_empty(&tkmc_free_mbxcb) == FALSE) {
-    // Allocate a MBXCB from the free list
+    // Allocate a MBXCB from the free list.
     new_mbxcb = tkmc_list_first_entry(&tkmc_free_mbxcb, MBXCB, wait_queue);
+
+    // Remove the allocated MBXCB from the free list.
     tkmc_list_del(&new_mbxcb->wait_queue);
+
+    // Reinitialize the wait queue for the allocated MBXCB.
     tkmc_init_list_head(&new_mbxcb->wait_queue);
 
-    // Update mailbox ID to mark as valid
+    // Update mailbox ID to mark it as valid.
     new_mbxid = new_mbxcb->mbxid & ~NOEXS_MASK;
 
+    // Initialize the allocated MBXCB with the provided parameters.
     new_mbxcb->mbxid = new_mbxid;
     new_mbxcb->exinf = pk_cmbx->exinf;
     new_mbxcb->mbxatr = pk_cmbx->mbxatr;
   } else {
-    // No available MBXCBs
-    new_mbxid = (ID)E_LIMIT;
+    // No available MBXCBs in the free list.
+    new_mbxid = (ID)E_LIMIT; // Return error for resource limit.
   }
 
-  EI(intsts); // Restore interrupts
+  EI(intsts); // Restore interrupts.
 
-  return new_mbxid;
+  return new_mbxid; // Return the new mailbox ID or error code.
 }
 
 // memo:
