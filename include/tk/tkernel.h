@@ -51,6 +51,9 @@
 #define TA_CNT                                                                 \
   0x00000002 /* Prioritise the task with the smallest request count */
 
+#define TA_MFIFO 0x00000000 /* Manage messages in FIFO order */
+#define TA_MPRI 0x00000002  /* Manage messages in order of priority */
+
 #define TTS_NOEXS 0x0000
 #define TTS_RUN 0x0001
 #define TTS_RDY 0x0002
