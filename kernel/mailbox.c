@@ -6,6 +6,7 @@
 
 #include "mailbox.h"
 #include "list.h"
+#include "task.h"
 
 #include <tk/tkernel.h>
 
@@ -116,6 +117,64 @@ ID tk_cre_mbx(CONST T_CMBX *pk_cmbx) {
   return new_mbxid; // Return the new mailbox ID or error code.
 }
 
+ER tk_snd_mbx(ID mbxid, T_MSG *pk_msg) {
+  // Check if the mailbox ID is valid.
+  // The mailbox ID must be greater than 0 and less than or equal to
+  // CFN_MAX_MBXID.
+  if (mbxid <= 0 || mbxid > CFN_MAX_MBXID) {
+    return E_ID; // Return error for invalid ID.
+  }
+
+  // Get the mailbox control block (MBXCB) for the specified mailbox ID.
+  MBXCB *mbxcb = &tkmc_mbxcbs[mbxid - 1];
+
+  // Check if the mailbox exists and is not marked as non-existent.
+  // A mailbox is considered non-existent if its mbxid has the NOEXS_MASK bit
+  // set.
+  if ((mbxcb->mbxid & NOEXS_MASK) != 0) {
+    return E_NOEXS; // Return error for non-existent mailbox.
+  }
+
+  // Check if the message pointer is NULL.
+  // A NULL message pointer is considered an invalid parameter.
+  if (pk_msg == NULL) {
+    return E_PAR; // Return error for invalid parameter.
+  }
+
+  // If the mailbox has the TA_MPRI attribute, validate the message priority.
+  // The message priority must be greater than 0 for priority-based mailboxes.
+  if (mbxcb->mbxatr & TA_MPRI) {
+    T_MSG_PRI *msg_pri = (T_MSG_PRI *)pk_msg;
+    if (msg_pri->msgpri <= 0) {
+      return E_PAR; // Return error for invalid parameters.
+    }
+  }
+
+  // Check if there are any tasks waiting for messages in the mailbox.
+  if (tkmc_list_empty(&mbxcb->wait_queue) == FALSE) {
+    // There are tasks waiting for messages in the mailbox.
+
+    // Remove the first task from the wait queue.
+    TCB *wait_tcb = tkmc_list_first_entry(&mbxcb->wait_queue, TCB, head);
+    tkmc_list_del(&wait_tcb->head); // Remove the task from the wait queue.
+    tkmc_init_list_head(&wait_tcb->head); // Reinitialize the task's list head.
+
+    // Set the return value of the waiting task to the message pointer.
+    //! @todo add msg to wait_tcb->winfo.msg
+    // wait_tcb->winfo.msg = pk_msg;
+
+    //! @todo Unblock the waiting task and set its state to ready.
+  } else {
+    // No tasks are waiting for messages in the mailbox.
+
+    // Add the message to the mailbox queue.
+    // The message is added to the tail of the mailbox's message queue.
+    tkmc_list_head *list = (tkmc_list_head *)&pk_msg->list;
+    tkmc_list_add_tail(list, &mbxcb->mbx_queue);
+  }
+
+  return E_OK; // Return success.
+}
 // memo:
 // dummy_struct is a structure needed for sizeof(T_MSG), and in the
 // implementation, tkmc_list_head is actually used. However, exposing this
