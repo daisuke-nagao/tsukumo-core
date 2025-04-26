@@ -5,6 +5,7 @@
  */
 
 #include "mailbox.h"
+#include "dispatch.h"
 #include "list.h"
 #include "task.h"
 
@@ -117,68 +118,106 @@ ID tk_cre_mbx(CONST T_CMBX *pk_cmbx) {
   return new_mbxid; // Return the new mailbox ID or error code.
 }
 
+/**
+ * @brief Send a message to a mailbox.
+ *
+ * This function sends a message to the specified mailbox. If tasks are waiting
+ * for messages in the mailbox, the message is delivered to the highest-priority
+ * waiting task. Otherwise, the message is added to the mailbox's message queue.
+ *
+ * @param[in] mbxid Mailbox ID.
+ * @param[in] pk_msg Pointer to the message to be sent.
+ * @return E_OK on success, or an error code such as E_ID, E_PAR, or E_NOEXS.
+ *
+ * @pre mbxid > 0 && mbxid <= CFN_MAX_MBXID
+ * @pre pk_msg != NULL
+ * @post The message is either delivered to a waiting task or added to the
+ *       mailbox's message queue.
+ * @invariant The mailbox's message queue and wait queue must remain consistent.
+ */
 ER tk_snd_mbx(ID mbxid, T_MSG *pk_msg) {
-  // Check if the mailbox ID is valid.
-  // The mailbox ID must be greater than 0 and less than or equal to
-  // CFN_MAX_MBXID.
+  // Validate the mailbox ID.
   if (mbxid <= 0 || mbxid > CFN_MAX_MBXID) {
-    return E_ID; // Return error for invalid ID.
+    return E_ID; // Invalid mailbox ID.
   }
 
-  // Check if the message pointer is NULL.
-  // A NULL message pointer is considered an invalid parameter.
+  // Validate the message pointer.
   if (pk_msg == NULL) {
-    return E_PAR; // Return error for invalid parameter.
+    return E_PAR; // Invalid parameter.
   }
 
-  // Get the mailbox control block (MBXCB) for the specified mailbox ID.
+  // Retrieve the mailbox control block.
   MBXCB *mbxcb = &tkmc_mbxcbs[mbxid - 1];
 
   UINT intsts = 0;
-  DI(intsts);
+  DI(intsts); // Disable interrupts to protect shared data.
 
-  // Check if the mailbox exists and is not marked as non-existent.
-  // A mailbox is considered non-existent if its mbxid has the NOEXS_MASK bit
-  // set.
+  // Check if the mailbox exists.
   if ((mbxcb->mbxid & NOEXS_MASK) != 0) {
-    EI(intsts);     // Restore interrupts.
-    return E_NOEXS; // Return error for non-existent mailbox.
+    EI(intsts);
+    return E_NOEXS; // Mailbox does not exist.
   }
 
-  // If the mailbox has the TA_MPRI attribute, validate the message priority.
-  // The message priority must be greater than 0 for priority-based mailboxes.
+  // Handle priority-based message validation for TA_MPRI.
   if (mbxcb->mbxatr & TA_MPRI) {
     T_MSG_PRI *msg_pri = (T_MSG_PRI *)pk_msg;
     if (msg_pri->msgpri <= 0) {
-      EI(intsts);   // Restore interrupts.
-      return E_PAR; // Return error for invalid parameters.
+      EI(intsts);
+      return E_PAR; // Invalid message priority.
     }
   }
 
-  // Check if there are any tasks waiting for messages in the mailbox.
-  if (tkmc_list_empty(&mbxcb->wait_queue) == FALSE) {
-    // There are tasks waiting for messages in the mailbox.
-
-    // Remove the first task from the wait queue.
+  // Check if there are tasks waiting for messages in the mailbox.
+  if (!tkmc_list_empty(&mbxcb->wait_queue)) {
+    // Retrieve the first task from the wait queue.
     TCB *tcb = tkmc_list_first_entry(&mbxcb->wait_queue, TCB, head);
     tkmc_list_del(&tcb->head);       // Remove the task from the wait queue.
     tkmc_init_list_head(&tcb->head); // Reinitialize the task's list head.
 
-    // Set the return value of the waiting task to the message pointer.
+    // Deliver the message to the waiting task.
     tcb->winfo.mailbox.msg = pk_msg;
 
-    //! @todo Unblock the waiting task and set its state to ready.
-  } else {
-    // No tasks are waiting for messages in the mailbox.
+    // Wake up the task and set its state to ready.
+    tcb->tskstat = TTS_RDY;
+    tcb->tskwait = 0;
+    tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
 
-    // Add the message to the mailbox queue.
-    // The message is added to the tail of the mailbox's message queue.
+    // Trigger a context switch if a higher-priority task is ready.
+    next = tkmc_get_highest_priority_task();
+    if (next != current) {
+      dispatch();
+    }
+  } else {
+    // No tasks are waiting; add the message to the mailbox queue.
     tkmc_list_head *list = (tkmc_list_head *)&pk_msg->list;
-    tkmc_list_add_tail(list, &mbxcb->mbx_queue);
+
+    if (mbxcb->mbxatr & TA_MPRI) {
+      // Priority-based message queue insertion.
+      T_MSG_PRI *msg_pri = (T_MSG_PRI *)pk_msg;
+      T_MSG_PRI *pos;
+      BOOL inserted = FALSE;
+
+      tkmc_list_for_each_entry(pos, &mbxcb->mbx_queue, msgque.list) {
+        if (msg_pri->msgpri > pos->msgpri) {
+          tkmc_list_add((tkmc_list_head *)&msg_pri->msgque.list,
+                        (tkmc_list_head *)pos->msgque.list.prev);
+          inserted = TRUE;
+          break;
+        }
+      }
+
+      if (!inserted) {
+        tkmc_list_add_tail((tkmc_list_head *)&msg_pri->msgque.list,
+                           (tkmc_list_head *)&mbxcb->mbx_queue);
+      }
+    } else {
+      // FIFO-based message queue insertion.
+      tkmc_list_add_tail(list, &mbxcb->mbx_queue);
+    }
   }
 
   EI(intsts);  // Restore interrupts.
-  return E_OK; // Return success.
+  return E_OK; // Success.
 }
 // memo:
 // dummy_struct is a structure needed for sizeof(T_MSG), and in the

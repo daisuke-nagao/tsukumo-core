@@ -140,8 +140,14 @@ typedef struct T_CMBX {
 
 // this struct is used to make sure that the size of the struct is 8 bytes
 struct dummy_struct {
-  void *sekva;   // no meaning, just to make the size occupy 4 bytes
-  void *antauxa; // no meaning, just to make the size occupy 4 bytes
+  union {
+    void *sekva; // no meaning, just to make the size occupy 4 bytes
+    void *next;
+  };
+  union {
+    void *antauxa; // no meaning, just to make the size occupy 4 bytes
+    void *prev;
+  };
 };
 
 typedef struct T_MSG {
