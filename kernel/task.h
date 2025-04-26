@@ -21,15 +21,21 @@ typedef struct EventFlagInfo {
   UINT flgptn;
 } EventFlagInfo;
 
-typedef struct SEMINFO {
+typedef struct SemaphoreInfo {
   INT semcnt;
 } SemaphoreInfo;
+
+struct T_MSG;
+typedef struct MailboxInfo {
+  struct T_MSG *msg;
+} MailboxInfo;
 
 typedef struct WaitInfo {
   tkmc_list_head wait_queue;
   union {
     EventFlagInfo event_flag;
     SemaphoreInfo semaphore;
+    MailboxInfo mailbox;
     UB dummy[sizeof(EventFlagInfo)];
   };
 } WaitInfo;

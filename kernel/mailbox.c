@@ -125,20 +125,24 @@ ER tk_snd_mbx(ID mbxid, T_MSG *pk_msg) {
     return E_ID; // Return error for invalid ID.
   }
 
+  // Check if the message pointer is NULL.
+  // A NULL message pointer is considered an invalid parameter.
+  if (pk_msg == NULL) {
+    return E_PAR; // Return error for invalid parameter.
+  }
+
   // Get the mailbox control block (MBXCB) for the specified mailbox ID.
   MBXCB *mbxcb = &tkmc_mbxcbs[mbxid - 1];
+
+  UINT intsts = 0;
+  DI(intsts);
 
   // Check if the mailbox exists and is not marked as non-existent.
   // A mailbox is considered non-existent if its mbxid has the NOEXS_MASK bit
   // set.
   if ((mbxcb->mbxid & NOEXS_MASK) != 0) {
+    EI(intsts);     // Restore interrupts.
     return E_NOEXS; // Return error for non-existent mailbox.
-  }
-
-  // Check if the message pointer is NULL.
-  // A NULL message pointer is considered an invalid parameter.
-  if (pk_msg == NULL) {
-    return E_PAR; // Return error for invalid parameter.
   }
 
   // If the mailbox has the TA_MPRI attribute, validate the message priority.
@@ -146,6 +150,7 @@ ER tk_snd_mbx(ID mbxid, T_MSG *pk_msg) {
   if (mbxcb->mbxatr & TA_MPRI) {
     T_MSG_PRI *msg_pri = (T_MSG_PRI *)pk_msg;
     if (msg_pri->msgpri <= 0) {
+      EI(intsts);   // Restore interrupts.
       return E_PAR; // Return error for invalid parameters.
     }
   }
@@ -155,13 +160,12 @@ ER tk_snd_mbx(ID mbxid, T_MSG *pk_msg) {
     // There are tasks waiting for messages in the mailbox.
 
     // Remove the first task from the wait queue.
-    TCB *wait_tcb = tkmc_list_first_entry(&mbxcb->wait_queue, TCB, head);
-    tkmc_list_del(&wait_tcb->head); // Remove the task from the wait queue.
-    tkmc_init_list_head(&wait_tcb->head); // Reinitialize the task's list head.
+    TCB *tcb = tkmc_list_first_entry(&mbxcb->wait_queue, TCB, head);
+    tkmc_list_del(&tcb->head);       // Remove the task from the wait queue.
+    tkmc_init_list_head(&tcb->head); // Reinitialize the task's list head.
 
     // Set the return value of the waiting task to the message pointer.
-    //! @todo add msg to wait_tcb->winfo.msg
-    // wait_tcb->winfo.msg = pk_msg;
+    tcb->winfo.mailbox.msg = pk_msg;
 
     //! @todo Unblock the waiting task and set its state to ready.
   } else {
@@ -173,6 +177,7 @@ ER tk_snd_mbx(ID mbxid, T_MSG *pk_msg) {
     tkmc_list_add_tail(list, &mbxcb->mbx_queue);
   }
 
+  EI(intsts);  // Restore interrupts.
   return E_OK; // Return success.
 }
 // memo:
