@@ -10,7 +10,7 @@
 * [ ] `tk_cre_cyc_u` - Create cyclic handler (microsecond unit)
 * [x] `tk_cre_flg` - Create event flag
 * [ ] `tk_cre_mbf` - Create message buffer
-* [ ] `tk_cre_mbx` - Create mailbox
+* [x] `tk_cre_mbx` - Create mailbox
 * [ ] `tk_cre_mpf` - Create fixed-size memory pool
 * [ ] `tk_cre_mpl` - Create variable-size memory pool
 * [ ] `tk_cre_mtx` - Create mutex
@@ -23,7 +23,7 @@
 * [ ] `tk_del_cyc` - Delete cyclic handler
 * [ ] `tk_del_flg` - Delete event flag
 * [ ] `tk_del_mbf` - Delete message buffer
-* [ ] `tk_del_mbx` - Delete mailbox
+* [x] `tk_del_mbx` - Delete mailbox
 * [ ] `tk_del_mpf` - Delete fixed-size memory pool
 * [ ] `tk_del_mpl` - Delete variable-size memory pool
 * [ ] `tk_del_mtx` - Delete mutex
@@ -60,7 +60,7 @@
 * [ ] `tk_ras_tex` - Raise task exception
 * [ ] `tk_rcv_mbf` - Receive from message buffer
 * [ ] `tk_rcv_mbf_u` - Receive from message buffer (microsecond unit)
-* [ ] `tk_rcv_mbx` - Receive from mailbox
+* [x] `tk_rcv_mbx` - Receive from mailbox
 * [ ] `tk_rcv_mbx_u` - Receive from mailbox (microsecond unit)
 * [ ] `tk_ref_alm` - Refer alarm handler state
 * [ ] `tk_ref_alm_u` - Refer alarm handler state (microsecond unit)
@@ -98,7 +98,7 @@
 * [ ] `tk_slp_tsk_u` - Transition self-task to wakeup wait state (microsecond unit)
 * [ ] `tk_snd_mbf` - Send to message buffer
 * [ ] `tk_snd_mbf_u` - Send to message buffer (microsecond unit)
-* [ ] `tk_snd_mbx` - Send to mailbox
+* [x] `tk_snd_mbx` - Send to mailbox
 * [ ] `tk_sta_alm` - Start alarm handler
 * [ ] `tk_sta_alm_u` - Start alarm handler (microsecond unit)
 * [ ] `tk_sta_cyc` - Start cyclic handler

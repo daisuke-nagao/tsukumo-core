@@ -65,12 +65,13 @@ static inline void tkmc_list_add_tail(tkmc_list_head *new,
 
 /* Macro to get the next element */
 #define tkmc_list_next_entry(pos, member)                                      \
-  tkmc_list_entry((pos)->member.next, typeof(*(pos)), member)
+  tkmc_list_entry((tkmc_list_head *)(&(pos)->member)->next, typeof(*(pos)),    \
+                  member)
 
 /* Macro for normal traversal */
 #define tkmc_list_for_each_entry(pos, head, member)                            \
   for (pos = tkmc_list_first_entry(head, typeof(*pos), member);                \
-       &pos->member != (head); pos = tkmc_list_next_entry(pos, member))
+       (tkmc_list_head*)&pos->member != (head); pos = tkmc_list_next_entry(pos, member))
 
 /*
  * Macro for safe traversal:

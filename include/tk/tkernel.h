@@ -160,5 +160,8 @@ typedef struct T_MSG_PRI {
 } T_MSG_PRI;
 
 extern ID tk_cre_mbx(CONST T_CMBX *pk_cmbx);
+extern ER tk_del_mbx(ID mbxid);
+extern ER tk_snd_mbx(ID mbxid, T_MSG *pk_msg);
+extern ER tk_rcv_mbx(ID mbxid, T_MSG **ppk_msg, TMO tmout);
 
 #endif /* UUID_01946FAC_8E45_7658_B009_C10ED747A05C */
