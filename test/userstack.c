@@ -10,4 +10,3 @@
 
 UW g_stack1_1024B[256] __attribute__((aligned(16)));
 UW g_stack2_1024B[256] __attribute__((aligned(16)));
-

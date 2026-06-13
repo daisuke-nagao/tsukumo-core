@@ -211,4 +211,3 @@ trap_handlers:
   j default_handler    /* 14: Reserved */
   .balign 4
   j default_handler    /* 15: Reserved */
-
