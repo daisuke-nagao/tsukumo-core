@@ -17,35 +17,46 @@
 #define TK_SUPPORT_LOWPOWER FALSE /* Support of power management functions */
 
 /* Static/dynamic Memory Management Functions */
-#define TK_SUPPORT_USERBUF TRUE  /* Support of user-specified buffer (TA_USERBUF) */
-#define TK_SUPPORT_AUTOBUF FALSE /* Support of automatic buffer allocation (No TA_USERBUF specification) */
-#define TK_SUPPORT_MEMLIB FALSE  /* Support of memory allocation library */
+#define TK_SUPPORT_USERBUF                                                     \
+  TRUE /* Support of user-specified buffer (TA_USERBUF) */
+#define TK_SUPPORT_AUTOBUF                                                     \
+  FALSE /* Support of automatic buffer allocation (No TA_USERBUF               \
+           specification) */
+#define TK_SUPPORT_MEMLIB FALSE /* Support of memory allocation library */
 
 /* Task Exception Handling Functions */
-#define TK_SUPPORT_TASKEXCEPTION FALSE /* Support of task exception handling functions */
+#define TK_SUPPORT_TASKEXCEPTION                                               \
+  FALSE /* Support of task exception handling functions */
 
 /* Subsystem Management Functions */
-#define TK_SUPPORT_SUBSYSTEM FALSE /* Support of subsystem management functions */
-#define TK_SUPPORT_SSYEVENT FALSE  /* Support of event processing of subsystems */
+#define TK_SUPPORT_SUBSYSTEM                                                   \
+  FALSE /* Support of subsystem management functions */
+#define TK_SUPPORT_SSYEVENT                                                    \
+  FALSE /* Support of event processing of subsystems */
 
 /*System Configuration Information Acquisition Functions */
-#define TK_SUPPORT_SYSCONF FALSE /* Support of system configuration information management functions */
+#define TK_SUPPORT_SYSCONF                                                     \
+  FALSE /* Support of system configuration information management functions */
 
 /* Supporting 64-bit and 16-bit CPUs */
-#define TK_HAS_DOUBLEWORD TRUE    /* Support of 64-bit data types (D, UD, VD) */
-#define TK_SUPPORT_USEC FALSE     /* Support of microsecond */
-#define TK_SUPPORT_LARGEDEV FALSE /* Support of large mass-storage device (64-bit) */
-#define TK_SUPPORT_SERCD TRUE     /* Support of sub error code */
+#define TK_HAS_DOUBLEWORD TRUE /* Support of 64-bit data types (D, UD, VD) */
+#define TK_SUPPORT_USEC FALSE  /* Support of microsecond */
+#define TK_SUPPORT_LARGEDEV                                                    \
+  FALSE /* Support of large mass-storage device (64-bit) */
+#define TK_SUPPORT_SERCD TRUE /* Support of sub error code */
 
 /* Interrupt Management Functions */
-#define TK_SUPPORT_INTCTRL FALSE      /* Support of interrupt controller management */
-#define TK_HAS_ENAINTLEVEL FALSE      /* Can specify interrupt priority level */
-#define TK_SUPPORT_CPUINTLEVEL FALSE  /* Support of CPU interrupt mask level */
-#define TK_SUPPORT_CTRLINTLEVEL FALSE /* Support of interrupt controller mask level */
-#define TK_SUPPORT_INTMODE FALSE      /* Support of setting interrupt mode */
+#define TK_SUPPORT_INTCTRL                                                     \
+  FALSE /* Support of interrupt controller management */
+#define TK_HAS_ENAINTLEVEL FALSE     /* Can specify interrupt priority level */
+#define TK_SUPPORT_CPUINTLEVEL FALSE /* Support of CPU interrupt mask level */
+#define TK_SUPPORT_CTRLINTLEVEL                                                \
+  FALSE /* Support of interrupt controller mask level */
+#define TK_SUPPORT_INTMODE FALSE /* Support of setting interrupt mode */
 
 /* Memory Cache Control Functions */
-#define TK_SUPPORT_CACHECTRL FALSE    /* Support of memory cache control functions */
+#define TK_SUPPORT_CACHECTRL                                                   \
+  FALSE /* Support of memory cache control functions */
 #define TK_SUPPORT_SETCACHEMODE FALSE /* Support of set cache mode function */
 #define TK_SUPPORT_WBCACHE FALSE      /* Support of write-back cache */
 #define TK_SUPPORT_WTCACHE FALSE      /* Support of write-through cache */
@@ -58,11 +69,13 @@
 #define TK_SUPPORT_COP3 FALSE /* Support of co-processor number 3 */
 
 /* Miscellaneous Functions */
-#define TK_SUPPORT_ASM FALSE      /* Support of assembly language function entry/exit */
-#define TK_SUPPORT_REGOPS FALSE   /* Support for task-register manipulation functions */
-#define TK_ALLOW_MISALIGN FALSE   /* Memory misalign access is permitted */
-#define TK_BIGENDIAN FALSE        /* Is big endian (Must be defined) */
-#define TK_TRAP_SVC FALSE         /* Use CPU Trap instruction for system call entry */
+#define TK_SUPPORT_ASM                                                         \
+  FALSE /* Support of assembly language function entry/exit */
+#define TK_SUPPORT_REGOPS                                                      \
+  FALSE /* Support for task-register manipulation functions */
+#define TK_ALLOW_MISALIGN FALSE /* Memory misalign access is permitted */
+#define TK_BIGENDIAN FALSE      /* Is big endian (Must be defined) */
+#define TK_TRAP_SVC FALSE /* Use CPU Trap instruction for system call entry */
 #define TK_HAS_SYSSTACK FALSE     /* Task has a separate system stack */
 #define TK_SUPPORT_PTIMER FALSE   /* Support of physical timer function */
 #define TK_SUPPORT_UTC FALSE      /* Support of UNIX time */

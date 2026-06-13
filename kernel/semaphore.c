@@ -327,7 +327,7 @@ ER tk_sig_sem(ID semid, INT cnt) {
 
 /**
  * @brief Deletes a semaphore object.
- * 
+ *
  * This function deallocates a semaphore control block (SEMCB) and marks it as
  * non-existent. It clears the semaphore attributes and counts, and adds the
  * SEMCB back to the free list for future allocation. The function also

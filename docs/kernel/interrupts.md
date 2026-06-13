@@ -40,4 +40,3 @@ void foo() {
 - Example usage in existing uT-Kernel documentation
 
 By explicitly stating this requirement in the documentation, developers can avoid confusion and ensure proper interrupt management in their applications.
-
