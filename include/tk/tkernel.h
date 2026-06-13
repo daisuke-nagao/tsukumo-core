@@ -51,6 +51,9 @@
 #define TA_CNT                                                                 \
   0x00000002 /* Prioritise the task with the smallest request count */
 
+#define TA_MFIFO 0x00000000 /* Manage messages in FIFO order */
+#define TA_MPRI 0x00000002  /* Manage messages in order of priority */
+
 #define TTS_NOEXS 0x0000
 #define TTS_RUN 0x0001
 #define TTS_RDY 0x0002
@@ -129,5 +132,36 @@ extern ID tk_cre_sem(CONST T_CSEM *pk_csem);
 extern ER tk_wai_sem(ID semid, INT cnt, TMO tmout);
 extern ER tk_sig_sem(ID semid, INT cnt);
 extern ER tk_del_sem(ID semid);
+
+typedef struct T_CMBX {
+  void *exinf; // Extended information
+  ATR mbxatr;  // Mailbox attributes
+} T_CMBX;
+
+// this struct is used to make sure that the size of the struct is 8 bytes
+struct dummy_struct {
+  union {
+    void *sekva; // no meaning, just to make the size occupy 4 bytes
+    void *next;
+  };
+  union {
+    void *antauxa; // no meaning, just to make the size occupy 4 bytes
+    void *prev;
+  };
+};
+
+typedef struct T_MSG {
+  struct dummy_struct list;
+} T_MSG;
+
+typedef struct T_MSG_PRI {
+  T_MSG msgque; // Message queue
+  PRI msgpri;   // Message priority
+} T_MSG_PRI;
+
+extern ID tk_cre_mbx(CONST T_CMBX *pk_cmbx);
+extern ER tk_del_mbx(ID mbxid);
+extern ER tk_snd_mbx(ID mbxid, T_MSG *pk_msg);
+extern ER tk_rcv_mbx(ID mbxid, T_MSG **ppk_msg, TMO tmout);
 
 #endif /* UUID_01946FAC_8E45_7658_B009_C10ED747A05C */

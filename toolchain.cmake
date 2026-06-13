@@ -29,9 +29,11 @@ set(CMAKE_CXX_FLAGS_INIT "${RISCV_COMPILE_OPTIONS}")
 set(CMAKE_C_FLAGS_INIT "${RISCV_COMPILE_OPTIONS}")
 set(CMAKE_ASM_FLAGS_INIT "${RISCV_COMPILE_OPTIONS}")
 
-# Set linker flags
+# Set linker flags.
+# Use LLVM's lld explicitly so the Clang driver does not fall back to a system
+# `ld` that may not exist or be executable in this Windows/RISC-V setup.
 set(CMAKE_EXE_LINKER_FLAGS_INIT
-    "-nostdlib -nostartfiles -T \"${CMAKE_SOURCE_DIR}/linker.ld\"")
+    "-fuse-ld=lld -nostdlib -nostartfiles -T \"${CMAKE_SOURCE_DIR}/linker.ld\"")
 
 # Set include and library paths (adjust as needed)
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
