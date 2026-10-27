@@ -56,6 +56,7 @@ add_executable(
   test_fixture.c
   test_list.c
   test_memset.c
+  test_task.c
   test_timer.c
   test_wait.c
   ${PROJECT_SOURCE_DIR}/test/memset_matrix.c)

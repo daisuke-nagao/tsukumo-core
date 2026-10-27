@@ -57,8 +57,15 @@ test_timer_boot_retries_a_read_that_carries_into_the_high_word(void);
 extern void
 test_timer_handler_retries_a_read_that_carries_into_the_high_word(void);
 
+extern void test_task_start_rebuilds_a_damaged_frame(void);
+extern void test_task_start_clears_previous_wakeup_and_wait_state(void);
+extern void test_starting_a_non_dormant_task_leaves_it_unchanged(void);
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_task_start_rebuilds_a_damaged_frame);
+  RUN_TEST(test_task_start_clears_previous_wakeup_and_wait_state);
+  RUN_TEST(test_starting_a_non_dormant_task_leaves_it_unchanged);
   RUN_TEST(test_list_matches_a_model_under_random_operations);
   RUN_TEST(test_semaphore_waiter_blocks_and_a_signal_wakes_it);
   RUN_TEST(test_semaphore_wait_ends_when_the_time_limit_runs_out);

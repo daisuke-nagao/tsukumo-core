@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added host regressions for task frame reconstruction, runtime state reset and rejected starts, plus a `task-restart` QEMU suite that restarts the same task 100 times using both explicit exit and function return.
 - Added host tests for full-width timer startup, low-word wrap, read-time carry and RV32 compare write order, plus a `timer-wrap` QEMU suite on both instruction-count and host clocks.
 - Added tests of deleting a semaphore that tasks wait for: five on the PC (release with `E_DLT`, the time limit of a released waiter, the free list afterwards, the task switch it asks for) and the case `delete_releases_waiters` in the `semaphore` suite.
 - Added tests of waits that end by a time-out, then a signal or set before the task runs again: seven on the PC (`host-tests`, whose queue check now covers the wait queue of every semaphore, event flag and mailbox) and one case each in the `semaphore` and `event-flag` suites.
@@ -61,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Simplified context switching logic with priority-based scheduling.
 
 ### Fixed
+- `tk_sta_tsk()` now rebuilds the full initial register frame on every start and clears previous wakeup and wait state. A restarted task no longer reuses a frame overwritten by the previous run's stack or inherits its queued wakeups.
 - The machine timer now reads and schedules all 64 bits, with stable RV32 reads and safe split compare writes. Low-word wrap no longer breaks scheduling; delayed and duplicate interrupt tick accounting remains unchanged.
 - `tk_del_sem()` on a semaphore that tasks wait for now releases them with `E_DLT`, as `tk_del_mbx()` does. It used to leave them waiting for ever, and linked the semaphore's wait queue to the free list with the waiters still on it; a waiter that left later (by its time limit, for one) then corrupted the free list.
 - A task whose wait times out (semaphore, event flag, mailbox) is now taken off the wait queue of the object at once. It used to stay there until it ran again, and a signal or set that came in between made it ready a second time (a self-looped ready queue), replaced its time-out cause with E_OK, and spent a semaphore unit or cleared an event flag pattern on a task that no longer waited. `tk_rel_wai()` and `tk_wup_tsk()` also leave no time limit behind on the task now.

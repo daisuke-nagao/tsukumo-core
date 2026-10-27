@@ -165,14 +165,7 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     reset_tcb(new_tcb);
 
     /* Initialize the TCB for the new task */
-    static const UINT SZ = sizeof(StashedRegisters);
-    stack_end -= SZ; // Reserve space for the initial context
-    StashedRegisters *regs = (StashedRegisters *)stack_end;
-    for (int i = 0; i < sizeof(regs->array) / sizeof(regs->array[0]); ++i) {
-      regs->array[i] = 0xdeadbeef; // Fill stack with a known pattern
-    }
-    regs->registers.ra = (UINT)tk_ext_tsk;      // Set return address (ra)
-    regs->registers.mepc = (UINT)pk_ctsk->task; // Set task entry point (mepc)
+    stack_end -= sizeof(StashedRegisters); // Reserve the initial context
 
     new_tcb->tskstat = TTS_DMT;          // Set initial task state
     new_tcb->sp = stack_end;             // Set stack pointer
@@ -270,15 +263,25 @@ ER tk_sta_tsk(ID tskid, INT stacd) {
   /* Reset stack pointer to initial value */
   tcb->sp = tcb->initial_sp;
 
-  /* Transition the task to the TTS_RDY state */
-  tcb->tskstat = TTS_RDY;
   tcb->tskwait = 0;
+  tcb->delay_ticks = 0;
+  tcb->wupcnt = 0;
+  tcb->wupcause = E_OK;
+  memset(&tcb->winfo.dummy, 0, sizeof(tcb->winfo.dummy));
+  tkmc_init_list_head(&tcb->winfo.wait_queue);
 
-  /* Set up the task's initial context */
+  /* The previous run used this frame as ordinary stack space. */
   PRI itskpri = tcb->itskpri;
   StashedRegisters *regs = (StashedRegisters *)tcb->sp;
+  for (UINT i = 0; i < sizeof(regs->array) / sizeof(regs->array[0]); ++i) {
+    regs->array[i] = 0xdeadbeef;
+  }
+  regs->registers.ra = (UINT)tk_ext_tsk;
+  regs->registers.mepc = (UINT)tcb->task;
   regs->registers.a0 = (UINT)stacd;      // Set a0 register
   regs->registers.a1 = (UINT)tcb->exinf; // Set a1 register
+  tcb->tskstat = TTS_RDY;
+  tkmc_init_list_head(&tcb->head);
   tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[itskpri - 1]);
 
   /* Update the next task to be scheduled */
