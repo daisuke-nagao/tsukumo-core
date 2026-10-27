@@ -289,22 +289,9 @@ ER tk_sig_sem(ID semid, INT cnt) {
       }
     }
 
-    TCB *tcb = pos;
-    // Remove the task from the wait queue as its request is satisfied.
-    tkmc_list_del(&tcb->winfo.wait_queue);
-    tkmc_init_list_head(&tcb->winfo.wait_queue);
-    // If the task has a pending timer, remove it from the timer queue.
-    if (tcb->delay_ticks > 0) {
-      tkmc_list_del(&tcb->head);
-      tcb->delay_ticks = 0;
-    }
-
-    // Wake up the task by setting its wakeup cause and marking it ready.
-    tcb->wupcause = E_OK;
-    tcb->tskstat = TTS_RDY;
-    tcb->tskwait = 0;
-    // Add the task to the ready queue corresponding to its priority.
-    tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+    // Its request is satisfied: take it off the wait queue and the timer
+    // queue, and make it ready.
+    tkmc_complete_wait(pos, E_OK);
 
     // Subtract the assigned resources from the semaphore count.
     semcb->semcnt -= req;
@@ -333,6 +320,9 @@ ER tk_sig_sem(ID semid, INT cnt) {
  * SEMCB back to the free list for future allocation. The function also
  * validates the semaphore ID and checks if the semaphore object exists before
  * proceeding with the deletion.
+ *
+ * Tasks that wait for the semaphore are released with E_DLT, and a task switch
+ * is requested if one of them should run before the caller.
  */
 ER tk_del_sem(ID semid) {
   // Validate the semaphore ID.
@@ -350,6 +340,17 @@ ER tk_del_sem(ID semid) {
     return E_NOEXS;
   }
 
+  // Release everyone who waits, with the cause that says the semaphore was
+  // deleted. This comes first: the wait queue head is about to become a link of
+  // the free list, and a waiter that was still linked to it would be unlinked
+  // from the free list later (by its time limit, for one), which corrupts it.
+  BOOL released = FALSE;
+  while (!tkmc_list_empty(&semcb->wait_queue)) {
+    TCB *tcb = tkmc_list_first_entry(&semcb->wait_queue, TCB, winfo.wait_queue);
+    tkmc_complete_wait(tcb, E_DLT);
+    released = TRUE;
+  }
+
   // Mark the semaphore as non-existent by setting the NOEXS_MASK.
   semcb->semid |= NOEXS_MASK;
 
@@ -361,6 +362,14 @@ ER tk_del_sem(ID semid) {
 
   // Add the semaphore control block back to the free list.
   tkmc_list_add_tail(&semcb->wait_queue, &tkmc_free_semcb);
+
+  // The released tasks may outrank the one that deleted the semaphore.
+  if (released) {
+    next = tkmc_get_highest_priority_task();
+    if (next != current) {
+      dispatch();
+    }
+  }
 
   EI(intsts);
   return E_OK;

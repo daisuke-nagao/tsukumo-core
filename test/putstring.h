@@ -19,4 +19,12 @@ static void putstring(const char *str) {
   }
 }
 
+// Prints a word as 8 hex digits, for the tests that report an address or a CSR.
+static inline void puthex(UW value) {
+  static const char digits[] = "0123456789abcdef";
+  for (int shift = 28; shift >= 0; shift -= 4) {
+    tkmc_putchar(digits[(value >> shift) & 0xf]);
+  }
+}
+
 #endif /* UUID_0194511A_FCFC_7A1D_B75D_151971DE4900 */

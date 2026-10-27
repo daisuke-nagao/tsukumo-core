@@ -88,17 +88,8 @@ static TCB *pop_waiting_receiver(MBXCB *mbxcb) {
 }
 
 static void make_waiter_ready(TCB *tcb, ER cause, T_MSG *msg) {
-  if (tcb->delay_ticks > 0) {
-    tkmc_list_del(&tcb->head);
-    tkmc_init_list_head(&tcb->head);
-    tcb->delay_ticks = 0;
-  }
-
   tcb->winfo.mailbox.msg = msg;
-  tcb->wupcause = cause;
-  tcb->tskstat = TTS_RDY;
-  tcb->tskwait = 0;
-  tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+  tkmc_complete_wait(tcb, cause);
 }
 
 static void dispatch_if_needed(void) {

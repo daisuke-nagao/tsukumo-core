@@ -64,11 +64,9 @@ void tkmc_timer_handler(void) {
     tkmc_list_for_each_entry_safe(tcb, n, &tkmc_timer_queue, head) {
       tcb->delay_ticks -= 1;
       if (tcb->delay_ticks == 0) {
-        /* Move the task to the ready queue */
-        tkmc_list_del(&tcb->head);
-        tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
-        tcb->tskstat = TTS_RDY;
-        tcb->wupcause = E_TMOUT;
+        /* The wait is over: out of the timer queue and, if the task waited
+         * for an object, out of its wait queue too. */
+        tkmc_complete_wait(tcb, E_TMOUT);
 
         /* Update the next task to be scheduled */
         next = tkmc_get_highest_priority_task();

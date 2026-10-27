@@ -63,6 +63,14 @@ extern void tkmc_init_tcb(void);
 
 extern void __launch_task(void **sp_end);
 extern TCB *tkmc_get_highest_priority_task(void);
+
+// Ends the wait of a task and makes it ready, with the given wake-up cause. It
+// takes the task off the timer queue and off the wait queue of the object it
+// waited for, clears what it waited for and its time limit, and puts it on its
+// ready queue once. The caller owns the rest: what the wait was for (units of a
+// semaphore, a flag pattern, a message), and the scheduling. Interrupts must be
+// disabled.
+extern void tkmc_complete_wait(TCB *tcb, ER cause);
 extern void tkmc_yield(void);
 
 extern TCB *current;
