@@ -47,6 +47,10 @@ ctest --test-dir <build dir> --output-on-failure --no-tests=error
   task, prints a result line per case and a summary, and ends QEMU with exit
   status 0 if no case failed and 1 if one did. A case that does not finish in
   time is reported as a timeout and aborts its suite.
+- `qemu-timer-wrap` moves the machine timer to 100 ms before a low-word wrap,
+  with a nonzero high word, before starting the runner. A 300 ms delay must
+  finish after the wrap. Its separate ELF keeps this clock jump out of the
+  other suites; `qemu-timer-wrap-hostclock` repeats it on the host clock.
 - `qemu-selftest-<name>-expectfail` and `qemu-selftest-<name>-output` check the
   test runner in `test/runner.c`. These `selftest-*` ELFs are built to fail, and
   the `-output` test checks which cases failed and how many ran. Run both of a

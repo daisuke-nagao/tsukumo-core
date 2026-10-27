@@ -22,7 +22,24 @@ tkmc_list_head tkmc_timer_queue;
 #define CLINT_MTIMECMP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET)
 
 /* Static variable to store the next timer compare value */
-static UW s_mtimecmp;
+static UD s_mtimecmp;
+
+static UD read_mtime(void) {
+  UW high, low, next_high;
+  do {
+    high = in_w(CLINT_MTIME_ADDRESS + 4);
+    low = in_w(CLINT_MTIME_ADDRESS);
+    next_high = in_w(CLINT_MTIME_ADDRESS + 4);
+  } while (high != next_high);
+  return ((UD)high << 32) | low;
+}
+
+static void write_mtimecmp(UD value) {
+  // Keep the intermediate RV32 comparand from falling below either endpoint.
+  out_w(CLINT_MTIMECMP_ADDRESS, 0xffffffffu);
+  out_w(CLINT_MTIMECMP_ADDRESS + 4, (UW)(value >> 32));
+  out_w(CLINT_MTIMECMP_ADDRESS, (UW)value);
+}
 
 void tkmc_init_timer(void) { tkmc_init_list_head(&tkmc_timer_queue); }
 
@@ -32,11 +49,11 @@ void tkmc_init_timer(void) { tkmc_init_list_head(&tkmc_timer_queue); }
  * - Configures the initial timer compare value.
  */
 void tkmc_start_timer(void) {
-  UW mtimecmp = in_w(CLINT_MTIME_ADDRESS);
+  UD mtimecmp = read_mtime();
   mtimecmp += 100000; // Set the initial timer compare value
   s_mtimecmp = mtimecmp;
   tkmc_compiler_barrier();
-  out_w(CLINT_MTIMECMP_ADDRESS, mtimecmp);
+  write_mtimecmp(mtimecmp);
 }
 
 /*
@@ -46,17 +63,17 @@ void tkmc_start_timer(void) {
  * time has expired.
  */
 void tkmc_timer_handler(void) {
-  UW mtime = in_w(CLINT_MTIME_ADDRESS);
-  UW mtimecmp = s_mtimecmp;
+  UD mtime = read_mtime();
+  UD mtimecmp = s_mtimecmp;
 
   /* Update the timer compare value to schedule the next interrupt */
   while (mtime >= mtimecmp) {
     mtimecmp += 100000;
-    mtime = in_w(CLINT_MTIME_ADDRESS);
+    mtime = read_mtime();
   }
   s_mtimecmp = mtimecmp;
   tkmc_compiler_barrier();
-  out_w(CLINT_MTIMECMP_ADDRESS, mtimecmp);
+  write_mtimecmp(mtimecmp);
 
   /* Check the timer queue for tasks whose wait time has expired */
   if (!tkmc_list_empty(&tkmc_timer_queue)) {

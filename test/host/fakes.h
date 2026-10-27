@@ -17,9 +17,6 @@
 // The PC has 64 bit pointers, and the kernel keeps 32 bit addresses in plain
 // integers (for example the entry point and the argument in a new task's
 // initial frame). Those round trips are not checked here either.
-// The machine timer is a 32 bit low word here (the high word reads 0), as the
-// kernel only handles the low word; what happens when it wraps (about 7 minutes
-// at 10 MHz) is not tested on the PC.
 
 #ifndef UUID_01A17C3E_ED12_7403_A0D3_A44F99A13F2E
 #define UUID_01A17C3E_ED12_7403_A0D3_A44F99A13F2E
@@ -51,8 +48,12 @@ enum { HOST_LOG_MAX = 256 };
 extern host_access_t host_log[HOST_LOG_MAX];
 extern UINT host_log_count;
 
-// The low word of the machine timer. A read of it returns this value.
-extern UW host_mtime;
+// The full machine timer; MMIO reads return the selected 32 bit word.
+extern UD host_mtime;
+
+// Advance time once, immediately after the next low-word read, to test a
+// carry between the kernel's high/low/high reads. Reset to zero after use.
+extern UD host_mtime_advance_after_low_read;
 
 // Whether interrupts are enabled. Every kernel call must leave them as it
 // found them, on every path out.
