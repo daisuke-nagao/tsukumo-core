@@ -24,16 +24,15 @@ This project aims to create a real-time operating system (RTOS) based on the uT-
    cd tsukumo-core
    ```
 
-2. Create a build directory and configure the build:
+2. Configure the build with a preset (it selects the RISC-V toolchain; a plain
+   `cmake ..` has no toolchain and builds only the PC unit tests, see below):
    ```shell
-   mkdir build
-   cd build
-   cmake ..
+   cmake --preset debug
    ```
 
-3. Build the project:
+3. Build the project (the build directory is `../build/debug`):
    ```shell
-   cmake --build .
+   cmake --build --preset debug
    ```
 
 ## Running on QEMU
@@ -43,7 +42,9 @@ This project aims to create a real-time operating system (RTOS) based on the uT-
    qemu-system-riscv32 -machine virt -bios none -kernel tsukumo-core.elf -nographic
    ```
 
-   This will boot the RTOS in QEMU without a graphical interface.
+   This will boot the kernel in QEMU without a graphical interface. The kernel
+   image has no tests, so it prints nothing and idles; stop it with Ctrl+A, then
+   X. The tests are separate ELFs, described below.
 
 2. If debugging is needed, run with the following option:
    ```shell
@@ -51,6 +52,56 @@ This project aims to create a real-time operating system (RTOS) based on the uT-
    ```
 
    This will display the executed RISC-V assembly instructions.
+
+## Running the tests
+
+The kernel tests are separate ELFs that run on QEMU and end the run by themselves.
+With QEMU found at configure time, run them with CTest after building:
+
+```shell
+ctest --test-dir <build dir> --output-on-failure --no-tests=error
+```
+
+The exit status of each suite tells whether every case passed, except for the
+`panic-*` suites: each ends at a deliberate fatal trap, and its test passes only
+if the output has a `PANIC OK` line (the kernel stopped and reported the right
+cause). See
+[docs/developer/notes/run_qemu.md](docs/developer/notes/run_qemu.md) for details.
+
+## Unit tests on the PC
+
+The logic of the kernel (lists, wait queues, the timer handler, `tkmc_memset`) also has unit
+tests that run on the PC with no QEMU and no RISC-V toolchain. They need only
+clang. The kernel sources are compiled unchanged, with stand-ins for the two
+headers that touch the machine (`include/sys/interrupt.h` and
+`include/sys/ioport.h`) and AddressSanitizer and UBSan switched on:
+
+```shell
+cmake --preset host
+cmake --build --preset host
+ctest --preset host
+```
+
+The tests run on a fake machine that cannot switch stacks, so they check the
+kernel's queues and task states when a task blocks and when it is woken, not
+the values a woken task returns; the QEMU tests check those. The PC has 64 bit
+pointers, so what the kernel stores as 32 bit addresses (for example in a new
+task's initial frame) is not checked either. See `test/host/fakes.h`.
+
+What is compiled and what is not:
+
+- `kernel/task.c`, `timer.c`, `semaphore.c`, `event_flag.c` and `mailbox.c` are
+  compiled. `memset.c` is compiled through `test/host/memset_under_test.c`, which
+  neutralises its weak `memset` alias so that it does not clash with the C
+  library. `start.c` (boot, linker symbols, the first task launch) and
+  `ini_tsk.c` are not, and neither are the assembly files; the QEMU tests cover
+  them.
+- The tests are built for the PC's 64 bit pointers. A 32 bit build (`-m32`) was
+  not possible where this was written: clang there ships the sanitizer runtimes
+  for x86_64 only.
+- The first configure downloads Unity with FetchContent. Without network access,
+  point `-DFETCHCONTENT_SOURCE_DIR_UNITY=<path to a Unity source tree>` at an
+  existing copy.
 
 ## Next Steps
 

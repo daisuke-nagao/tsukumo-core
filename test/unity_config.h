@@ -7,6 +7,18 @@ extern "C" {
 
 extern void (*outputChar)(int);
 
+// Called when an assert fails. The test runner sets it to end the failing task;
+// when it is NULL (the old test chain) the assert just returns, as before.
+// Unity's TEST_ABORT() has to leave the Unity helper, hence the return.
+extern void (*test_abort_hook)(void);
+#define UNITY_TEST_ABORT()                                                     \
+  do {                                                                         \
+    if (test_abort_hook) {                                                     \
+      test_abort_hook();                                                       \
+    }                                                                          \
+    return;                                                                    \
+  } while (0)
+
 #define UNITY_EXCLUDE_SETJMP_H
 #define UNITY_EXCLUDE_MATH_H
 #define UNITY_EXCLUDE_STDDEF_H

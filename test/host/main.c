@@ -1,0 +1,92 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Daisuke Nagao
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+#include <unity.h>
+
+#include "fakes.h"
+
+// Every test starts from a freshly booted kernel on a fresh fake machine.
+void setUp(void) { host_reset(); }
+void tearDown(void) {}
+
+extern void test_list_matches_a_model_under_random_operations(void);
+extern void test_semaphore_waiter_blocks_and_a_signal_wakes_it(void);
+extern void test_semaphore_wait_ends_when_the_time_limit_runs_out(void);
+extern void test_release_wait_wakes_a_sleeping_task(void);
+extern void
+test_release_wait_takes_a_timed_semaphore_waiter_off_both_queues(void);
+extern void test_a_signal_disarms_the_time_limit_of_its_waiter(void);
+extern void test_waking_a_higher_priority_task_requests_a_context_switch(void);
+extern void test_waking_a_lower_priority_task_requests_no_context_switch(void);
+extern void test_a_signal_after_a_time_out_leaves_the_unit_and_the_cause(void);
+extern void test_a_signal_to_a_semaphore_the_task_left_does_not_wake_it(void);
+extern void
+test_setting_a_flag_after_a_time_out_keeps_the_pattern_and_the_cause(void);
+extern void test_a_flag_that_allows_one_waiter_is_free_after_a_time_out(void);
+extern void test_a_message_sent_after_a_time_out_stays_in_the_mailbox(void);
+extern void test_waking_a_timed_sleeper_clears_its_time_limit(void);
+extern void
+test_deleting_a_semaphore_releases_every_waiter_with_the_deleted_cause(void);
+extern void test_deleting_a_semaphore_ends_the_time_limit_of_its_waiter(void);
+extern void
+test_the_free_list_is_whole_after_deleting_a_semaphore_with_waiters(void);
+extern void
+test_deleting_a_semaphore_requests_a_switch_for_a_higher_priority_waiter(void);
+extern void test_deleting_a_semaphore_requests_no_switch_otherwise(void);
+extern void
+test_a_semaphore_deleted_after_a_time_out_leaves_no_link_to_the_task(void);
+extern void test_a_time_limit_is_rounded_up_to_whole_ticks_plus_one(void);
+extern void test_tasks_on_the_timer_queue_time_out_each_on_its_own_tick(void);
+extern void
+test_a_time_out_requests_a_switch_only_to_a_higher_priority_task(void);
+extern void test_a_time_out_of_a_lower_priority_task_requests_no_switch(void);
+extern void test_timed_waits_record_what_the_task_waits_for(void);
+extern void test_release_wait_refuses_a_task_that_is_not_waiting(void);
+extern void test_memset_fills_exactly_the_requested_range(void);
+extern void test_a_reset_gives_back_every_kernel_object(void);
+extern void test_the_kernel_arms_the_timer_one_tick_ahead_at_boot(void);
+extern void test_timer_interrupt_sets_the_next_compare_value_ahead_of_now(void);
+extern void test_a_late_timer_interrupt_skips_to_the_next_tick_ahead(void);
+
+int main(void) {
+  UNITY_BEGIN();
+  RUN_TEST(test_list_matches_a_model_under_random_operations);
+  RUN_TEST(test_semaphore_waiter_blocks_and_a_signal_wakes_it);
+  RUN_TEST(test_semaphore_wait_ends_when_the_time_limit_runs_out);
+  RUN_TEST(test_release_wait_wakes_a_sleeping_task);
+  RUN_TEST(test_release_wait_takes_a_timed_semaphore_waiter_off_both_queues);
+  RUN_TEST(test_a_signal_disarms_the_time_limit_of_its_waiter);
+  RUN_TEST(test_waking_a_higher_priority_task_requests_a_context_switch);
+  RUN_TEST(test_waking_a_lower_priority_task_requests_no_context_switch);
+  RUN_TEST(test_a_signal_after_a_time_out_leaves_the_unit_and_the_cause);
+  RUN_TEST(test_a_signal_to_a_semaphore_the_task_left_does_not_wake_it);
+  RUN_TEST(
+      test_setting_a_flag_after_a_time_out_keeps_the_pattern_and_the_cause);
+  RUN_TEST(test_a_flag_that_allows_one_waiter_is_free_after_a_time_out);
+  RUN_TEST(test_a_message_sent_after_a_time_out_stays_in_the_mailbox);
+  RUN_TEST(test_waking_a_timed_sleeper_clears_its_time_limit);
+  RUN_TEST(
+      test_deleting_a_semaphore_releases_every_waiter_with_the_deleted_cause);
+  RUN_TEST(test_deleting_a_semaphore_ends_the_time_limit_of_its_waiter);
+  RUN_TEST(test_the_free_list_is_whole_after_deleting_a_semaphore_with_waiters);
+  RUN_TEST(
+      test_deleting_a_semaphore_requests_a_switch_for_a_higher_priority_waiter);
+  RUN_TEST(test_deleting_a_semaphore_requests_no_switch_otherwise);
+  RUN_TEST(
+      test_a_semaphore_deleted_after_a_time_out_leaves_no_link_to_the_task);
+  RUN_TEST(test_a_time_limit_is_rounded_up_to_whole_ticks_plus_one);
+  RUN_TEST(test_tasks_on_the_timer_queue_time_out_each_on_its_own_tick);
+  RUN_TEST(test_a_time_out_requests_a_switch_only_to_a_higher_priority_task);
+  RUN_TEST(test_a_time_out_of_a_lower_priority_task_requests_no_switch);
+  RUN_TEST(test_timed_waits_record_what_the_task_waits_for);
+  RUN_TEST(test_release_wait_refuses_a_task_that_is_not_waiting);
+  RUN_TEST(test_memset_fills_exactly_the_requested_range);
+  RUN_TEST(test_a_reset_gives_back_every_kernel_object);
+  RUN_TEST(test_the_kernel_arms_the_timer_one_tick_ahead_at_boot);
+  RUN_TEST(test_timer_interrupt_sets_the_next_compare_value_ahead_of_now);
+  RUN_TEST(test_a_late_timer_interrupt_skips_to_the_next_tick_ahead);
+  return UNITY_END();
+}

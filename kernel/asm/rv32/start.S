@@ -174,13 +174,36 @@ timer_interrupt:
   addi sp, sp, 32*4
   mret
 
+  /*
+   * Synchronous exceptions (illegal instruction, access fault, ebreak, ...). In
+   * vectored mode they all enter at vector 0, whatever their cause. No
+   * exception here is recoverable, so the system stops and reports the cause.
+   *
+   * Not done: returning with mepc advanced by 4. That is wrong for compressed
+   * instructions (2 bytes) and for faults that must be retried, and with mepc
+   * unchanged mret runs the faulting instruction again for ever, which is what
+   * this handler replaces.
+   *
+   * The stack is taken anew: the exception may be a stack overflow.
+   */
+  .balign 4
+sync_exception_handler:
+  la sp, _stack_end
+  csrr a0, mcause
+  csrr a1, mepc
+  csrr a2, mtval
+  call tkmc_fatal_trap
+1:
+  wfi
+  j 1b
+
   .balign 4
 default_handler:
   mret
 
   .balign 16
 trap_handlers:
-  j default_handler    /* 0: Reserved */
+  j sync_exception_handler /* 0: Synchronous exceptions */
   .balign 4
   j default_handler    /* 1: Supervisor software interrupt */
   .balign 4

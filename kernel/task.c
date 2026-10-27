@@ -208,6 +208,35 @@ TCB *tkmc_get_highest_priority_task(void) {
 }
 
 /*
+ * End the wait of a task and make it ready (see task.h).
+ *
+ * Every way a wait ends goes through here: the time limit, a signal or a set,
+ * a delete, tk_rel_wai(), tk_wup_tsk(). The task must leave every queue the
+ * wait put it on at the moment it becomes ready. If it stayed on the wait queue
+ * of an object, a signal that comes before the task runs again would find it
+ * there and make it ready a second time.
+ *
+ * Whether the task is on the timer queue is told by its head being on a queue,
+ * not by delay_ticks: the timer handler counts delay_ticks down to 0 first, and
+ * the task is still on the timer queue then.
+ */
+void tkmc_complete_wait(TCB *tcb, ER cause) {
+  if (!tkmc_list_empty(&tcb->head)) {
+    tkmc_list_del(&tcb->head);
+  }
+  if (!tkmc_list_empty(&tcb->winfo.wait_queue)) {
+    tkmc_list_del(&tcb->winfo.wait_queue);
+    tkmc_init_list_head(&tcb->winfo.wait_queue);
+  }
+
+  tcb->delay_ticks = 0;
+  tcb->tskwait = 0;
+  tcb->wupcause = cause;
+  tcb->tskstat = TTS_RDY;
+  tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+}
+
+/*
  * Start a task.
  * - Moves the task from the TTS_DMT state to the TTS_RDY state.
  * - Adds the task to the appropriate ready queue based on its priority.
@@ -386,24 +415,9 @@ ER tk_rel_wai(ID tskid) {
   }
 
   if (ercd == E_OK) {
-    // Transition the task to the ready state
-    tcb->tskstat = TTS_RDY;
-    tcb->tskwait = 0;
-    tcb->wupcause = E_RLWAI; // Reason for wake-up is a release request
+    // Reason for wake-up is a release request
     tcb->wupcnt = 0;
-
-    // Remove the task from the waiting queue if it is present
-    if (!tkmc_list_empty(&tcb->head)) {
-      tkmc_list_del(&tcb->head);
-    }
-    // When the task is in a waiting state, remove it from the wait queue
-    if (!tkmc_list_empty(&tcb->winfo.wait_queue)) {
-      tkmc_list_del(&tcb->winfo.wait_queue);
-      tkmc_init_list_head(&tcb->winfo.wait_queue);
-    }
-
-    // Add the task to the appropriate ready queue based on its priority
-    tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+    tkmc_complete_wait(tcb, E_RLWAI);
 
     // Check if a higher-priority task needs to run
     next = tkmc_get_highest_priority_task();
@@ -454,17 +468,9 @@ ER tk_wup_tsk(ID tskid) {
   if (tskstat == TTS_WAI) {
     UINT tskwait = tcb->tskwait;
     if (tskwait == TTW_SLP) {
-      // If the task is waiting to sleep, make it ready
-      tcb->tskstat = TTS_RDY;
-      tcb->tskwait = 0;
-      tcb->wupcause = E_OK; // Normal wake-up
+      // If the task is waiting to sleep, make it ready (normal wake-up)
       tcb->wupcnt = 0;
-
-      // Remove the task from any queues and add it to the ready queue
-      if (!tkmc_list_empty(&tcb->head)) {
-        tkmc_list_del(&tcb->head);
-      }
-      tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+      tkmc_complete_wait(tcb, E_OK);
 
       // Check if a higher-priority task needs to run
       next = tkmc_get_highest_priority_task();

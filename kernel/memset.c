@@ -43,7 +43,9 @@ void *tkmc_memset(void *dest, int c, size_t n) {
   /* Fill memory in 4-byte chunks if aligned */
   if (n >= 4) {
     UW *dw = (UW *)d8;
-    UW word_value = (value << 24) | (value << 16) | (value << 8) | value;
+    // Unsigned arithmetic: value is promoted to int, and 0x80 << 24 does not
+    // fit in an int, which is undefined behaviour.
+    UW word_value = (UW)value * 0x01010101u;
 
     while (n >= 32) {
       dw[0] = word_value;

@@ -9,6 +9,7 @@
 #include "event_flag.h"
 #include "ini_tsk.h"
 #include "mailbox.h"
+#include "memset.h"
 #include "semaphore.h"
 #include "task.h"
 #include "timer.h"
@@ -108,11 +109,13 @@ void tkmc_start(int a0, int a1) {
  * This function is typically called during system initialization.
  */
 static void clear_bss(void) {
-  extern int *_bss_start; // Start address of the .bss section
-  extern int *_bss_end;   // End address of the .bss section
-  for (int *ptr = _bss_start; ptr < _bss_end; ++ptr) {
-    *ptr = 0; // Set each word in the .bss section to zero
-  }
+  // The linker defines these symbols as addresses, so they are declared as
+  // arrays: the name of an array is the address. Declared as `int *` variables,
+  // the code would read the memory at the symbol and use that value as the
+  // boundary, which is 0 on QEMU, where RAM starts zeroed, and hides the error.
+  extern unsigned char _bss_start[]; // Start address of the .bss section
+  extern unsigned char _bss_end[];   // End address of the .bss section
+  tkmc_memset(_bss_start, 0, _bss_end - _bss_start);
 }
 
 /*

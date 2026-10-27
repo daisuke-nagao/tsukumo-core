@@ -257,17 +257,7 @@ ER tk_set_flg(ID flgid, UINT setptn) {
                                   winfo.wait_queue) {
       if (check_ptn(flgcb->flgptn, tcb->winfo.event_flag.waiptn,
                     tcb->winfo.event_flag.wfmode)) {
-        tkmc_list_del(&tcb->winfo.wait_queue);
-        tkmc_init_list_head(&tcb->winfo.wait_queue);
-
-        // Remove from timer queue if registered
-        if (tcb->delay_ticks > 0) {
-          tkmc_list_del(&tcb->head);
-          tcb->delay_ticks = 0;
-        }
-
         tcb->winfo.event_flag.flgptn = flgcb->flgptn;
-        tcb->wupcause = E_OK;
 
         // Optional clearing of flags
         if (tcb->winfo.event_flag.wfmode & TWF_CLR) {
@@ -276,10 +266,9 @@ ER tk_set_flg(ID flgid, UINT setptn) {
           flgcb->flgptn &= ~(tcb->winfo.event_flag.waiptn);
         }
 
-        // Move task to ready state
-        tcb->tskstat = TTS_RDY;
-        tcb->tskwait = 0;
-        tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+        // Take the task off the wait queue and the timer queue, and make it
+        // ready.
+        tkmc_complete_wait(tcb, E_OK);
 
         // If only one task should be woken (TA_WSGL), stop here
         if ((flgcb->flgatr & TA_WSGL) != 0) {
