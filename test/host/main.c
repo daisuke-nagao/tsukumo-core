@@ -50,6 +50,12 @@ extern void test_a_reset_gives_back_every_kernel_object(void);
 extern void test_the_kernel_arms_the_timer_one_tick_ahead_at_boot(void);
 extern void test_timer_interrupt_sets_the_next_compare_value_ahead_of_now(void);
 extern void test_a_late_timer_interrupt_skips_to_the_next_tick_ahead(void);
+extern void test_timer_boot_replaces_both_compare_words(void);
+extern void test_timer_compare_crosses_the_low_word_boundary(void);
+extern void
+test_timer_boot_retries_a_read_that_carries_into_the_high_word(void);
+extern void
+test_timer_handler_retries_a_read_that_carries_into_the_high_word(void);
 
 int main(void) {
   UNITY_BEGIN();
@@ -88,5 +94,9 @@ int main(void) {
   RUN_TEST(test_the_kernel_arms_the_timer_one_tick_ahead_at_boot);
   RUN_TEST(test_timer_interrupt_sets_the_next_compare_value_ahead_of_now);
   RUN_TEST(test_a_late_timer_interrupt_skips_to_the_next_tick_ahead);
+  RUN_TEST(test_timer_boot_replaces_both_compare_words);
+  RUN_TEST(test_timer_compare_crosses_the_low_word_boundary);
+  RUN_TEST(test_timer_boot_retries_a_read_that_carries_into_the_high_word);
+  RUN_TEST(test_timer_handler_retries_a_read_that_carries_into_the_high_word);
   return UNITY_END();
 }

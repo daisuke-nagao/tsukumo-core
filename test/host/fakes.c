@@ -17,7 +17,8 @@
 
 host_access_t host_log[HOST_LOG_MAX];
 UINT host_log_count;
-UW host_mtime;
+UD host_mtime;
+UD host_mtime_advance_after_low_read;
 
 jmp_buf host_wait_jmp;
 volatile int host_wait_armed;
@@ -77,10 +78,12 @@ UD host_in(INT port, UINT width) {
     value = s_mtimecmp_high;
     break;
   case MTIME_LOW:
-    value = host_mtime;
+    value = (UW)host_mtime;
+    host_mtime += host_mtime_advance_after_low_read;
+    host_mtime_advance_after_low_read = 0;
     break;
   case MTIME_HIGH:
-    value = 0;
+    value = (UW)(host_mtime >> 32);
     break;
   default:
     TEST_FAIL_MESSAGE("the kernel read from an address the fake machine does "
@@ -222,6 +225,7 @@ void host_reset(void) {
   s_interrupts_enabled = 1;
   s_msip = s_mtimecmp_low = s_mtimecmp_high = 0;
   host_mtime = 0;
+  host_mtime_advance_after_low_read = 0;
   host_wait_armed = 0;
   host_waited = 0;
   s_stacks_used =
