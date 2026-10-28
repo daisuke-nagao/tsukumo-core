@@ -83,9 +83,32 @@ static void restart_preserves_entry_and_arguments(void) {
   test_join_expect(RESTARTS + 1);
 }
 
+// A start with an ID below the range is refused and leaves a dormant task as it
+// was: it still starts.
+static void check_start_refused(ID bad_id) {
+  ID id = tk_cre_tsk(&(T_CTSK){.exinf = &s_token,
+                               .tskatr = TA_HLNG | TA_USERBUF,
+                               .task = (FP)restarted_child,
+                               .itskpri = CHILD_PRIORITY,
+                               .stksz = sizeof(s_stack),
+                               .bufptr = s_stack});
+  TEST_ASSERT_GREATER_THAN(0, id);
+  TEST_ASSERT_EQUAL(E_ID, tk_sta_tsk(bad_id, 0));
+  TEST_ASSERT_EQUAL_UINT(TTS_DMT, task_state(id));
+  TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, CLEANUP));
+  TEST_ASSERT_EQUAL_UINT(TTS_NOEXS, task_state(id));
+}
+
+static void start_with_id_zero(void) { check_start_refused(0); }
+static void start_with_a_negative_id(void) { check_start_refused(-1); }
+
+// The refusals come last: before the fix they read and may write the memory in
+// front of the task table, and the cases after them would run on what is left.
 static const test_case_t s_cases[] = {
     {"restart_preserves_entry_and_arguments",
      restart_preserves_entry_and_arguments},
+    {"start_with_id_zero", start_with_id_zero},
+    {"start_with_a_negative_id", start_with_a_negative_id},
 };
 
 TEST_SUITE_MAIN("task-restart", s_cases, 5000)

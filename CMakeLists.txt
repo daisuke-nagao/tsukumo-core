@@ -365,10 +365,12 @@ add_test_suite(bss-clear SOURCES test/bss_dirty_entry.S test/suites/bss_clear.c
 # Kernel tests, one ELF and one ctest per feature.
 add_test_suite(task-timer SOURCES test/suites/task_timer.c)
 add_test_suite(task-restart SOURCES test/suites/task_restart.c)
+add_test_suite(task-create SOURCES test/suites/task_create.c)
 add_test_suite(timer-wrap SOURCES test/suites/timer_wrap.c)
 add_test_suite(event-flag SOURCES test/suites/event_flag.c)
 add_test_suite(semaphore SOURCES test/suites/semaphore.c)
 add_test_suite(mailbox SOURCES test/suites/mailbox.c)
+add_test_suite(wait-context SOURCES test/suites/wait_context.c)
 
 if(NOT QEMU_EXECUTABLE)
   message(

@@ -6,6 +6,8 @@
 
 #include "fakes.h"
 
+#include <string.h>
+
 #include <unity.h>
 
 #include "asm/rv32/address.h"
@@ -143,10 +145,6 @@ static void check_ring(const tkmc_list_head *head) {
   }
 }
 
-extern SEMCB tkmc_semcbs[CFN_MAX_SEMID];
-extern FLGCB tkmc_flgcbs[CFN_MAX_FLGID];
-extern MBXCB tkmc_mbxcbs[CFN_MAX_MBXID];
-
 // Same as the kernel's NOEXS_MASK: the top bit of an object's ID says it does
 // not exist, and then its wait_queue is a link of the free list, not a queue.
 enum { OBJECT_NOEXS = 0x80000000u };
@@ -218,6 +216,33 @@ void host_check_kernel_queues(void) {
                                      "waiting is on a queue");
     }
   }
+}
+
+void host_take_snapshot(host_snapshot_t *s) {
+  memcpy(s->tcbs, tkmc_tcbs, sizeof(s->tcbs));
+  memcpy(s->ready, tkmc_ready_queue, sizeof(s->ready));
+  memcpy(s->timer, &tkmc_timer_queue, sizeof(s->timer));
+  memcpy(s->sems, tkmc_semcbs, sizeof(s->sems));
+  memcpy(s->flgs, tkmc_flgcbs, sizeof(s->flgs));
+  memcpy(s->mbxs, tkmc_mbxcbs, sizeof(s->mbxs));
+  s->current = current;
+  s->next = next;
+  s->switch_requests = host_write_count(MSIP);
+}
+
+void host_assert_unchanged(const host_snapshot_t *s, const char *what) {
+  TEST_ASSERT_EQUAL_MEMORY_MESSAGE(s->tcbs, tkmc_tcbs, sizeof(s->tcbs), what);
+  TEST_ASSERT_EQUAL_MEMORY_MESSAGE(s->ready, tkmc_ready_queue, sizeof(s->ready),
+                                   what);
+  TEST_ASSERT_EQUAL_MEMORY_MESSAGE(s->timer, &tkmc_timer_queue,
+                                   sizeof(s->timer), what);
+  TEST_ASSERT_EQUAL_MEMORY_MESSAGE(s->sems, tkmc_semcbs, sizeof(s->sems), what);
+  TEST_ASSERT_EQUAL_MEMORY_MESSAGE(s->flgs, tkmc_flgcbs, sizeof(s->flgs), what);
+  TEST_ASSERT_EQUAL_MEMORY_MESSAGE(s->mbxs, tkmc_mbxcbs, sizeof(s->mbxs), what);
+  TEST_ASSERT_EQUAL_PTR_MESSAGE(s->current, current, what);
+  TEST_ASSERT_EQUAL_PTR_MESSAGE(s->next, next, what);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(s->switch_requests, host_write_count(MSIP),
+                                 what);
 }
 
 void host_reset(void) {

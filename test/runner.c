@@ -117,12 +117,6 @@ static void child_entry(INT stacd, void *exinf) {
 }
 
 ID test_spawn(void (*fn)(void *), PRI prio, void *arg) {
-  // tk_cre_tsk() does not check the priority, and tk_sta_tsk() would index the
-  // ready queues with it.
-  if (prio < 1 || prio > CFN_MAX_PRI) {
-    TEST_FAIL_MESSAGE("test_spawn: priority out of range");
-    return -1;
-  }
   // The stack comes first: a slot reserved for a child that never gets created
   // would be left looking "not registered yet" and block the case forever.
   UW *stack = take_stack();

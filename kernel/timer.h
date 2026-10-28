@@ -19,6 +19,18 @@ extern void tkmc_start_timer(void);
 extern void tkmc_init_timer(void);
 extern void tkmc_schedule_timer(TCB *tcb, UINT delay_ticks, UINT tskwait);
 
+/**
+ * @brief Convert a time limit in milliseconds to the ticks a wait lasts.
+ *
+ * @param ms Time limit, greater than 0.
+ * @return ms in 10 ms ticks, rounded up, plus one tick: the first tick comes at
+ *         any time after the wait begins.
+ */
+static inline UINT tkmc_ms_to_ticks(TMO ms) {
+  // Not (ms + 9) / 10: the + 9 overflows TMO for ms above INT_MAX - 9.
+  return (UINT)ms / 10 + ((UINT)ms % 10 != 0) + 1;
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */

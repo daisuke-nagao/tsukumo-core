@@ -8,6 +8,7 @@
 #include "asm/rv32/address.h"
 #include "dispatch.h"
 #include "memset.h"
+#include "object_id.h"
 
 /* Memory-mapped addresses for the CLINT (Core Local Interruptor) */
 #define CLINT_MSIP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET)
@@ -87,6 +88,17 @@ typedef union StashedRegisters {
 _Static_assert(sizeof(StashedRegisters) == sizeof(UINT[32]),
                "StashedRegisters must be exactly 32 UINTs in size (128 bytes)");
 
+// The RISC-V ABI keeps sp 16 byte aligned. tk_cre_tsk() refuses a stack whose
+// end is not, and does not round the end down instead: the stack the caller
+// gets would be smaller than the size it asked for, with no word of it.
+#define STACK_ALIGN 16
+
+// <stdint.h> is out of reach (-nostdinc), and UINT is 32 bits on the PC tests
+// too, where the overflow of a stack end has to be checked at the width of the
+// pointers.
+typedef __UINTPTR_TYPE__ tkmc_uintptr_t;
+#define TKMC_UINTPTR_MAX (~(tkmc_uintptr_t)0)
+
 /*
  * Initialize the Task Control Block (TCB) system.
  * - Sets up the free TCB list and ready queues.
@@ -118,15 +130,28 @@ void tkmc_init_tcb(void) {
  * Create a new task.
  * - Allocates a TCB from the free list.
  * - Configures the TCB with the provided task attributes.
- * - Prepares the task's stack and initial context.
+ * - Checks the stack the caller gives, and reserves the room for the initial
+ *   context in it (the context itself is built by tk_sta_tsk).
  *
  * Parameters:
  * - pk_ctsk: Pointer to the task creation structure containing task attributes.
  *
  * Returns:
- * - Task ID of the newly created task, or an error code if creation fails.
+ * - Task ID of the newly created task, or an error code if creation fails:
+ *   E_PAR for a NULL packet, entry or buffer, a priority outside
+ *   1..CFN_MAX_PRI, a stack of at most the 128 byte saved frame, a stack that
+ *   runs past the end of the address space, or one that does not end on a 16
+ *   byte boundary; E_RSATR for an attribute the kernel does not support, which
+ *   is checked before the parameters; E_LIMIT when no TCB is free. A refused
+ *   call changes nothing.
+ *
+ * The size check only tells that the frame fits. How deep the task can go
+ * below it is up to the caller.
  */
 ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
+  if (pk_ctsk == NULL) {
+    return E_PAR;
+  }
   const ATR tskatr = pk_ctsk->tskatr;
   static const ATR VALID_TSKATR =
       TA_ASM | TA_HLNG | TA_USERBUF | TA_RNG0 | TA_RNG1 | TA_RNG2 | TA_RNG3;
@@ -140,9 +165,27 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     return E_RSATR; // User buffer not specified
   }
 
+  if (pk_ctsk->task == NULL || pk_ctsk->bufptr == NULL) {
+    return E_PAR;
+  }
+  if (pk_ctsk->itskpri < 1 || pk_ctsk->itskpri > CFN_MAX_PRI) {
+    return E_PAR; // tkmc_ready_queue[itskpri - 1] would be out of range
+  }
+  if (pk_ctsk->stksz <= (SZ)sizeof(StashedRegisters)) {
+    // The frame must fit with room left. This also rules out a negative size.
+    return E_PAR;
+  }
+  const tkmc_uintptr_t stack_begin = (tkmc_uintptr_t)pk_ctsk->bufptr;
+  const tkmc_uintptr_t stack_size = (tkmc_uintptr_t)pk_ctsk->stksz;
+  if (stack_size > TKMC_UINTPTR_MAX - stack_begin) {
+    return E_PAR; // The end would wrap around the address space
+  }
+  if ((stack_begin + stack_size) % STACK_ALIGN != 0) {
+    return E_PAR;
+  }
+
   /* Calculate stack boundaries */
-  UB *stack_begin = (UB *)pk_ctsk->bufptr;
-  UB *stack_end = stack_begin + pk_ctsk->stksz;
+  UB *stack_end = (UB *)(stack_begin + stack_size);
 
   ID new_id = E_LIMIT; // Default to error code
   TCB *new_tcb = NULL;
@@ -243,7 +286,7 @@ void tkmc_complete_wait(TCB *tcb, ER cause) {
  * - E_OK on success, or an error code if the task cannot be started.
  */
 ER tk_sta_tsk(ID tskid, INT stacd) {
-  if (tskid > CFN_MAX_TSKID) {
+  if (!tkmc_id_in_range(tskid, CFN_MAX_TSKID)) {
     return E_ID; // Invalid task ID
   }
   TCB *tcb = tkmc_tcbs + tskid - 1;
@@ -395,7 +438,7 @@ void tk_exd_tsk(void) {
  */
 ER tk_rel_wai(ID tskid) {
   // Check if the task ID is out of range
-  if (tskid <= 0 || tskid > CFN_MAX_TSKID) {
+  if (!tkmc_id_in_range(tskid, CFN_MAX_TSKID)) {
     return E_ID;
   }
   TCB *tcb = &tkmc_tcbs[tskid - 1];
@@ -452,7 +495,7 @@ ER tk_rel_wai(ID tskid) {
  */
 ER tk_wup_tsk(ID tskid) {
   // Validate the task ID
-  if (tskid <= 0 || tskid > CFN_MAX_TSKID) {
+  if (!tkmc_id_in_range(tskid, CFN_MAX_TSKID)) {
     return E_ID; // Invalid task ID
   }
 

@@ -7,6 +7,7 @@
 #include "mailbox.h"
 #include "dispatch.h"
 #include "list.h"
+#include "object_id.h"
 #include "task.h"
 #include "timer.h"
 
@@ -210,7 +211,7 @@ ID tk_cre_mbx(CONST T_CMBX *pk_cmbx) {
  * @brief Delete a mailbox object.
  */
 ER tk_del_mbx(ID mbxid) {
-  if (mbxid <= 0 || mbxid > CFN_MAX_MBXID) {
+  if (!tkmc_id_in_range(mbxid, CFN_MAX_MBXID)) {
     return E_ID;
   }
 
@@ -267,7 +268,7 @@ ER tk_del_mbx(ID mbxid) {
  */
 ER tk_snd_mbx(ID mbxid, T_MSG *pk_msg) {
   // Validate the mailbox ID.
-  if (mbxid <= 0 || mbxid > CFN_MAX_MBXID) {
+  if (!tkmc_id_in_range(mbxid, CFN_MAX_MBXID)) {
     return E_ID; // Invalid mailbox ID.
   }
 
@@ -317,9 +318,16 @@ ER tk_snd_mbx(ID mbxid, T_MSG *pk_msg) {
 
 /**
  * @brief Receive a message from a mailbox.
+ *
+ * tmout is TMO_POL, TMO_FEVR, or 1 to INT_MAX ms, counted as in tk_slp_tsk().
+ *
+ * Returns E_CTX if there is no current task, or if interrupts are disabled
+ * (see tk_slp_tsk()). The second check comes before the mailbox is looked at,
+ * so even a queued message is refused; nothing is changed and *ppk_msg is not
+ * written.
  */
 ER tk_rcv_mbx(ID mbxid, T_MSG **ppk_msg, TMO tmout) {
-  if (mbxid <= 0 || mbxid > CFN_MAX_MBXID) {
+  if (!tkmc_id_in_range(mbxid, CFN_MAX_MBXID)) {
     return E_ID;
   }
   if (ppk_msg == NULL || tmout < TMO_FEVR) {
@@ -333,6 +341,10 @@ ER tk_rcv_mbx(ID mbxid, T_MSG **ppk_msg, TMO tmout) {
   UINT intsts = 0;
 
   DI(intsts);
+  if (isDI(intsts)) {
+    EI(intsts);
+    return E_CTX;
+  }
 
   if ((mbxcb->mbxid & NOEXS_MASK) != 0) {
     EI(intsts);
@@ -362,7 +374,7 @@ ER tk_rcv_mbx(ID mbxid, T_MSG **ppk_msg, TMO tmout) {
   insert_waiter(mbxcb, tcb);
 
   if (tmout > 0) {
-    tkmc_schedule_timer(tcb, ((tmout + 9) / 10) + 1, TTW_MBX);
+    tkmc_schedule_timer(tcb, tkmc_ms_to_ticks(tmout), TTW_MBX);
   } else {
     tcb->tskstat = TTS_WAI;
     tcb->tskwait = TTW_MBX;

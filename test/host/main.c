@@ -60,12 +60,65 @@ test_timer_handler_retries_a_read_that_carries_into_the_high_word(void);
 extern void test_task_start_rebuilds_a_damaged_frame(void);
 extern void test_task_start_clears_previous_wakeup_and_wait_state(void);
 extern void test_starting_a_non_dormant_task_leaves_it_unchanged(void);
+extern void test_a_null_packet_is_refused(void);
+extern void test_a_null_entry_is_refused(void);
+extern void test_a_null_buffer_is_refused(void);
+extern void test_a_priority_outside_the_range_is_refused(void);
+extern void test_the_highest_and_the_lowest_priority_are_accepted(void);
+extern void test_a_stack_that_does_not_hold_the_frame_and_more_is_refused(void);
+extern void test_the_smallest_accepted_stack_keeps_the_frame_inside_it(void);
+extern void
+test_a_stack_that_does_not_end_on_a_16_byte_boundary_is_refused(void);
+extern void test_a_stack_one_byte_above_the_frame_is_accepted(void);
+extern void test_only_the_end_of_the_stack_has_to_be_aligned(void);
+extern void
+test_a_stack_whose_end_wraps_around_the_address_space_is_refused(void);
+extern void test_an_attribute_error_comes_before_every_parameter_error(void);
+extern void
+test_a_refused_creation_changes_nothing_and_takes_no_task_slot(void);
+extern void test_refusals_do_not_use_up_the_tasks_the_kernel_can_hold(void);
+extern void
+test_every_wait_call_with_interrupts_off_is_refused_and_changes_nothing(void);
+extern void test_a_wait_that_could_succeed_at_once_is_refused_too(void);
+extern void test_argument_errors_come_before_the_context_check(void);
+extern void test_the_context_check_comes_before_the_object_checks(void);
+extern void
+test_the_context_check_comes_before_the_one_waiter_check_of_a_flag(void);
+extern void
+test_a_delay_of_zero_with_interrupts_on_yields_and_leaves_them_on(void);
+extern void test_an_id_out_of_range_is_refused_and_changes_nothing(void);
+extern void test_the_ids_at_both_ends_of_the_range_get_past_the_id_check(void);
+extern void test_every_wait_rounds_its_time_limit_up_to_ticks_plus_one(void);
 
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_task_start_rebuilds_a_damaged_frame);
   RUN_TEST(test_task_start_clears_previous_wakeup_and_wait_state);
   RUN_TEST(test_starting_a_non_dormant_task_leaves_it_unchanged);
+  RUN_TEST(test_a_null_packet_is_refused);
+  RUN_TEST(test_a_null_entry_is_refused);
+  RUN_TEST(test_a_null_buffer_is_refused);
+  RUN_TEST(test_a_priority_outside_the_range_is_refused);
+  RUN_TEST(test_the_highest_and_the_lowest_priority_are_accepted);
+  RUN_TEST(test_a_stack_that_does_not_hold_the_frame_and_more_is_refused);
+  RUN_TEST(test_the_smallest_accepted_stack_keeps_the_frame_inside_it);
+  RUN_TEST(test_a_stack_that_does_not_end_on_a_16_byte_boundary_is_refused);
+  RUN_TEST(test_a_stack_one_byte_above_the_frame_is_accepted);
+  RUN_TEST(test_only_the_end_of_the_stack_has_to_be_aligned);
+  RUN_TEST(test_a_stack_whose_end_wraps_around_the_address_space_is_refused);
+  RUN_TEST(test_an_attribute_error_comes_before_every_parameter_error);
+  RUN_TEST(test_a_refused_creation_changes_nothing_and_takes_no_task_slot);
+  RUN_TEST(test_refusals_do_not_use_up_the_tasks_the_kernel_can_hold);
+  RUN_TEST(
+      test_every_wait_call_with_interrupts_off_is_refused_and_changes_nothing);
+  RUN_TEST(test_a_wait_that_could_succeed_at_once_is_refused_too);
+  RUN_TEST(test_argument_errors_come_before_the_context_check);
+  RUN_TEST(test_the_context_check_comes_before_the_object_checks);
+  RUN_TEST(test_the_context_check_comes_before_the_one_waiter_check_of_a_flag);
+  RUN_TEST(test_a_delay_of_zero_with_interrupts_on_yields_and_leaves_them_on);
+  RUN_TEST(test_an_id_out_of_range_is_refused_and_changes_nothing);
+  RUN_TEST(test_the_ids_at_both_ends_of_the_range_get_past_the_id_check);
+  RUN_TEST(test_every_wait_rounds_its_time_limit_up_to_ticks_plus_one);
   RUN_TEST(test_list_matches_a_model_under_random_operations);
   RUN_TEST(test_semaphore_waiter_blocks_and_a_signal_wakes_it);
   RUN_TEST(test_semaphore_wait_ends_when_the_time_limit_runs_out);
