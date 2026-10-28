@@ -17,6 +17,7 @@
 #include <unity.h>
 
 #include "../runner.h"
+#include "task.h"
 
 enum { CHILD_PRIORITY = 2, LATE_CHILD_PRIORITY = 5, SLEEP_MS = 50 };
 _Static_assert(
@@ -102,12 +103,38 @@ static void delay_lasts_long_enough(void) {
                                       (UW)(test_mtime() - start));
 }
 
+// The longest time limit becomes 214748366 ticks. The count is copied with
+// interrupts off and checked only after the child is woken: a failed assert
+// before that would leave the child asleep and time the suite out. Two ticks
+// may pass before the copy; a count that wrapped is far outside. The exact
+// rounding is checked on the host (test_timeout_ticks.c).
+enum { LONGEST_MS = __INT_MAX__, LONGEST_TICKS = 214748366 };
+
+static void long_sleeper(void *arg) {
+  (void)arg;
+  TEST_ASSERT_EQUAL(E_OK, tk_slp_tsk(LONGEST_MS));
+  test_checkpoint();
+}
+
+static void longest_sleep_counts_its_ticks(void) {
+  ID child = test_spawn(long_sleeper, CHILD_PRIORITY, 0);
+  UINT intsts;
+  DI(intsts);
+  UINT ticks = tkmc_tcbs[child - 1].delay_ticks;
+  EI(intsts);
+  ER woken = tk_wup_tsk(child);
+  TEST_ASSERT_EQUAL(E_OK, woken);
+  TEST_ASSERT_UINT_WITHIN(1, LONGEST_TICKS - 1, ticks);
+  test_join_expect(1);
+}
+
 static const test_case_t s_cases[] = {
     {"sleep_times_out", sleep_times_out},
     {"release_wait", release_wait},
     {"wakeup_multiple", wakeup_multiple},
     {"wakeup_queued_before_sleep", wakeup_queued_before_sleep},
     {"delay_lasts_long_enough", delay_lasts_long_enough},
+    {"longest_sleep_counts_its_ticks", longest_sleep_counts_its_ticks},
 };
 
 TEST_SUITE_MAIN("task-timer", s_cases, 5000)

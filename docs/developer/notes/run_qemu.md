@@ -47,6 +47,13 @@ ctest --test-dir <build dir> --output-on-failure --no-tests=error
   task, prints a result line per case and a summary, and ends QEMU with exit
   status 0 if no case failed and 1 if one did. A case that does not finish in
   time is reported as a timeout and aborts its suite.
+- `qemu-task-create` checks what `tk_cre_tsk()` refuses (priority, stack size,
+  NULL entry or buffer, stack end alignment, and the 32 bit wrap of the stack
+  end) with `E_PAR`, one case per input. It starts no task.
+- `qemu-wait-context` checks that the wait calls (`tk_dly_tsk`, `tk_slp_tsk`,
+  `tk_wai_sem`, `tk_wai_flg`, `tk_rcv_mbx`) return `E_CTX` and change nothing
+  when interrupts are off. `DI()` stands in for an interrupt handler, which also
+  runs with interrupts off.
 - `qemu-timer-wrap` moves the machine timer to 100 ms before a low-word wrap,
   with a nonzero high word, before starting the runner. A 300 ms delay must
   finish after the wrap. Its separate ELF keeps this clock jump out of the

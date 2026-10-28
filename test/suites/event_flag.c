@@ -7,7 +7,7 @@
 // Tests of event flags (tk_cre_flg, tk_wai_flg, tk_set_flg).
 //
 // Event flags cannot be deleted, so every case that creates one leaks it, and
-// the kernel has 16. This suite creates six.
+// the kernel has 16. This suite creates eight.
 //
 // The cases that block run a child at priority 5, below the case (4): the child
 // only starts once the case has blocked in tk_wai_flg(), and then sets bits.
@@ -221,6 +221,26 @@ static void set_after_timeout_keeps_the_pattern(void) {
   TEST_ASSERT_EQUAL_HEX32(0x00000001, flgptn);
 }
 
+// Waiting on and setting a flag with an ID below the range are refused, and a
+// flag that exists keeps its pattern. The wait polls with a plain mode, so the
+// ID is the only reason to refuse it.
+static void check_flag_calls_refused(ID bad_id) {
+  ID flgid = create_flag(TA_TFIFO | TA_WSGL, 0x0000005A);
+  UINT flgptn = 0xdeadbeefU;
+  TEST_ASSERT_EQUAL(E_ID,
+                    tk_wai_flg(bad_id, 0x00000001, TWF_ORW, &flgptn, TMO_POL));
+  TEST_ASSERT_EQUAL_HEX32(0xdeadbeefU, flgptn);
+  TEST_ASSERT_EQUAL(E_ID, tk_set_flg(bad_id, 0x00000001));
+
+  TEST_ASSERT_EQUAL(E_OK, tk_wai_flg(flgid, ~0U, TWF_ORW, &flgptn, TMO_POL));
+  TEST_ASSERT_EQUAL_HEX32(0x0000005A, flgptn);
+}
+
+static void calls_with_id_zero(void) { check_flag_calls_refused(0); }
+static void calls_with_a_negative_id(void) { check_flag_calls_refused(-1); }
+
+// The refusals come last: before the fix they read and may write the memory in
+// front of the flag table, and the cases after them would run on what is left.
 static const test_case_t s_cases[] = {
     {"poll_wait_modes", poll_wait_modes},
     {"wait_times_out", wait_times_out},
@@ -229,6 +249,8 @@ static const test_case_t s_cases[] = {
     {"single_waiter_is_enforced", single_waiter_is_enforced},
     {"set_after_timeout_keeps_the_pattern",
      set_after_timeout_keeps_the_pattern},
+    {"calls_with_id_zero", calls_with_id_zero},
+    {"calls_with_a_negative_id", calls_with_a_negative_id},
 };
 
 TEST_SUITE_MAIN("event-flag", s_cases, 5000)

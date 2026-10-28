@@ -8,6 +8,7 @@
 
 #include "dispatch.h"
 #include "event_flag.h"
+#include "object_id.h"
 #include "task.h"
 #include "timer.h"
 
@@ -111,10 +112,16 @@ static BOOL check_ptn(UINT flgptn, UINT waiptn, UINT wfmode) {
 
 /**
  * @brief Wait for event flag.
+ *
+ * tmout is TMO_POL, TMO_FEVR, or 1 to INT_MAX ms, counted as in tk_slp_tsk().
+ *
+ * Returns E_CTX if interrupts are disabled (see tk_slp_tsk()). The check comes
+ * before the flag is looked at, so even a pattern that is set already is
+ * refused; nothing is changed and *p_flgptn is not written.
  */
 ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
   // Basic validation
-  if (flgid > CFN_MAX_FLGID) {
+  if (!tkmc_id_in_range(flgid, CFN_MAX_FLGID)) {
     return E_ID;
   }
   if (waiptn == 0) {
@@ -134,6 +141,10 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
 
   UINT intsts = 0;
   DI(intsts);
+  if (isDI(intsts)) {
+    EI(intsts);
+    return E_CTX;
+  }
 
   // Check existence
   if ((flgcb->flgid & NOEXS_MASK) != 0) {
@@ -203,7 +214,7 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
 
   if (tmout > 0) {
     // Start timer if timeout is specified
-    tkmc_schedule_timer(tcb, ((tmout + 9) / 10) + 1, TTW_FLG);
+    tkmc_schedule_timer(tcb, tkmc_ms_to_ticks(tmout), TTW_FLG);
   } else {
     // Infinite wait
     tcb->tskstat = TTS_WAI;
@@ -233,7 +244,7 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
  * @brief Set bits in the event flag and wake up waiting tasks if matched.
  */
 ER tk_set_flg(ID flgid, UINT setptn) {
-  if (flgid > CFN_MAX_FLGID) {
+  if (!tkmc_id_in_range(flgid, CFN_MAX_FLGID)) {
     return E_ID;
   }
 
@@ -293,7 +304,7 @@ ER tk_set_flg(ID flgid, UINT setptn) {
  * @brief Clear specific bits in the event flag.
  */
 ER tk_clr_flg(ID flgid, UINT clrptn) {
-  if (flgid <= 0 || flgid > CFN_MAX_FLGID) {
+  if (!tkmc_id_in_range(flgid, CFN_MAX_FLGID)) {
     return E_ID;
   }
 

@@ -7,6 +7,7 @@
 #include "semaphore.h"
 
 #include "dispatch.h"
+#include "object_id.h"
 #include "task.h"
 #include "timer.h"
 
@@ -117,14 +118,16 @@ ID tk_cre_sem(CONST T_CSEM *pk_csem) {
  * @param semid Semaphore identifier.
  * @param cnt Number of resources requested.
  * @param tmout Timeout period (TMO_POL for polling; TMO_FEVR for infinite wait
- * or >0 for finite timeout).
+ * or 1 to INT_MAX ms for finite timeout, counted as in tk_slp_tsk()).
  * @return E_OK upon success, or an error code like E_ID, E_PAR, E_TMOUT, or
- * E_NOEXS.
+ * E_NOEXS. E_CTX if interrupts are disabled (see tk_slp_tsk()): checked before
+ * the semaphore is looked at, so even a request that could succeed at once is
+ * refused and nothing is changed.
  */
 ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
   // Validate parameters: semid must be within valid range, cnt positive,
   // timeout valid.
-  if (semid <= 0 || semid > CFN_MAX_SEMID) {
+  if (!tkmc_id_in_range(semid, CFN_MAX_SEMID)) {
     return E_ID;
   }
   if (cnt <= 0 || tmout < TMO_FEVR) {
@@ -136,6 +139,10 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
 
   UINT intsts = 0;
   DI(intsts);
+  if (isDI(intsts)) {
+    EI(intsts);
+    return E_CTX;
+  }
 
   // Check if the semaphore object exists by verifying NOEXS_MASK.
   if ((semcb->semid & NOEXS_MASK) != 0) {
@@ -197,7 +204,7 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
   if (tmout > 0) {
     // For a finite timeout, schedule a timer that will trigger wait
     // termination.
-    tkmc_schedule_timer(tcb, ((tmout + 9) / 10) + 1, TTW_SEM);
+    tkmc_schedule_timer(tcb, tkmc_ms_to_ticks(tmout), TTW_SEM);
   } else {
     // For infinite wait: update task state and perform a context switch.
     tcb->tskstat = TTS_WAI;
@@ -245,7 +252,7 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
  */
 ER tk_sig_sem(ID semid, INT cnt) {
   // Validate input parameters.
-  if (semid <= 0 || semid > CFN_MAX_SEMID) {
+  if (!tkmc_id_in_range(semid, CFN_MAX_SEMID)) {
     return E_ID;
   }
   if (cnt <= 0) {
@@ -326,7 +333,7 @@ ER tk_sig_sem(ID semid, INT cnt) {
  */
 ER tk_del_sem(ID semid) {
   // Validate the semaphore ID.
-  if (semid <= 0 || semid > CFN_MAX_SEMID) {
+  if (!tkmc_id_in_range(semid, CFN_MAX_SEMID)) {
     return E_ID;
   }
 

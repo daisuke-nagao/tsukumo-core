@@ -56,9 +56,12 @@ add_executable(
   test_fixture.c
   test_list.c
   test_memset.c
+  test_object_id.c
   test_task.c
+  test_timeout_ticks.c
   test_timer.c
   test_wait.c
+  test_wait_context.c
   ${PROJECT_SOURCE_DIR}/test/memset_matrix.c)
 target_link_libraries(host-tests PRIVATE kernel-host unity::framework)
 target_compile_options(host-tests PRIVATE -Wno-macro-redefined

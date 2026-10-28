@@ -123,23 +123,33 @@ void tkmc_schedule_timer(TCB *tcb, UINT delay_ticks, UINT tskwait) {
  * - Yields the CPU if the timeout is zero.
  *
  * Parameters:
- * - dlytm: Timeout value in milliseconds.
+ * - dlytm: 0, or a delay of 1 to INT_MAX ms, counted as in tk_slp_tsk().
  *
  * Returns:
  * - E_OK on success.
+ * - E_PAR if dlytm is negative.
+ * - E_CTX if interrupts are disabled (in an interrupt handler or between DI()
+ *   and EI()), even for dlytm == 0. Nothing is changed. See tk_slp_tsk().
  */
 ER tk_dly_tsk(TMO dlytm) {
-  if (dlytm == 0) {
-    tkmc_yield();
-    return E_OK;
-  } else if (dlytm < 0) {
+  if (dlytm < 0) {
     return E_PAR;
   }
 
-  /* Move the task to the timer queue with the specified timeout */
   UINT intsts;
   DI(intsts);
-  tkmc_schedule_timer(current, ((dlytm + 9) / 10) + 1, TTW_DLY);
+  if (isDI(intsts)) {
+    EI(intsts);
+    return E_CTX;
+  }
+  if (dlytm == 0) {
+    EI(intsts);
+    tkmc_yield();
+    return E_OK;
+  }
+
+  /* Move the task to the timer queue with the specified timeout */
+  tkmc_schedule_timer(current, tkmc_ms_to_ticks(dlytm), TTW_DLY);
   EI(intsts);
   // wait to be awaken
   DI(intsts);
@@ -152,6 +162,25 @@ ER tk_dly_tsk(TMO dlytm) {
   return ercd;
 }
 
+/*
+ * Put the current task to sleep until it is woken up or tmout runs out.
+ *
+ * Parameters:
+ * - tmout: TMO_POL, TMO_FEVR, or a time limit of 1 to INT_MAX ms (about 24.9
+ *   days). A time limit is counted in 10 ms ticks: rounded up, plus one tick,
+ *   since the first tick comes at any time after the sleep begins. The other
+ *   wait calls count theirs the same way.
+ *
+ * Returns:
+ * - E_OK if the task was woken up or a wakeup request was queued.
+ * - E_TMOUT if tmout ran out, or at once for TMO_POL without a queued wakeup.
+ * - E_PAR if tmout is below TMO_FEVR.
+ * - E_CTX if interrupts are disabled, even when a wakeup is queued. Nothing is
+ *   changed. The task is switched out when interrupts come back on, so with
+ *   them off it would stay in the waiting state while it runs. Checking MIE
+ *   does not see a handler that enables interrupts again; that needs a counter
+ *   of handler nesting, which the kernel does not keep.
+ */
 ER tk_slp_tsk(TMO tmout) {
   if (tmout < TMO_FEVR) {
     return E_PAR;
@@ -160,6 +189,10 @@ ER tk_slp_tsk(TMO tmout) {
   UINT intsts;
   ER ercd = E_OK;
   DI(intsts);
+  if (isDI(intsts)) {
+    EI(intsts);
+    return E_CTX;
+  }
   if (current->wupcnt > 0) {
     current->wupcnt -= 1;
     ercd = E_OK;
@@ -167,7 +200,7 @@ ER tk_slp_tsk(TMO tmout) {
     return ercd;
   } else {
     if (tmout > 0) {
-      tkmc_schedule_timer(current, ((tmout + 9) / 10) + 1, TTW_SLP);
+      tkmc_schedule_timer(current, tkmc_ms_to_ticks(tmout), TTW_SLP);
     } else if (tmout == TMO_POL) {
       EI(intsts);
       return E_TMOUT;

@@ -29,9 +29,6 @@
 #include "semaphore.h"
 #include "task.h"
 
-extern SEMCB tkmc_semcbs[CFN_MAX_SEMID];
-extern FLGCB tkmc_flgcbs[CFN_MAX_FLGID];
-
 enum {
   HIGH_PRIORITY = 4,
   LOW_PRIORITY = 5,

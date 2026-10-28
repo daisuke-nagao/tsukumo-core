@@ -25,7 +25,11 @@
 
 #include <tk/tkernel.h>
 
+#include "event_flag.h"
 #include "list.h"
+#include "mailbox.h"
+#include "semaphore.h"
+#include "task.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,6 +65,35 @@ extern BOOL host_interrupts_enabled(void);
 
 // The kernel's timer queue, which timer.h does not declare.
 extern tkmc_list_head tkmc_timer_queue;
+
+// The kernel's object tables, which their headers do not declare.
+extern SEMCB tkmc_semcbs[CFN_MAX_SEMID];
+extern FLGCB tkmc_flgcbs[CFN_MAX_FLGID];
+extern MBXCB tkmc_mbxcbs[CFN_MAX_MBXID];
+
+// Everything the kernel keeps, as bytes: every task, ready queue, the timer
+// queue, every semaphore, event flag and mailbox, the current and next task,
+// and the number of context switch requests (writes to the software interrupt
+// register; its level is no use, setup may have left it set).
+// host_check_kernel_queues() is not enough to show that a call changed nothing:
+// it accepts a task that is waiting without being on any queue.
+typedef struct {
+  unsigned char tcbs[sizeof(tkmc_tcbs)];
+  unsigned char ready[sizeof(tkmc_ready_queue)];
+  unsigned char timer[sizeof(tkmc_timer_queue)];
+  unsigned char sems[sizeof(tkmc_semcbs)];
+  unsigned char flgs[sizeof(tkmc_flgcbs)];
+  unsigned char mbxs[sizeof(tkmc_mbxcbs)];
+  TCB *current;
+  TCB *next;
+  UINT switch_requests;
+} host_snapshot_t;
+
+extern void host_take_snapshot(host_snapshot_t *s);
+
+// Fails the running test, with what in the message, unless the kernel is as
+// the snapshot found it.
+extern void host_assert_unchanged(const host_snapshot_t *s, const char *what);
 
 // Fails the running test unless the kernel's queues are consistent: every queue
 // (ready, timer and the wait queue of every existing semaphore, event flag and
