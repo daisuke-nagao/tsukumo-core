@@ -98,6 +98,11 @@ extern void test_a_signal_past_the_maximum_is_refused_and_keeps_the_count(void);
 extern void test_a_signal_past_the_maximum_wakes_no_waiter(void);
 extern void test_the_maximum_counts_units_before_they_go_to_waiters(void);
 extern void test_a_signal_refused_with_interrupts_off_leaves_them_off(void);
+extern void
+test_wakeup_count_is_bounded_for_ready_and_non_sleep_waiting_tasks(void);
+extern void
+test_wakeup_count_is_bounded_for_a_running_task_with_interrupts_off(void);
+extern void test_consuming_a_wakeup_makes_room_for_one_more_request(void);
 
 int main(void) {
   UNITY_BEGIN();
@@ -137,6 +142,9 @@ int main(void) {
   RUN_TEST(test_a_signal_past_the_maximum_wakes_no_waiter);
   RUN_TEST(test_the_maximum_counts_units_before_they_go_to_waiters);
   RUN_TEST(test_a_signal_refused_with_interrupts_off_leaves_them_off);
+  RUN_TEST(test_wakeup_count_is_bounded_for_ready_and_non_sleep_waiting_tasks);
+  RUN_TEST(test_wakeup_count_is_bounded_for_a_running_task_with_interrupts_off);
+  RUN_TEST(test_consuming_a_wakeup_makes_room_for_one_more_request);
   RUN_TEST(test_list_matches_a_model_under_random_operations);
   RUN_TEST(test_semaphore_waiter_blocks_and_a_signal_wakes_it);
   RUN_TEST(test_semaphore_wait_ends_when_the_time_limit_runs_out);

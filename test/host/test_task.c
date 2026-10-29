@@ -383,3 +383,100 @@ void test_refusals_do_not_use_up_the_tasks_the_kernel_can_hold(void) {
     check_refused(&refused[i], E_PAR);
   }
 }
+
+enum { WAKEUP_LIMIT = 4095 };
+
+// Build real queue membership for each branch; the host cannot run tasks.
+static ID make_wakeup_target(UINT state) {
+  if (state == TTS_RUN) {
+    ID target = host_make_task(PRIORITY);
+    host_set_current(target);
+    return target;
+  }
+
+  ID caller = host_make_task(PRIORITY);
+  ID target = host_make_task(state == TTS_WAI ? PRIORITY - 1 : PRIORITY + 1);
+  host_set_current(caller);
+  if (state == TTS_WAI) {
+    ID semid =
+        tk_cre_sem(&(T_CSEM){.sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
+    TEST_ASSERT_GREATER_THAN(0, semid);
+    tkmc_tcbs[caller - 1].tskstat = TTS_RDY;
+    host_set_current(target);
+    HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, 50));
+    host_set_current(caller);
+  }
+  return target;
+}
+
+// Only wupcnt may change on success; a refusal must leave the snapshot intact.
+static void check_wakeup_limit(UINT state, UINT count, BOOL interrupts_off) {
+  host_reset();
+  ID target = make_wakeup_target(state);
+  TCB *tcb = &tkmc_tcbs[target - 1];
+  tcb->wupcnt = count;
+  host_snapshot_t before;
+  host_take_snapshot(&before);
+
+  UINT saved = 0;
+  if (interrupts_off) {
+    DI(saved);
+  }
+  ER ercd = tk_wup_tsk(target);
+  BOOL enabled = host_interrupts_enabled();
+  if (interrupts_off) {
+    EI(saved);
+  }
+
+  TEST_ASSERT_EQUAL(!interrupts_off, enabled);
+  TEST_ASSERT_TRUE(host_interrupts_enabled());
+  TEST_ASSERT_EQUAL(count < WAKEUP_LIMIT ? E_OK : E_QOVR, ercd);
+  UINT expected = count < WAKEUP_LIMIT ? count + 1 : count;
+  TEST_ASSERT_EQUAL_UINT(expected, tcb->wupcnt);
+  tcb->wupcnt = count;
+  host_assert_unchanged(&before, "tk_wup_tsk may only queue one request");
+  tcb->wupcnt = expected;
+  host_check_kernel_queues();
+}
+
+void test_wakeup_count_is_bounded_for_ready_and_non_sleep_waiting_tasks(void) {
+  const UINT states[] = {TTS_RDY, TTS_WAI};
+  const UINT counts[] = {0, WAKEUP_LIMIT - 1, WAKEUP_LIMIT};
+  for (UINT s = 0; s < sizeof(states) / sizeof(states[0]); ++s) {
+    for (UINT c = 0; c < sizeof(counts) / sizeof(counts[0]); ++c) {
+      check_wakeup_limit(states[s], counts[c], FALSE);
+      check_wakeup_limit(states[s], counts[c], TRUE);
+    }
+  }
+}
+
+void test_wakeup_count_is_bounded_for_a_running_task_with_interrupts_off(void) {
+  // A handler-equivalent fixture, not an actual ISR or a new self-wakeup rule.
+  const UINT counts[] = {0, WAKEUP_LIMIT - 1, WAKEUP_LIMIT};
+  for (UINT i = 0; i < sizeof(counts) / sizeof(counts[0]); ++i) {
+    check_wakeup_limit(TTS_RUN, counts[i], TRUE);
+  }
+}
+
+void test_consuming_a_wakeup_makes_room_for_one_more_request(void) {
+  ID caller = host_make_task(PRIORITY);
+  ID target = host_make_task(PRIORITY + 1);
+  host_set_current(caller);
+  tkmc_tcbs[target - 1].wupcnt = WAKEUP_LIMIT;
+
+  // Resume the target to consume one queued request, then resume its caller.
+  tkmc_tcbs[caller - 1].tskstat = TTS_RDY;
+  host_set_current(target);
+  TEST_ASSERT_EQUAL(E_OK, tk_slp_tsk(TMO_POL));
+  TEST_ASSERT_EQUAL_UINT(WAKEUP_LIMIT - 1, current->wupcnt);
+  tkmc_tcbs[target - 1].tskstat = TTS_RDY;
+  host_set_current(caller);
+  TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(target));
+  TEST_ASSERT_EQUAL_UINT(WAKEUP_LIMIT, tkmc_tcbs[target - 1].wupcnt);
+
+  host_snapshot_t before;
+  host_take_snapshot(&before);
+  TEST_ASSERT_EQUAL(E_QOVR, tk_wup_tsk(target));
+  host_assert_unchanged(&before, "the replacement request fills the last slot");
+  host_check_kernel_queues();
+}

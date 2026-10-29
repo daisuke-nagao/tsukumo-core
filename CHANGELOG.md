@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added host boundary tests of queued wakeups for ready, running and semaphore-waiting tasks, including unchanged queues and interrupt state on refusal and re-queuing after consumption. The `task-timer` QEMU suite also queues and consumes all 4095 requests for ready and semaphore-waiting tasks.
 - Added tests of the counts a semaphore takes: nine on the PC (counts out of range and their order against `E_RSATR` and `E_LIMIT`, both ends of the range, signals past the maximum or near `INT_MAX` with and without waiters and with interrupts off, each refusal checked to change nothing) and the cases `counts_out_of_range_are_refused` and `signal_past_the_maximum_keeps_the_count` in the `semaphore` suite.
 - Added tests of time limits near `INT_MAX`: a table on the PC over the five wait calls that checks the tick count for 1, 9, 10, 11, `INT_MAX - 9`, `INT_MAX - 8` and `INT_MAX` ms, and the case `longest_sleep_counts_its_ticks` in the `task-timer` QEMU suite.
 - Added tests of calls with an ID out of range: a table on the PC over every call that takes an ID (0, -1, `INT_MIN` and one above the maximum are `E_ID` and change nothing; 1 and the maximum get past the check), rows for `tk_wai_flg()` with interrupts off, and cases for IDs 0 and -1 in the `task-restart` and `event-flag` QEMU suites.
@@ -68,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Simplified context switching logic with priority-based scheduling.
 
 ### Fixed
+- `tk_wup_tsk()` now enforces `TK_WAKEUP_MAXCNT` (4095) when queuing wakeups and returns `E_QOVR` without changing state at the limit. It used to allow counts almost up to `UINT_MAX`. Calls that depend on more than 4095 queued requests are now refused; waking a sleeping task still succeeds without queuing another request.
 - `tk_cre_sem()` now refuses a maximum outside 1 to `TK_SEMAPHORE_MAXCNT` and an initial count outside 0 to the maximum with `E_PAR`, without taking a semaphore; it used to store any counts, a negative maximum included. An unsupported attribute is still `E_RSATR` and comes first, and `E_PAR` comes before `E_LIMIT`.
 - `tk_sig_sem()` now returns `E_QOVR` and changes neither the count nor the waiters for any signal that would take the count past the maximum. The check was skipped for a signal larger than the maximum, so a semaphore of one unit could hold two, and a signal near `INT_MAX` overflowed the count. The maximum is checked before units go to the waiters, as before.
 - `tk_dly_tsk()`, `tk_slp_tsk()`, `tk_wai_sem()`, `tk_wai_flg()` and `tk_rcv_mbx()` now accept every time limit up to `INT_MAX` ms (about 24.9 days), counted as before in 10 ms ticks rounded up plus one tick. The conversion added 9 to the signed time, which overflowed for times above `INT_MAX - 9`: undefined behavior, and on the RISC-V debug build a wait of about 4 billion ticks instead of 214748366.
