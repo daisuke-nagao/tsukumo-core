@@ -89,6 +89,15 @@ test_a_delay_of_zero_with_interrupts_on_yields_and_leaves_them_on(void);
 extern void test_an_id_out_of_range_is_refused_and_changes_nothing(void);
 extern void test_the_ids_at_both_ends_of_the_range_get_past_the_id_check(void);
 extern void test_every_wait_rounds_its_time_limit_up_to_ticks_plus_one(void);
+extern void test_a_semaphore_count_outside_its_range_is_refused(void);
+extern void test_an_attribute_error_comes_before_a_count_error(void);
+extern void test_a_count_error_comes_before_running_out_of_semaphores(void);
+extern void test_refused_creations_use_up_no_semaphore(void);
+extern void test_the_counts_at_both_ends_of_the_range_are_accepted(void);
+extern void test_a_signal_past_the_maximum_is_refused_and_keeps_the_count(void);
+extern void test_a_signal_past_the_maximum_wakes_no_waiter(void);
+extern void test_the_maximum_counts_units_before_they_go_to_waiters(void);
+extern void test_a_signal_refused_with_interrupts_off_leaves_them_off(void);
 
 int main(void) {
   UNITY_BEGIN();
@@ -119,6 +128,15 @@ int main(void) {
   RUN_TEST(test_an_id_out_of_range_is_refused_and_changes_nothing);
   RUN_TEST(test_the_ids_at_both_ends_of_the_range_get_past_the_id_check);
   RUN_TEST(test_every_wait_rounds_its_time_limit_up_to_ticks_plus_one);
+  RUN_TEST(test_a_semaphore_count_outside_its_range_is_refused);
+  RUN_TEST(test_an_attribute_error_comes_before_a_count_error);
+  RUN_TEST(test_a_count_error_comes_before_running_out_of_semaphores);
+  RUN_TEST(test_refused_creations_use_up_no_semaphore);
+  RUN_TEST(test_the_counts_at_both_ends_of_the_range_are_accepted);
+  RUN_TEST(test_a_signal_past_the_maximum_is_refused_and_keeps_the_count);
+  RUN_TEST(test_a_signal_past_the_maximum_wakes_no_waiter);
+  RUN_TEST(test_the_maximum_counts_units_before_they_go_to_waiters);
+  RUN_TEST(test_a_signal_refused_with_interrupts_off_leaves_them_off);
   RUN_TEST(test_list_matches_a_model_under_random_operations);
   RUN_TEST(test_semaphore_waiter_blocks_and_a_signal_wakes_it);
   RUN_TEST(test_semaphore_wait_ends_when_the_time_limit_runs_out);
