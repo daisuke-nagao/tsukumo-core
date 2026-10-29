@@ -128,6 +128,51 @@ static void longest_sleep_counts_its_ticks(void) {
   test_join_expect(1);
 }
 
+enum { WAKEUP_LIMIT = 4095 };
+static ID s_wakeup_gate;
+
+static void consume_wakeup_limit(void *arg) {
+  (void)arg;
+  for (UINT i = 0; i < WAKEUP_LIMIT; ++i) {
+    TEST_ASSERT_EQUAL(E_OK, tk_slp_tsk(TMO_POL));
+  }
+  TEST_ASSERT_EQUAL(E_TMOUT, tk_slp_tsk(TMO_POL));
+  test_checkpoint();
+}
+
+static void semaphore_waiting_wakeup_child(void *arg) {
+  (void)arg;
+  TEST_ASSERT_EQUAL(E_OK, tk_wai_sem(s_wakeup_gate, 1, TMO_FEVR));
+  consume_wakeup_limit(NULL);
+}
+
+static ER queue_wakeup_limit(ID child) {
+  for (UINT i = 0; i < WAKEUP_LIMIT; ++i) {
+    TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(child));
+  }
+  return tk_wup_tsk(child);
+}
+
+static void ready_task_refuses_a_wakeup_past_the_limit(void) {
+  ID child = test_spawn(consume_wakeup_limit, LATE_CHILD_PRIORITY, 0);
+  ER overflow = queue_wakeup_limit(child);
+  test_join_expect(1);
+  TEST_ASSERT_EQUAL(E_QOVR, overflow);
+}
+
+static void semaphore_waiter_refuses_a_wakeup_past_the_limit(void) {
+  s_wakeup_gate =
+      tk_cre_sem(&(T_CSEM){.sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
+  TEST_ASSERT_GREATER_THAN(0, s_wakeup_gate);
+  ID child = test_spawn(semaphore_waiting_wakeup_child, CHILD_PRIORITY, 0);
+  ER overflow = queue_wakeup_limit(child);
+  // Release the child before asserting, so a failed check cannot strand it.
+  TEST_ASSERT_EQUAL(E_OK, tk_sig_sem(s_wakeup_gate, 1));
+  test_join_expect(1);
+  TEST_ASSERT_EQUAL(E_OK, tk_del_sem(s_wakeup_gate));
+  TEST_ASSERT_EQUAL(E_QOVR, overflow);
+}
+
 static const test_case_t s_cases[] = {
     {"sleep_times_out", sleep_times_out},
     {"release_wait", release_wait},
@@ -135,6 +180,10 @@ static const test_case_t s_cases[] = {
     {"wakeup_queued_before_sleep", wakeup_queued_before_sleep},
     {"delay_lasts_long_enough", delay_lasts_long_enough},
     {"longest_sleep_counts_its_ticks", longest_sleep_counts_its_ticks},
+    {"ready_task_refuses_a_wakeup_past_the_limit",
+     ready_task_refuses_a_wakeup_past_the_limit},
+    {"semaphore_waiter_refuses_a_wakeup_past_the_limit",
+     semaphore_waiter_refuses_a_wakeup_past_the_limit},
 };
 
 TEST_SUITE_MAIN("task-timer", s_cases, 5000)

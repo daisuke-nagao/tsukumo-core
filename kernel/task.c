@@ -480,8 +480,9 @@ ER tk_rel_wai(ID tskid) {
 
 /*
  * Wake up a task.
- * - Transitions a sleeping or waiting task to the ready state.
- * - If the task is already ready or running, increments its wakeup count.
+ * - Makes a task waiting in tk_slp_tsk ready without queuing a request.
+ * - Otherwise queues one request for a ready, running or waiting task, up to
+ *   TK_WAKEUP_MAXCNT. Other kinds of wait are not released.
  *
  * Parameters:
  * - tskid: ID of the task to wake up.
@@ -491,7 +492,7 @@ ER tk_rel_wai(ID tskid) {
  * - E_ID if the task ID is invalid.
  * - E_NOEXS if the task does not exist.
  * - E_OBJ if the task is not in a suitable state to be woken up.
- * - E_QOVR if the wakeup count exceeds its maximum value.
+ * - E_QOVR if the queued count is already TK_WAKEUP_MAXCNT. Nothing changes.
  */
 ER tk_wup_tsk(ID tskid) {
   // Validate the task ID
@@ -504,7 +505,6 @@ ER tk_wup_tsk(ID tskid) {
 
   ER ercd = E_OK;
   UINT intsts = 0;
-  const UINT WUPCNT_MAX = (~(UINT)(0)) - 1;
 
   // Disable interrupts to ensure atomic operations
   DI(intsts);
@@ -525,7 +525,7 @@ ER tk_wup_tsk(ID tskid) {
       }
     } else {
       // If the task is waiting on something else, increment the wakeup count
-      if (tcb->wupcnt <= WUPCNT_MAX) {
+      if (tcb->wupcnt < TK_WAKEUP_MAXCNT) {
         tcb->wupcnt += 1;
         ercd = E_OK;
       } else {
@@ -534,7 +534,7 @@ ER tk_wup_tsk(ID tskid) {
     }
   } else if (tskstat == TTS_RDY || tskstat == TTS_RUN) {
     // If the task is already ready or running, increment the wakeup count
-    if (tcb->wupcnt <= WUPCNT_MAX) {
+    if (tcb->wupcnt < TK_WAKEUP_MAXCNT) {
       tcb->wupcnt += 1;
       ercd = E_OK;
     } else {
