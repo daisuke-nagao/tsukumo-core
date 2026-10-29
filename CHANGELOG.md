@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added tests of the counts a semaphore takes: nine on the PC (counts out of range and their order against `E_RSATR` and `E_LIMIT`, both ends of the range, signals past the maximum or near `INT_MAX` with and without waiters and with interrupts off, each refusal checked to change nothing) and the cases `counts_out_of_range_are_refused` and `signal_past_the_maximum_keeps_the_count` in the `semaphore` suite.
 - Added tests of time limits near `INT_MAX`: a table on the PC over the five wait calls that checks the tick count for 1, 9, 10, 11, `INT_MAX - 9`, `INT_MAX - 8` and `INT_MAX` ms, and the case `longest_sleep_counts_its_ticks` in the `task-timer` QEMU suite.
 - Added tests of calls with an ID out of range: a table on the PC over every call that takes an ID (0, -1, `INT_MIN` and one above the maximum are `E_ID` and change nothing; 1 and the maximum get past the check), rows for `tk_wai_flg()` with interrupts off, and cases for IDs 0 and -1 in the `task-restart` and `event-flag` QEMU suites.
 - Added tests of wait calls made with interrupts off: six on the PC (every call and time limit, a call that could succeed at once, the order against the argument and object checks, and `tk_dly_tsk(0)` with interrupts on) and the `wait-context` QEMU suite (`qemu-wait-context`), which also checks that a refusal uses up no wake-up request, unit, pattern or message.
@@ -53,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the old chained tests (`test/task1.c` to `test/task4.c` and their helpers) and the `tsukumo-core-inject-fail.elf` check; the suites and the runner self-tests replace them.
 
 ### Changed
+- `TK_SEMAPHORE_MAXCNT` is now 32767, the least that μT-Kernel 3.0 asks for, and `tk_cre_sem()` enforces it; it was 4095 and not checked.
 - Every way a wait ends (time limit, signal, set, mailbox delivery and delete, `tk_rel_wai()`, `tk_wup_tsk()`) now goes through one function, `tkmc_complete_wait()`, which takes the task off the timer queue and the wait queue of its object and makes it ready once.
 - `tsukumo-core.elf` is now the kernel only (an empty `usermain`); the tests moved into the suite ELFs.
 - Refactored `start.s`:
@@ -66,6 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Simplified context switching logic with priority-based scheduling.
 
 ### Fixed
+- `tk_cre_sem()` now refuses a maximum outside 1 to `TK_SEMAPHORE_MAXCNT` and an initial count outside 0 to the maximum with `E_PAR`, without taking a semaphore; it used to store any counts, a negative maximum included. An unsupported attribute is still `E_RSATR` and comes first, and `E_PAR` comes before `E_LIMIT`.
+- `tk_sig_sem()` now returns `E_QOVR` and changes neither the count nor the waiters for any signal that would take the count past the maximum. The check was skipped for a signal larger than the maximum, so a semaphore of one unit could hold two, and a signal near `INT_MAX` overflowed the count. The maximum is checked before units go to the waiters, as before.
 - `tk_dly_tsk()`, `tk_slp_tsk()`, `tk_wai_sem()`, `tk_wai_flg()` and `tk_rcv_mbx()` now accept every time limit up to `INT_MAX` ms (about 24.9 days), counted as before in 10 ms ticks rounded up plus one tick. The conversion added 9 to the signed time, which overflowed for times above `INT_MAX - 9`: undefined behavior, and on the RISC-V debug build a wait of about 4 billion ticks instead of 214748366.
 - `tk_sta_tsk()`, `tk_wai_flg()` and `tk_set_flg()` now refuse an ID of 0 or below with `E_ID` and change nothing, as the other calls that take an ID already did. They checked only the upper bound, so such an ID formed an address in front of the task or flag table: `tk_sta_tsk()` read and could start whatever lay there, and `tk_set_flg()` wrote bits into it. This was also reached by passing the negative error code of a refused `tk_cre_tsk()` to `tk_sta_tsk()`.
 - `tk_dly_tsk()`, `tk_slp_tsk()`, `tk_wai_sem()`, `tk_wai_flg()` and `tk_rcv_mbx()` now return `E_CTX` and change nothing when interrupts are off (in an interrupt handler, or between `DI()` and `EI()`), also for a poll, a call that could succeed at once and `tk_dly_tsk(0)`. A task is switched out when interrupts come back on, so such a call used to put the running task on a wait queue, return `E_OK` and leave the task in the waiting state until the next `EI()` switched it away. Argument errors (`E_ID`, `E_PAR`) are still reported first. The check reads the interrupt state, so a handler that enables interrupts again is not seen, and `tk_ext_tsk()` and `tk_exd_tsk()` called with interrupts off are not checked.

@@ -10,7 +10,8 @@
 // holds the semaphore for HOLD_MS, and the other must wait for it. The children
 // count how many of them are inside at once, so a semaphore that lets both in
 // fails the assert in the child that arrives second. The others test a
-// time-out, a signal after a time-out, a delete with waiters, and the limit.
+// time-out, a signal after a time-out, a delete with waiters, the limit, and
+// the counts a semaphore accepts.
 
 #include <tk/tkernel.h>
 #include <unity.h>
@@ -194,6 +195,46 @@ static void signal_over_limit_is_refused(void) {
   TEST_ASSERT_EQUAL(E_OK, tk_del_sem(semid));
 }
 
+// A maximum of 1 to 32767 and an initial count of 0 to the maximum are
+// accepted, and nothing else.
+static void counts_out_of_range_are_refused(void) {
+  static const INT bad[][2] = {{-1, 1},       {0, 0},           {0, -1},
+                               {0, 32768},    {0, __INT_MAX__}, {2, 1},
+                               {32768, 32768}};
+  for (UINT i = 0; i < sizeof(bad) / sizeof(bad[0]); ++i) {
+    TEST_ASSERT_EQUAL(E_PAR, tk_cre_sem(&(T_CSEM){.exinf = 0,
+                                                  .sematr = TA_TFIFO,
+                                                  .isemcnt = bad[i][0],
+                                                  .maxsem = bad[i][1]}));
+  }
+
+  // Each accepted semaphore fills up to its maximum and refuses one more.
+  static const INT good[][2] = {{0, 1}, {1, 1}, {0, 32767}, {32767, 32767}};
+  for (UINT i = 0; i < sizeof(good) / sizeof(good[0]); ++i) {
+    ID semid = create_semaphore(good[i][0], good[i][1]);
+    if (good[i][1] > good[i][0]) {
+      TEST_ASSERT_EQUAL(E_OK, tk_sig_sem(semid, good[i][1] - good[i][0]));
+    }
+    TEST_ASSERT_EQUAL(E_QOVR, tk_sig_sem(semid, 1));
+    TEST_ASSERT_EQUAL(E_OK, tk_del_sem(semid));
+  }
+}
+
+// A signal larger than the maximum, or one whose sum overflows, is refused,
+// and the semaphore keeps the count it had.
+static void signal_past_the_maximum_keeps_the_count(void) {
+  ID empty = create_semaphore(0, 1);
+  TEST_ASSERT_EQUAL(E_QOVR, tk_sig_sem(empty, 2));
+  TEST_ASSERT_EQUAL(E_TMOUT, tk_wai_sem(empty, 1, TMO_POL));
+  TEST_ASSERT_EQUAL(E_OK, tk_del_sem(empty));
+
+  ID full = create_semaphore(1, 1);
+  TEST_ASSERT_EQUAL(E_QOVR, tk_sig_sem(full, __INT_MAX__));
+  TEST_ASSERT_EQUAL(E_OK, tk_wai_sem(full, 1, TMO_POL));
+  TEST_ASSERT_EQUAL(E_TMOUT, tk_wai_sem(full, 1, TMO_POL));
+  TEST_ASSERT_EQUAL(E_OK, tk_del_sem(full));
+}
+
 static const test_case_t s_cases[] = {
     {"binary_semaphore_is_exclusive", binary_semaphore_is_exclusive},
     {"counting_semaphore_grants_whole_requests",
@@ -203,6 +244,9 @@ static const test_case_t s_cases[] = {
     {"signal_after_timeout_keeps_the_unit",
      signal_after_timeout_keeps_the_unit},
     {"signal_over_limit_is_refused", signal_over_limit_is_refused},
+    {"counts_out_of_range_are_refused", counts_out_of_range_are_refused},
+    {"signal_past_the_maximum_keeps_the_count",
+     signal_past_the_maximum_keeps_the_count},
 };
 
 TEST_SUITE_MAIN("semaphore", s_cases, 10000)

@@ -52,20 +52,26 @@ void tkmc_init_semcb(void) {
  * @brief Creates a semaphore object.
  *
  * This function allocates a semaphore control block (SEMCB) from the free list,
- * validates the given semaphore attributes, and initializes the SEMCB with the
- * provided creation parameters. The semaphore is marked as allocated by
- * removing the NOEXS_MASK from its semid.
+ * validates the given semaphore attributes and counts, and initializes the
+ * SEMCB with the provided creation parameters. The semaphore is marked as
+ * allocated by removing the NOEXS_MASK from its semid.
  *
  * @param pk_csem Pointer to a creation parameter structure containing:
  *                - sematr  : Semaphore attribute flags.
- *                - isemcnt : Initial resource count.
- *                - maxsem  : Maximum allowable resource count.
+ *                - isemcnt : Initial resource count, 0 to maxsem.
+ *                - maxsem  : Maximum allowable resource count, 1 to
+ *                            TK_SEMAPHORE_MAXCNT.
  *                - exinf   : Extended user information.
- * @return Semaphore identifier on success, or an error code such as E_RSATR or
- * E_LIMIT.
+ * @return Semaphore identifier on success, or an error code: E_RSATR for an
+ * attribute the kernel does not support, then E_PAR for a count out of range,
+ * then E_LIMIT when no semaphore is left. A refusal changes nothing.
  */
 ID tk_cre_sem(CONST T_CSEM *pk_csem) {
+  // Each field is read once, so a packet that changes during the call cannot
+  // get a value past the checks.
   const ATR sematr = pk_csem->sematr;
+  const INT isemcnt = pk_csem->isemcnt;
+  const INT maxsem = pk_csem->maxsem;
 
   // Define valid attribute mask (combination of supported attributes)
   static const ATR VALID_SEMATR = TA_TFIFO | TA_TPRI | TA_CNT | TA_FIRST;
@@ -73,6 +79,12 @@ ID tk_cre_sem(CONST T_CSEM *pk_csem) {
   // Check for invalid attribute bits
   if ((sematr & ~VALID_SEMATR) != 0) {
     return E_RSATR; // Return error if invalid attribute bits are set.
+  }
+
+  // tk_sig_sem() relies on 0 <= semcnt <= maxsem to compare without overflow.
+  if (maxsem < 1 || maxsem > TK_SEMAPHORE_MAXCNT || isemcnt < 0 ||
+      isemcnt > maxsem) {
+    return E_PAR;
   }
 
   UINT intsts = 0;
@@ -93,9 +105,9 @@ ID tk_cre_sem(CONST T_CSEM *pk_csem) {
 
     // Initialize semaphore control block with parameters provided.
     new_semcb->exinf = pk_csem->exinf;
-    new_semcb->sematr = pk_csem->sematr;
-    new_semcb->semcnt = pk_csem->isemcnt;
-    new_semcb->maxsem = pk_csem->maxsem;
+    new_semcb->sematr = sematr;
+    new_semcb->semcnt = isemcnt;
+    new_semcb->maxsem = maxsem;
   } else {
     new_semid = (ID)E_LIMIT; // No available SEMCB found.
   }
@@ -248,7 +260,9 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
  * @param semid Semaphore identifier.
  * @param cnt Number of resources to release.
  * @return E_OK on success, or an error code such as E_ID, E_PAR, E_NOEXS, or
- * E_QOVR.
+ * E_QOVR. E_QOVR when the count plus cnt would exceed the maximum, counted
+ * before any unit goes to a waiter, even one that would take them at once; the
+ * refusal changes neither the count nor the waiters.
  */
 ER tk_sig_sem(ID semid, INT cnt) {
   // Validate input parameters.
@@ -272,8 +286,9 @@ ER tk_sig_sem(ID semid, INT cnt) {
   }
 
   // Check that releasing cnt resources does not exceed the maximum resource
-  // limit.
-  if (semcb->maxsem >= cnt && semcb->semcnt > semcb->maxsem - cnt) {
+  // limit. The count is checked before any of it goes to the waiters, and the
+  // difference cannot overflow, as tk_cre_sem() keeps 0 <= semcnt <= maxsem.
+  if (cnt > semcb->maxsem - semcb->semcnt) {
     EI(intsts);
     return E_QOVR; // Overflow error
   }
