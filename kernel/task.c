@@ -9,6 +9,7 @@
 #include "dispatch.h"
 #include "memset.h"
 #include "object_id.h"
+#include "semaphore.h"
 
 /* Memory-mapped addresses for the CLINT (Core Local Interruptor) */
 #define CLINT_MSIP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET)
@@ -42,7 +43,7 @@ static void reset_tcb(TCB *tcb) {
   tcb->delay_ticks = 0;
   tcb->wupcause = E_OK;
   tcb->wupcnt = 0;
-  memset(&tcb->winfo.dummy, 0, sizeof(tcb->winfo.dummy));
+  memset(&tcb->winfo, 0, sizeof(tcb->winfo));
 
   tkmc_init_list_head(&tcb->head);
   tkmc_init_list_head(&tcb->winfo.wait_queue);
@@ -146,13 +147,24 @@ void tkmc_init_tcb(void) {
  *   call changes nothing.
  *
  * The size check only tells that the frame fits. How deep the task can go
- * below it is up to the caller.
+ * below it is up to the caller, who must also leave room for the kernel: an
+ * interrupt saves a frame of sizeof(StashedRegisters) bytes on the stack of
+ * the task it interrupts and runs its handler there, so every stack needs that
+ * frame plus the handler's own frames (see the -fstack-usage output) below the
+ * task's deepest point.
  */
 ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
   if (pk_ctsk == NULL) {
     return E_PAR;
   }
+  // Each field is read once, so a packet that changes during the call cannot
+  // get a value past the checks.
   const ATR tskatr = pk_ctsk->tskatr;
+  const FP task = pk_ctsk->task;
+  void *const bufptr = pk_ctsk->bufptr;
+  const PRI itskpri = pk_ctsk->itskpri;
+  const SZ stksz = pk_ctsk->stksz;
+  void *const exinf = pk_ctsk->exinf;
   static const ATR VALID_TSKATR =
       TA_ASM | TA_HLNG | TA_USERBUF | TA_RNG0 | TA_RNG1 | TA_RNG2 | TA_RNG3;
 
@@ -165,18 +177,18 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     return E_RSATR; // User buffer not specified
   }
 
-  if (pk_ctsk->task == NULL || pk_ctsk->bufptr == NULL) {
+  if (task == NULL || bufptr == NULL) {
     return E_PAR;
   }
-  if (pk_ctsk->itskpri < 1 || pk_ctsk->itskpri > CFN_MAX_PRI) {
+  if (itskpri < 1 || itskpri > CFN_MAX_PRI) {
     return E_PAR; // tkmc_ready_queue[itskpri - 1] would be out of range
   }
-  if (pk_ctsk->stksz <= (SZ)sizeof(StashedRegisters)) {
+  if (stksz <= (SZ)sizeof(StashedRegisters)) {
     // The frame must fit with room left. This also rules out a negative size.
     return E_PAR;
   }
-  const tkmc_uintptr_t stack_begin = (tkmc_uintptr_t)pk_ctsk->bufptr;
-  const tkmc_uintptr_t stack_size = (tkmc_uintptr_t)pk_ctsk->stksz;
+  const tkmc_uintptr_t stack_begin = (tkmc_uintptr_t)bufptr;
+  const tkmc_uintptr_t stack_size = (tkmc_uintptr_t)stksz;
   if (stack_size > TKMC_UINTPTR_MAX - stack_begin) {
     return E_PAR; // The end would wrap around the address space
   }
@@ -210,12 +222,12 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     /* Initialize the TCB for the new task */
     stack_end -= sizeof(StashedRegisters); // Reserve the initial context
 
-    new_tcb->tskstat = TTS_DMT;          // Set initial task state
-    new_tcb->sp = stack_end;             // Set stack pointer
-    new_tcb->initial_sp = stack_end;     // Store initial stack pointer
-    new_tcb->task = pk_ctsk->task;       // Assign task function
-    new_tcb->itskpri = pk_ctsk->itskpri; // Assign task priority
-    new_tcb->exinf = pk_ctsk->exinf; // Store user-defined extended information
+    new_tcb->tskstat = TTS_DMT;      // Set initial task state
+    new_tcb->sp = stack_end;         // Set stack pointer
+    new_tcb->initial_sp = stack_end; // Store initial stack pointer
+    new_tcb->task = task;            // Assign task function
+    new_tcb->itskpri = itskpri;      // Assign task priority
+    new_tcb->exinf = exinf;          // Store user-defined extended information
   } else {
     new_id = (ID)E_LIMIT; // Task creation failed
   }
@@ -253,10 +265,11 @@ TCB *tkmc_get_highest_priority_task(void) {
  * there and make it ready a second time.
  *
  * Whether the task is on the timer queue is told by its head being on a queue,
- * not by delay_ticks: the timer handler counts delay_ticks down to 0 first, and
- * the task is still on the timer queue then.
+ * not by delay_ticks: a wait for ever has none, and the timer handler sets the
+ * count of a wait that is over to 0 before it ends the wait.
  */
 void tkmc_complete_wait(TCB *tcb, ER cause) {
+  const UINT tskwait = tcb->tskwait;
   if (!tkmc_list_empty(&tcb->head)) {
     tkmc_list_del(&tcb->head);
   }
@@ -270,6 +283,14 @@ void tkmc_complete_wait(TCB *tcb, ER cause) {
   tcb->wupcause = cause;
   tcb->tskstat = TTS_RDY;
   tkmc_list_add_tail(&tcb->head, &tkmc_ready_queue[tcb->itskpri - 1]);
+
+  // A semaphore waiter that leaves without its units may have held back the
+  // waiters behind it (TA_FIRST); they get the units now. Not after E_OK: the
+  // task took its units, and the signal that served it serves the rest. Not
+  // after E_DLT: the semaphore is being deleted with every waiter.
+  if (tskwait == TTW_SEM && (cause == E_TMOUT || cause == E_RLWAI)) {
+    tkmc_sem_serve_waiters(tcb->winfo.semaphore.semcb);
+  }
 }
 
 /*
@@ -310,7 +331,7 @@ ER tk_sta_tsk(ID tskid, INT stacd) {
   tcb->delay_ticks = 0;
   tcb->wupcnt = 0;
   tcb->wupcause = E_OK;
-  memset(&tcb->winfo.dummy, 0, sizeof(tcb->winfo.dummy));
+  memset(&tcb->winfo, 0, sizeof(tcb->winfo));
   tkmc_init_list_head(&tcb->winfo.wait_queue);
 
   /* The previous run used this frame as ordinary stack space. */
@@ -365,7 +386,11 @@ void tkmc_yield(void) {
  * Terminate the current task.
  * - Moves the task to the TTS_DMT state.
  * - Triggers a context switch to the next ready task.
- * - This function does not return.
+ * - This function does not return, provided interrupts are enabled: the switch
+ *   is taken when they come back on at the end. Called with them disabled, it
+ *   returns, and the caller keeps running as a dormant task whose list link
+ *   is no longer valid. There is no return value to report this with; the
+ *   specification does not allow the call from such a context.
  */
 void tk_ext_tsk(void) {
   TCB *tmp = current;
@@ -394,7 +419,9 @@ void tk_ext_tsk(void) {
  * - Moves the task to the TTS_NOEXS state.
  * - Returns the task to the free list for reuse.
  * - Triggers a context switch to the next ready task.
- * - This function does not return.
+ * - This function does not return, with the same condition as tk_ext_tsk():
+ *   called with interrupts disabled, it returns, and the caller keeps running
+ *   on a task that is on the free list.
  */
 void tk_exd_tsk(void) {
   TCB *tmp = current;
@@ -426,6 +453,7 @@ void tk_exd_tsk(void) {
  * - Removes the task from the waiting queue and adds it to the appropriate
  *   ready queue.
  * - Triggers a context switch if a higher-priority task is ready.
+ * - Leaves the task's queued wakeup requests for its next tk_slp_tsk().
  *
  * Parameters:
  * - tskid: Task ID of the task to be released.
@@ -461,8 +489,6 @@ ER tk_rel_wai(ID tskid) {
   }
 
   if (ercd == E_OK) {
-    // Reason for wake-up is a release request
-    tcb->wupcnt = 0;
     tkmc_complete_wait(tcb, E_RLWAI);
 
     // Check if a higher-priority task needs to run
@@ -479,19 +505,25 @@ ER tk_rel_wai(ID tskid) {
 }
 
 /*
- * Wake up a task.
+ * Wake up another task.
  * - Makes a task waiting in tk_slp_tsk ready without queuing a request.
  * - Otherwise queues one request for a ready, running or waiting task, up to
  *   TK_WAKEUP_MAXCNT. Other kinds of wait are not released.
+ * - Queued requests are cleared only when the task is created or started, and
+ *   used up one at a time by tk_slp_tsk(); there is no tk_can_wup().
  *
  * Parameters:
- * - tskid: ID of the task to wake up.
+ * - tskid: ID of the task to wake up. TSK_SELF is not supported.
  *
  * Returns:
  * - E_OK on success.
- * - E_ID if the task ID is invalid.
+ * - E_ID if the task ID is out of range, 0 included.
  * - E_NOEXS if the task does not exist.
- * - E_OBJ if the task is not in a suitable state to be woken up.
+ * - E_OBJ if the task is dormant, or is the running task and interrupts are
+ *   enabled. Nothing changes. With interrupts disabled, as in a handler, the
+ *   running task gets a request queued. Like the E_CTX check of tk_slp_tsk(),
+ *   this cannot tell a handler from a task that called DI(), so such a task
+ *   can still queue a request for itself.
  * - E_QOVR if the queued count is already TK_WAKEUP_MAXCNT. Nothing changes.
  */
 ER tk_wup_tsk(ID tskid) {
@@ -511,11 +543,12 @@ ER tk_wup_tsk(ID tskid) {
 
   // Check the task state
   UINT tskstat = tcb->tskstat;
-  if (tskstat == TTS_WAI) {
+  if (tcb == current && !isDI(intsts)) {
+    ercd = E_OBJ; // A task cannot wake itself
+  } else if (tskstat == TTS_WAI) {
     UINT tskwait = tcb->tskwait;
     if (tskwait == TTW_SLP) {
       // If the task is waiting to sleep, make it ready (normal wake-up)
-      tcb->wupcnt = 0;
       tkmc_complete_wait(tcb, E_OK);
 
       // Check if a higher-priority task needs to run

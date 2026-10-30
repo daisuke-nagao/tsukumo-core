@@ -78,3 +78,16 @@ void test_every_wait_rounds_its_time_limit_up_to_ticks_plus_one(void) {
     }
   }
 }
+
+// A delay is a RELTIM, which is unsigned: tk_dly_tsk() takes the whole range
+// up to UINT_MAX ms (about 49.7 days), where a time limit (TMO) stops at
+// INT_MAX. The kernel used to take a TMO and refuse the upper half as negative.
+void test_a_delay_takes_the_whole_unsigned_range(void) {
+  host_reset();
+  ID self = host_make_task(PRIORITY);
+  host_set_current(self);
+
+  HOST_EXPECT_WAIT(tk_dly_tsk(UINT_MAX));
+  TEST_ASSERT_EQUAL_UINT(UINT_MAX / 10 + 1 + 1,
+                         tkmc_tcbs[self - 1].delay_ticks);
+}

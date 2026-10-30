@@ -170,6 +170,34 @@ void test_release_wait_takes_a_timed_semaphore_waiter_off_both_queues(void) {
   check_kernel_state();
 }
 
+// A wake-up request queued while a task waits for a semaphore is still there
+// after tk_rel_wai() ends that wait, and the task's next sleep uses it up.
+void test_release_wait_keeps_a_queued_wakeup(void) {
+  ID waiter = host_make_task(HIGH_PRIORITY);
+  ID other = host_make_task(LOW_PRIORITY);
+  ID semid = create_semaphore(0);
+  TCB *tcb = tcb_of(waiter);
+
+  host_set_current(waiter);
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, TMO_FEVR));
+
+  host_set_current(other);
+  TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(waiter));
+  TEST_ASSERT_EQUAL(E_OK, tk_rel_wai(waiter));
+  TEST_ASSERT_EQUAL(E_RLWAI, tcb->wupcause);
+  TEST_ASSERT_EQUAL_UINT(1, tcb->wupcnt);
+  check_kernel_state();
+
+  // Switch to the released task, as tk_wai_sem() would leave it after reading
+  // the cause, and let it sleep.
+  tcb->wupcause = E_OK;
+  tcb_of(other)->tskstat = TTS_RDY;
+  host_set_current(waiter);
+  TEST_ASSERT_EQUAL(E_OK, tk_slp_tsk(TMO_POL));
+  TEST_ASSERT_EQUAL_UINT(0, tcb->wupcnt);
+  check_kernel_state();
+}
+
 // A signal that wakes a task with a time limit also takes it off the timer
 // queue, or the time limit would later wake the task, which is running by then.
 void test_a_signal_disarms_the_time_limit_of_its_waiter(void) {
@@ -664,4 +692,209 @@ void test_deleting_a_semaphore_requests_no_switch_otherwise(void) {
   TEST_ASSERT_EQUAL(E_OK, tk_del_sem(empty));
   TEST_ASSERT_EQUAL_UINT(before, host_write_count(MSIP));
   check_kernel_state();
+}
+
+// On a TA_FIRST semaphore the head of the queue holds back the waiters behind
+// it. When the head leaves without its units (its time limit runs out, or
+// tk_rel_wai()), the units it could not use go to the waiters behind it, as far
+// as they go, at that moment: a signal that came while the head waited is not
+// lost until the next one. The kernel used to leave the next waiter waiting
+// with the units lying there, and refused every new request meanwhile.
+//
+// A semaphore of two units: head waits for two, next waits for one, and one
+// unit is signalled, which the head cannot use. The head has the lowest
+// priority of the three tasks, so its own departure asks for no task switch:
+// a switch request afterwards can only come from serving the next waiter.
+static ID head_blocks_the_next_waiter(ID *head, ID *next_waiter, TMO next_ms) {
+  ID semid = tk_cre_sem(&(T_CSEM){
+      .exinf = 0, .sematr = TA_TFIFO | TA_FIRST, .isemcnt = 0, .maxsem = 2});
+  TEST_ASSERT_GREATER_THAN(0, semid);
+  *head = host_make_task(LOW_PRIORITY + 1);
+  *next_waiter = host_make_task(HIGH_PRIORITY);
+  ID other = host_make_task(LOW_PRIORITY);
+  host_set_current(*head);
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, 2, 100)); // 11 ticks
+  host_set_current(*next_waiter);
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, next_ms));
+  host_set_current(other);
+  TEST_ASSERT_EQUAL(E_OK, tk_sig_sem(semid, 1));
+  TEST_ASSERT_EQUAL_UINT(TTS_WAI, tcb_of(*head)->tskstat);
+  TEST_ASSERT_EQUAL_UINT(TTS_WAI, tcb_of(*next_waiter)->tskstat);
+  TEST_ASSERT_EQUAL(1, tkmc_semcbs[semid - 1].semcnt);
+  return semid;
+}
+
+// requests_before is the number of switch requests before the head left.
+static void check_next_waiter_was_served(ID semid, ID next_waiter,
+                                         UINT requests_before) {
+  TCB *tcb = tcb_of(next_waiter);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, tcb->tskstat);
+  TEST_ASSERT_EQUAL(E_OK, tcb->wupcause);
+  TEST_ASSERT_EQUAL(0, tkmc_semcbs[semid - 1].semcnt);
+  TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_semcbs[semid - 1].wait_queue));
+  TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_timer_queue));
+  TEST_ASSERT_EQUAL_UINT(requests_before + 1, host_write_count(MSIP));
+  TEST_ASSERT_EQUAL_PTR(tcb, next);
+  check_kernel_state();
+}
+
+// The next waiter has a time limit of its own, so it is the task behind the
+// head on the timer queue when the head's time runs out and it is served.
+void test_a_head_that_times_out_hands_its_units_to_the_next_waiter(void) {
+  ID head, next_waiter;
+  ID semid = head_blocks_the_next_waiter(&head, &next_waiter, 200);
+  UINT requests = host_write_count(MSIP);
+
+  host_tick(11);
+  TEST_ASSERT_EQUAL(E_TMOUT, tcb_of(head)->wupcause);
+  check_next_waiter_was_served(semid, next_waiter, requests);
+}
+
+extern void tkmc_timer_handler(void);
+
+// One delayed interrupt reaches both deadlines. B's earlier deadline must
+// release it before A leaves; otherwise A hands the unit to an expired B.
+void test_a_late_interrupt_expires_the_successor_before_the_head(void) {
+  ID head, next_waiter;
+  ID semid = head_blocks_the_next_waiter(&head, &next_waiter, 20);
+  UINT requests = host_write_count(MSIP);
+
+  host_mtime = 11 * HOST_TICK;
+  tkmc_timer_handler();
+
+  TEST_ASSERT_EQUAL(E_TMOUT, tcb_of(head)->wupcause);
+  TEST_ASSERT_EQUAL(E_TMOUT, tcb_of(next_waiter)->wupcause);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, tcb_of(head)->tskstat);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, tcb_of(next_waiter)->tskstat);
+  TEST_ASSERT_EQUAL(1, tkmc_semcbs[semid - 1].semcnt);
+  TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_semcbs[semid - 1].wait_queue));
+  TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_timer_queue));
+  TEST_ASSERT_EQUAL_UINT(requests + 1, host_write_count(MSIP));
+  TEST_ASSERT_EQUAL_PTR(tcb_of(next_waiter), next);
+  check_kernel_state();
+}
+
+// Reversing the deadlines must still hand the unit on when A expires, even
+// though B's later deadline has also passed by the time the interrupt runs.
+void test_a_late_interrupt_serves_the_successor_before_its_later_deadline(
+    void) {
+  ID head, next_waiter;
+  ID semid = head_blocks_the_next_waiter(&head, &next_waiter, 200);
+  UINT requests = host_write_count(MSIP);
+
+  host_mtime = 21 * HOST_TICK;
+  tkmc_timer_handler();
+
+  TEST_ASSERT_EQUAL(E_TMOUT, tcb_of(head)->wupcause);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, tcb_of(head)->tskstat);
+  check_next_waiter_was_served(semid, next_waiter, requests);
+}
+
+void test_a_head_that_is_released_hands_its_units_to_the_next_waiter(void) {
+  ID head, next_waiter;
+  ID semid = head_blocks_the_next_waiter(&head, &next_waiter, TMO_FEVR);
+  UINT requests = host_write_count(MSIP);
+
+  TEST_ASSERT_EQUAL(E_OK, tk_rel_wai(head));
+  TEST_ASSERT_EQUAL(E_RLWAI, tcb_of(head)->wupcause);
+  check_next_waiter_was_served(semid, next_waiter, requests);
+}
+
+// Deleting the semaphore releases both with E_DLT: the head's departure hands
+// nothing on, as the semaphore is going away with every waiter.
+void test_deleting_a_semaphore_hands_no_units_to_the_waiters_it_releases(void) {
+  ID head, next_waiter;
+  ID semid = head_blocks_the_next_waiter(&head, &next_waiter, TMO_FEVR);
+
+  TEST_ASSERT_EQUAL(E_OK, tk_del_sem(semid));
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, tcb_of(head)->tskstat);
+  TEST_ASSERT_EQUAL(E_DLT, tcb_of(head)->wupcause);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, tcb_of(next_waiter)->tskstat);
+  TEST_ASSERT_EQUAL(E_DLT, tcb_of(next_waiter)->wupcause);
+  check_kernel_state();
+}
+
+// Every call that makes a waiting task ready asks for a task switch when that
+// task outranks the running one, and not otherwise. Without the request the
+// woken task would run only at the next switch the system happens to make.
+typedef struct {
+  const char *name;
+  void (*wait)(void);   // Blocks the current task on the object.
+  ER (*wake)(ID tskid); // Makes the waiting task ready.
+} wake_call_t;
+
+static ID s_wake_semid;
+static ID s_wake_flgid;
+static ID s_wake_mbxid;
+static UINT s_wake_flgptn;
+static T_MSG *s_wake_msg;
+static T_MSG s_wake_message;
+
+static void wait_sleep(void) { tk_slp_tsk(TMO_FEVR); }
+static void wait_flag(void) {
+  tk_wai_flg(s_wake_flgid, 0x1, TWF_ORW, &s_wake_flgptn, TMO_FEVR);
+}
+static void wait_mailbox(void) {
+  tk_rcv_mbx(s_wake_mbxid, &s_wake_msg, TMO_FEVR);
+}
+static void wait_semaphore(void) { tk_wai_sem(s_wake_semid, 1, TMO_FEVR); }
+static ER wake_wup(ID tskid) { return tk_wup_tsk(tskid); }
+static ER wake_rel_wai(ID tskid) { return tk_rel_wai(tskid); }
+static ER wake_set_flg(ID tskid) {
+  (void)tskid;
+  return tk_set_flg(s_wake_flgid, 0x1);
+}
+static ER wake_snd_mbx(ID tskid) {
+  (void)tskid;
+  return tk_snd_mbx(s_wake_mbxid, &s_wake_message);
+}
+static ER wake_del_mbx(ID tskid) {
+  (void)tskid;
+  return tk_del_mbx(s_wake_mbxid);
+}
+static ER wake_sig_sem(ID tskid) {
+  (void)tskid;
+  return tk_sig_sem(s_wake_semid, 1);
+}
+
+static const wake_call_t s_wake_calls[] = {
+    {"tk_wup_tsk", wait_sleep, wake_wup},
+    {"tk_rel_wai", wait_sleep, wake_rel_wai},
+    {"tk_set_flg", wait_flag, wake_set_flg},
+    {"tk_snd_mbx", wait_mailbox, wake_snd_mbx},
+    {"tk_del_mbx", wait_mailbox, wake_del_mbx},
+    {"tk_sig_sem", wait_semaphore, wake_sig_sem},
+};
+
+static void check_wake_requests_a_switch(const wake_call_t *call,
+                                         PRI waiter_prio, PRI other_prio,
+                                         BOOL expected) {
+  host_reset();
+  s_wake_semid = create_semaphore(0);
+  s_wake_flgid = tk_cre_flg(&(T_CFLG){.exinf = 0, .flgatr = TA_TFIFO});
+  s_wake_mbxid = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = TA_TFIFO});
+  ID waiter = host_make_task(waiter_prio);
+  ID other = host_make_task(other_prio);
+  host_set_current(waiter);
+  HOST_EXPECT_WAIT(call->wait());
+  host_set_current(other);
+  UINT before = host_write_count(MSIP);
+
+  TEST_ASSERT_EQUAL_MESSAGE(E_OK, call->wake(waiter), call->name);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(TTS_RDY, tcb_of(waiter)->tskstat, call->name);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(before + (expected ? 1 : 0),
+                                 host_write_count(MSIP), call->name);
+  TEST_ASSERT_EQUAL_PTR_MESSAGE(tcb_of(expected ? waiter : other), next,
+                                call->name);
+  check_kernel_state();
+}
+
+void test_every_wake_call_requests_a_switch_only_to_a_higher_priority_task(
+    void) {
+  for (UINT i = 0; i < sizeof(s_wake_calls) / sizeof(s_wake_calls[0]); ++i) {
+    check_wake_requests_a_switch(&s_wake_calls[i], HIGH_PRIORITY, LOW_PRIORITY,
+                                 TRUE);
+    check_wake_requests_a_switch(&s_wake_calls[i], LOW_PRIORITY, HIGH_PRIORITY,
+                                 FALSE);
+  }
 }

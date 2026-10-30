@@ -21,6 +21,9 @@ tkmc_list_head tkmc_timer_queue;
 #define CLINT_MTIME_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MTIME_OFFSET)
 #define CLINT_MTIMECMP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET)
 
+/* One kernel tick (10 ms) in machine timer counts (10 MHz) */
+enum { TICK_COUNTS = 100000 };
+
 /* Static variable to store the next timer compare value */
 static UD s_mtimecmp;
 
@@ -41,6 +44,21 @@ static void write_mtimecmp(UD value) {
   out_w(CLINT_MTIMECMP_ADDRESS, (UW)value);
 }
 
+/*
+ * Count the tick edges from *mtimecmp up to the machine time, and move
+ * *mtimecmp to the first edge still ahead. Counted one by one: a 64 bit
+ * division needs a library the kernel does not link, and the count is
+ * normally 1.
+ */
+static UINT pass_elapsed_periods(UD *mtimecmp) {
+  UINT periods = 0;
+  while (read_mtime() >= *mtimecmp) {
+    *mtimecmp += TICK_COUNTS;
+    periods += 1;
+  }
+  return periods;
+}
+
 void tkmc_init_timer(void) { tkmc_init_list_head(&tkmc_timer_queue); }
 
 /*
@@ -50,47 +68,69 @@ void tkmc_init_timer(void) { tkmc_init_list_head(&tkmc_timer_queue); }
  */
 void tkmc_start_timer(void) {
   UD mtimecmp = read_mtime();
-  mtimecmp += 100000; // Set the initial timer compare value
+  mtimecmp += TICK_COUNTS; // Set the initial timer compare value
   s_mtimecmp = mtimecmp;
   tkmc_compiler_barrier();
   write_mtimecmp(mtimecmp);
 }
 
+/* The earliest deadline, in queue order for ties, or NULL. */
+static TCB *first_deadline(void) {
+  TCB *first = NULL;
+  TCB *tcb;
+  tkmc_list_for_each_entry(tcb, &tkmc_timer_queue, head) {
+    if (first == NULL || tcb->delay_ticks < first->delay_ticks) {
+      first = tcb;
+    }
+  }
+  return first;
+}
+
 /*
  * Timer interrupt handler.
- * - Updates the timer compare value to schedule the next interrupt.
- * - Checks the timer queue and moves tasks to the ready queue if their wait
- * time has expired.
+ * - Counts the tick edges that have passed since the last compare value, and
+ *   sets the compare value to the next edge ahead. An interrupt that came late
+ *   counts every edge it missed.
+ * - Takes that count off the wait of every task on the timer queue, and makes
+ *   ready each task whose wait it reaches.
+ * - Does nothing if no edge has passed, as for the extra interrupt that can
+ *   come when MTIP is cleared late after a compare write.
  */
 void tkmc_timer_handler(void) {
-  UD mtime = read_mtime();
   UD mtimecmp = s_mtimecmp;
-
-  /* Update the timer compare value to schedule the next interrupt */
-  while (mtime >= mtimecmp) {
-    mtimecmp += 100000;
-    mtime = read_mtime();
+  UINT periods = pass_elapsed_periods(&mtimecmp);
+  if (periods == 0) {
+    return;
   }
   s_mtimecmp = mtimecmp;
   tkmc_compiler_barrier();
   write_mtimecmp(mtimecmp);
 
-  /* Check the timer queue for tasks whose wait time has expired */
-  if (!tkmc_list_empty(&tkmc_timer_queue)) {
-    TCB *tcb, *n;
-    tkmc_list_for_each_entry_safe(tcb, n, &tkmc_timer_queue, head) {
-      tcb->delay_ticks -= 1;
-      if (tcb->delay_ticks == 0) {
-        /* The wait is over: out of the timer queue and, if the task waited
-         * for an object, out of its wait queue too. */
-        tkmc_complete_wait(tcb, E_TMOUT);
-
-        /* Update the next task to be scheduled */
-        next = tkmc_get_highest_priority_task();
-        if (next != current) {
-          dispatch();
-        }
-      }
+  /* Advance only to the next deadline before completing a wait: an earlier
+   * timeout can hand semaphore units to a waiter with a later deadline.
+   * Re-scan after each completion, which can remove other timer entries too.
+   * shortcut: these scans are O(n^2), bounded by CFN_MAX_TSKID (32); revisit
+   * if the measured interrupt latency requires it. */
+  BOOL ended = FALSE;
+  TCB *first;
+  while ((first = first_deadline()) != NULL) {
+    const UINT ticks = first->delay_ticks;
+    const UINT step = ticks < periods ? ticks : periods;
+    TCB *tcb;
+    tkmc_list_for_each_entry(tcb, &tkmc_timer_queue, head) {
+      tcb->delay_ticks -= step;
+    }
+    periods -= step;
+    if (ticks > step) {
+      break;
+    }
+    tkmc_complete_wait(first, E_TMOUT);
+    ended = TRUE;
+  }
+  if (ended) {
+    next = tkmc_get_highest_priority_task();
+    if (next != current) {
+      dispatch();
     }
   }
 }
@@ -104,11 +144,16 @@ void tkmc_timer_handler(void) {
  * - tcb: Pointer to the Task Control Block (TCB) of the task.
  * - delay_ticks: Number of ticks to wait before the task is moved to the ready
  * queue.
+ *
+ * Interrupts must be disabled. Edges that have passed while the timer interrupt
+ * is pending are added to the count: the handler takes them off every waiting
+ * task when it runs, and they came before this wait began.
  */
 void tkmc_schedule_timer(TCB *tcb, UINT delay_ticks, UINT tskwait) {
+  UD mtimecmp = s_mtimecmp;
   tcb->tskstat = TTS_WAI;
   tcb->tskwait = tskwait;
-  tcb->delay_ticks = delay_ticks;
+  tcb->delay_ticks = delay_ticks + pass_elapsed_periods(&mtimecmp);
   tkmc_list_del(&tcb->head);
   tkmc_list_add_tail(&tcb->head, &tkmc_timer_queue);
 
@@ -123,19 +168,16 @@ void tkmc_schedule_timer(TCB *tcb, UINT delay_ticks, UINT tskwait) {
  * - Yields the CPU if the timeout is zero.
  *
  * Parameters:
- * - dlytm: 0, or a delay of 1 to INT_MAX ms, counted as in tk_slp_tsk().
+ * - dlytm: 0, or a delay of 1 to UINT_MAX ms (about 49.7 days), counted as in
+ *   tk_slp_tsk(). RELTIM is unsigned, so there is no invalid value.
  *
  * Returns:
- * - E_OK on success.
- * - E_PAR if dlytm is negative.
+ * - E_OK when the delay has passed.
+ * - E_RLWAI if tk_rel_wai() ended the delay early.
  * - E_CTX if interrupts are disabled (in an interrupt handler or between DI()
  *   and EI()), even for dlytm == 0. Nothing is changed. See tk_slp_tsk().
  */
-ER tk_dly_tsk(TMO dlytm) {
-  if (dlytm < 0) {
-    return E_PAR;
-  }
-
+ER tk_dly_tsk(RELTIM dlytm) {
   UINT intsts;
   DI(intsts);
   if (isDI(intsts)) {
@@ -164,6 +206,8 @@ ER tk_dly_tsk(TMO dlytm) {
 
 /*
  * Put the current task to sleep until it is woken up or tmout runs out.
+ * A queued wakeup request, if any, is used up instead of sleeping, one per
+ * call; nothing else in the kernel uses one up.
  *
  * Parameters:
  * - tmout: TMO_POL, TMO_FEVR, or a time limit of 1 to INT_MAX ms (about 24.9

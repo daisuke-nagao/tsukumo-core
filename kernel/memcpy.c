@@ -6,7 +6,24 @@
 
 #include <tk/tkernel.h>
 
-typedef typeof(sizeof(void *)) size_t;
+#include "memcpy.h"
+
+// The word loops below read and write objects of any type through a word
+// pointer. C lets only character types access any object, so a plain UW access
+// to, say, a float is undefined, and an optimizer that inlines this function
+// may move it past the caller's own float accesses. may_alias (a clang and GCC
+// extension) gives a type the aliasing of a character type. The kernel is not
+// built with -fno-strict-aliasing instead, which would weaken it everywhere.
+// Nested: #if does not skip the right side of ||, and a compiler without
+// __has_attribute could not parse it.
+#if defined(__has_attribute)
+#if !__has_attribute(may_alias)
+#error "the word loops need __attribute__((may_alias))"
+#endif
+#else
+#error "the word loops need __attribute__((may_alias))"
+#endif
+typedef UW __attribute__((may_alias)) UW_ANY;
 
 void *tkmc_memcpy(void *restrict dest, CONST void *restrict src, size_t n) {
   /* Pointers for accessing data in 8-bit increments */
@@ -58,8 +75,8 @@ void *tkmc_memcpy(void *restrict dest, CONST void *restrict src, size_t n) {
    */
   {
     /* Recast the pointers to 32-bit (4-byte) pointers */
-    UW *dw = (UW *)d8;
-    CONST UW *sw = (CONST UW *)s8;
+    UW_ANY *dw = (UW_ANY *)d8;
+    CONST UW_ANY *sw = (CONST UW_ANY *)s8;
 
     /*
      * Perform larger loop iterations to reduce loop overhead

@@ -7,9 +7,9 @@
 // Tests of task sleeping, waking, releasing a wait and delaying (tk_slp_tsk,
 // tk_wup_tsk, tk_rel_wai, tk_dly_tsk).
 //
-// Each case below spawns a child at priority 2 while the case itself runs at
+// Most cases below spawn a child at priority 2 while the case itself runs at
 // priority 4. The child therefore runs first and is already blocked in its
-// first sleep when test_spawn() returns, so the case can wake or release it at
+// first wait when test_spawn() returns, so the case can wake or release it at
 // once. Each child reaches test_checkpoint() only after its last assert, and
 // the case expects it, so a child that never ran cannot pass.
 
@@ -173,6 +173,70 @@ static void semaphore_waiter_refuses_a_wakeup_past_the_limit(void) {
   TEST_ASSERT_EQUAL(E_QOVR, overflow);
 }
 
+// A wake-up request queued during a semaphore wait outlives tk_rel_wai(): the
+// released child uses it up with its next sleep, and only that one.
+static void released_semaphore_waiter(void *arg) {
+  (void)arg;
+  TEST_ASSERT_EQUAL(E_RLWAI, tk_wai_sem(s_wakeup_gate, 1, TMO_FEVR));
+  TEST_ASSERT_EQUAL(E_OK, tk_slp_tsk(TMO_POL));
+  TEST_ASSERT_EQUAL(E_TMOUT, tk_slp_tsk(TMO_POL));
+  test_checkpoint();
+}
+
+static void release_wait_keeps_a_queued_wakeup(void) {
+  s_wakeup_gate =
+      tk_cre_sem(&(T_CSEM){.sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
+  TEST_ASSERT_GREATER_THAN(0, s_wakeup_gate);
+  ID child = test_spawn(released_semaphore_waiter, CHILD_PRIORITY, 0);
+  ER woken = tk_wup_tsk(child);
+  ER released = tk_rel_wai(child);
+  // Delete before asserting: if the release failed, E_DLT frees the child.
+  TEST_ASSERT_EQUAL(E_OK, tk_del_sem(s_wakeup_gate));
+  test_join_expect(1);
+  TEST_ASSERT_EQUAL(E_OK, woken);
+  TEST_ASSERT_EQUAL(E_OK, released);
+}
+
+// A task that wakes itself is refused and queues nothing.
+static void task_cannot_wake_itself(void) {
+  UINT intsts;
+  DI(intsts);
+  ID self = current->tskid;
+  EI(intsts);
+  TEST_ASSERT_EQUAL(E_OBJ, tk_wup_tsk(self));
+  TEST_ASSERT_EQUAL(E_TMOUT, tk_slp_tsk(TMO_POL));
+}
+
+// A timer interrupt held back for ten periods still counts all ten: the child's
+// 100 ms sleep (11 ticks) ends about 105 ms after it began, not 195 ms as when
+// each interrupt counted one tick. Unlike the other cases this one has an upper
+// bound too, since both results are about 45 ms from it.
+enum { HELD_BACK_MS = 100 };
+static UW s_sleep_start;
+static UW s_slept;
+
+static void held_back_sleeper(void *arg) {
+  (void)arg;
+  TEST_ASSERT_EQUAL(E_TMOUT, tk_slp_tsk(100));
+  s_slept = test_mtime() - s_sleep_start;
+  test_checkpoint();
+}
+
+static void a_held_back_interrupt_counts_every_period(void) {
+  // Taken here: test_mtime_mid_tick() delays, and the child must sleep at once.
+  s_sleep_start = test_mtime_mid_tick();
+  test_spawn(held_back_sleeper, CHILD_PRIORITY, 0);
+  UINT intsts;
+  DI(intsts);
+  while ((UW)(test_mtime() - s_sleep_start) <
+         HELD_BACK_MS * TEST_MTIME_PER_MS) {
+  }
+  EI(intsts);
+  test_join_expect(1);
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT32(100 * TEST_MTIME_PER_MS, s_slept);
+  TEST_ASSERT_LESS_THAN_UINT32(150 * TEST_MTIME_PER_MS, s_slept);
+}
+
 static const test_case_t s_cases[] = {
     {"sleep_times_out", sleep_times_out},
     {"release_wait", release_wait},
@@ -184,6 +248,10 @@ static const test_case_t s_cases[] = {
      ready_task_refuses_a_wakeup_past_the_limit},
     {"semaphore_waiter_refuses_a_wakeup_past_the_limit",
      semaphore_waiter_refuses_a_wakeup_past_the_limit},
+    {"release_wait_keeps_a_queued_wakeup", release_wait_keeps_a_queued_wakeup},
+    {"task_cannot_wake_itself", task_cannot_wake_itself},
+    {"a_held_back_interrupt_counts_every_period",
+     a_held_back_interrupt_counts_every_period},
 };
 
 TEST_SUITE_MAIN("task-timer", s_cases, 5000)

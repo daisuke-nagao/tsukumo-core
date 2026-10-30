@@ -7,14 +7,11 @@
 #ifndef UUID_0194C23B_B68F_7643_AA69_13C344A3D04F
 #define UUID_0194C23B_B68F_7643_AA69_13C344A3D04F
 
+#include <tk/tkernel.h> // tkmc_list_head
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
-
-typedef struct tkmc_list_head {
-  struct tkmc_list_head *next;
-  struct tkmc_list_head *prev;
-} tkmc_list_head;
 
 static inline void tkmc_init_list_head(tkmc_list_head *head) {
   head->next = head;
@@ -25,7 +22,9 @@ static inline BOOL tkmc_list_empty(const tkmc_list_head *head) {
   return head == head->next ? TRUE : FALSE;
 }
 
-#define tkmc_offsetof(type, member) ((unsigned long)&(((type *)0)->member))
+// The builtin, not &((type *)0)->member: that forms a pointer from null, which
+// the null check of UBSan reports on every list access in the PC tests.
+#define tkmc_offsetof(type, member) __builtin_offsetof(type, member)
 
 #define tkmc_container_of(ptr, type, member)                                   \
   ((type *)((char *)(ptr) - tkmc_offsetof(type, member)))

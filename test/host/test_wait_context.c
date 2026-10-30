@@ -17,8 +17,10 @@
 // host_check_kernel_queues() is not enough for this: it accepts a task that is
 // waiting without being on any queue.
 //
-// Errors in the arguments come first, and the check comes before the object
-// checks (E_NOEXS, E_OBJ), the immediate success and the poll.
+// Errors in the arguments come first (except the E_PAR of tk_wai_sem() for a
+// count above the maximum, which needs the semaphore and comes after E_NOEXS),
+// and the check comes before the object checks (E_NOEXS, E_OBJ), the immediate
+// success and the poll.
 
 #include <stdio.h>
 
@@ -72,7 +74,7 @@ static void fresh(BOOL ready) {
   TEST_ASSERT_GREATER_THAN(0, s_mbxid);
   host_set_current(s_self);
   if (ready) {
-    TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(s_self));
+    tkmc_tcbs[s_self - 1].wupcnt = 1; // tk_wup_tsk() refuses a self-wakeup.
     TEST_ASSERT_EQUAL(E_OK, tk_set_flg(s_flgid, 0x1));
     TEST_ASSERT_EQUAL(E_OK, tk_snd_mbx(s_mbxid, &s_message));
   }
@@ -153,13 +155,10 @@ static void check_call_with_interrupts_off(const row_t *row) {
 }
 
 static void check_every_wait(BOOL ready) {
+  // For tk_dly_tsk(), whose delay is unsigned, TMO_FEVR is the longest delay.
   static const TMO limits[] = {TMO_FEVR, WAIT_MS, TMO_POL};
   for (api_t api = API_DLY; api < API_COUNT; ++api) {
     for (UINT i = 0; i < sizeof(limits) / sizeof(limits[0]); ++i) {
-      // A delay of "for ever" is an argument error, not a wait.
-      if (api == API_DLY && limits[i] == TMO_FEVR) {
-        continue;
-      }
       host_reset();
       fresh(ready);
       row_t row = valid_row(api, limits[i]);
@@ -200,8 +199,6 @@ void test_argument_errors_come_before_the_context_check(void) {
       {"tk_rcv_mbx: ID 0", API_MBX, 0, 1, WAIT_MS, 1, TWF_ORW, FALSE, E_ID},
       {"tk_rcv_mbx: ID too large", API_MBX, CFN_MAX_MBXID + 1, 1, WAIT_MS, 1,
        TWF_ORW, FALSE, E_ID},
-      {"tk_dly_tsk: negative time", API_DLY, USE_FIXTURE_ID, 1, -2, 1, TWF_ORW,
-       FALSE, E_PAR},
       {"tk_slp_tsk: time below for ever", API_SLP, USE_FIXTURE_ID, 1,
        TMO_FEVR - 1, 1, TWF_ORW, FALSE, E_PAR},
       {"tk_wai_sem: count 0", API_SEM, USE_FIXTURE_ID, 0, WAIT_MS, 1, TWF_ORW,

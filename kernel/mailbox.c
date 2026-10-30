@@ -13,9 +13,6 @@
 
 #include <tk/tkernel.h>
 
-_Static_assert(sizeof(tkmc_list_head) == sizeof(struct dummy_struct),
-               "Size of dummy_struct must be equal to size of tkmc_list_head");
-
 // Array of mailbox control blocks
 MBXCB tkmc_mbxcbs[CFN_MAX_MBXID];
 // Free list that holds mailbox control blocks that are not yet allocated
@@ -24,9 +21,7 @@ static tkmc_list_head tkmc_free_mbxcb;
 // Bitmask used to mark control blocks as non-existent (i.e. not allocated)
 #define NOEXS_MASK 0x80000000u
 
-static tkmc_list_head *msg_link(T_MSG *msg) {
-  return (tkmc_list_head *)&msg->list;
-}
+static tkmc_list_head *msg_link(T_MSG *msg) { return &msg->list; }
 
 static T_MSG *msg_from_link(tkmc_list_head *link) {
   return tkmc_list_entry(link, T_MSG, list);
@@ -146,10 +141,10 @@ void tkmc_init_mbxcb(void) {
  * and initializes it with the specified attributes and extended information.
  *
  * @param[in] pk_cmbx Pointer to the mailbox creation parameter structure.
- * @return The ID of the created mailbox, or an error code if creation fails.
+ * @return The ID of the created mailbox, or an error code: E_PAR for a NULL
+ *         packet, E_RSATR for an attribute bit the kernel does not support,
+ *         E_LIMIT when no mailbox is left. A refusal changes nothing.
  *
- * @pre pk_cmbx != NULL
- * @pre The attribute `mbxatr` in `pk_cmbx` must only contain valid bits.
  * @post If successful, a new mailbox is created and removed from the free list.
  * @invariant The free list must always contain unallocated MBXCBs.
  */
@@ -159,14 +154,11 @@ ID tk_cre_mbx(CONST T_CMBX *pk_cmbx) {
   }
 
   const ATR mbxatr = pk_cmbx->mbxatr;
-  static const ATR VALID_MBXATR =
-      TA_TFIFO | TA_TPRI | TA_MFIFO | TA_MPRI | TA_DSNAME | TA_NODISWAI;
+  // TA_DSNAME and TA_NODISWAI are left out: the kernel has neither object
+  // names nor wait disabling (TK_SUPPORT_DSNAME, TK_SUPPORT_DISWAI), and the
+  // other objects refuse them too.
+  static const ATR VALID_MBXATR = TA_TFIFO | TA_TPRI | TA_MFIFO | TA_MPRI;
 
-  // Check if attribute contains any invalid bits.
-  // VALID_MBXATR defines the set of valid attribute bits for a mailbox.
-  // Any bit in mbxatr that is not part of VALID_MBXATR is considered invalid.
-  // This check ensures that only supported attributes are used, preventing
-  // undefined behavior or misuse of the mailbox creation function.
   if ((mbxatr & ~VALID_MBXATR) != 0) {
     return E_RSATR; // Return error for invalid attributes.
   }
@@ -196,7 +188,7 @@ ID tk_cre_mbx(CONST T_CMBX *pk_cmbx) {
     // Initialize the allocated MBXCB with the provided parameters.
     new_mbxcb->mbxid = new_mbxid;
     new_mbxcb->exinf = pk_cmbx->exinf;
-    new_mbxcb->mbxatr = pk_cmbx->mbxatr;
+    new_mbxcb->mbxatr = mbxatr; // The checked value, not a second read.
   } else {
     // No available MBXCBs in the free list.
     new_mbxid = (ID)E_LIMIT; // Return error for resource limit.
@@ -409,8 +401,3 @@ ER tk_rcv_mbx(ID mbxid, T_MSG **ppk_msg, TMO tmout) {
 
   return ercd;
 }
-// memo:
-// dummy_struct is a structure needed for sizeof(T_MSG), and in the
-// implementation, tkmc_list_head is actually used. However, exposing this
-// structure externally would excessively expose the internal implementation and
-// increase the header files. Therefore, I will use dummy_struct.

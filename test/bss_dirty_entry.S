@@ -39,6 +39,10 @@ bss_dirty_entry:
   .option relax
   li t1, 1
   sw t1, 0(t0)
+  /* A board's boot code leaves something in a0 (QEMU: the hart ID), and the
+     kernel hands it to usermain. A value that no boot code would leave shows
+     that it was a0 that got there. */
+  li a0, 0x5a5a
   j _start
 
   .section .data

@@ -30,7 +30,7 @@ void tearDown(void) {}
 // Every task gets its own stack and none is handed out twice in one boot:
 // there is no way to end a hung task, so reusing its stack would corrupt the
 // next case. The suite is a fresh boot, so a fixed pool is enough.
-enum { STACK_WORDS = 512, POOL_STACKS = 32, LEDGER_SIZE = 8 };
+enum { STACK_WORDS = 512, POOL_STACKS = 48, LEDGER_SIZE = 8 };
 
 static UW s_runner_stack[STACK_WORDS] __attribute__((aligned(16)));
 static UW s_pool[POOL_STACKS][STACK_WORDS] __attribute__((aligned(16)));

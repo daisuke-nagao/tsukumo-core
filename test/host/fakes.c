@@ -121,6 +121,11 @@ void host_ei(UINT intsts) {
 
 BOOL host_interrupts_enabled(void) { return s_interrupts_enabled != 0; }
 
+void host_arm_wait(void) {
+  s_msip = 0;
+  host_wait_armed = 1;
+}
+
 // How many times the node is on the ring that starts at head.
 static UINT count_in_ring(const tkmc_list_head *head,
                           const tkmc_list_head *node) {
@@ -160,6 +165,14 @@ static void check_wait_queue(const tkmc_list_head *queue, UW kind) {
     TEST_ASSERT_EQUAL_UINT_MESSAGE(
         kind, tcb->tskwait,
         "a task waits on a queue of another kind of object");
+    // The kernel finds the semaphore of a departing waiter through this
+    // pointer; a wrong one would walk another queue, or the free list.
+    if (kind == TTW_SEM) {
+      TEST_ASSERT_EQUAL_PTR_MESSAGE(
+          tkmc_list_entry((tkmc_list_head *)queue, SEMCB, wait_queue),
+          tcb->winfo.semaphore.semcb,
+          "a semaphore waiter points at another semaphore");
+    }
   }
 }
 

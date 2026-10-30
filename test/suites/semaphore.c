@@ -10,8 +10,10 @@
 // holds the semaphore for HOLD_MS, and the other must wait for it. The children
 // count how many of them are inside at once, so a semaphore that lets both in
 // fails the assert in the child that arrives second. The others test a
-// time-out, a signal after a time-out, a delete with waiters, the limit, and
-// the counts a semaphore accepts.
+// time-out, a signal after a time-out, a delete with waiters, the limit, the
+// counts a semaphore accepts, the order in which a new request may take units
+// ahead of the tasks that wait, and what the units of a head that leaves
+// unserved go to.
 
 #include <tk/tkernel.h>
 #include <unity.h>
@@ -32,11 +34,15 @@ _Static_assert(
     SECOND_PRIORITY < TEST_CASE_PRIORITY,
     "the children must preempt the case, to start contending at once");
 
-static ID create_semaphore(INT initial, INT maximum) {
+static ID create_semaphore_with(ATR attr, INT initial, INT maximum) {
   ID semid = tk_cre_sem(&(T_CSEM){
-      .exinf = 0, .sematr = TA_TFIFO, .isemcnt = initial, .maxsem = maximum});
+      .exinf = 0, .sematr = attr, .isemcnt = initial, .maxsem = maximum});
   TEST_ASSERT_GREATER_THAN(E_OK, semid);
   return semid;
+}
+
+static ID create_semaphore(INT initial, INT maximum) {
+  return create_semaphore_with(TA_TFIFO, initial, maximum);
 }
 
 typedef struct {
@@ -235,6 +241,208 @@ static void signal_past_the_maximum_keeps_the_count(void) {
   TEST_ASSERT_EQUAL(E_OK, tk_del_sem(full));
 }
 
+// The queue-order cases. A waits for two units and is the head of the queue;
+// one unit is signalled, which is not enough for A; then B asks for one unit.
+// Whether B may take the unit that A cannot use is what the semaphore
+// attributes decide. The children only record what they got: a case that
+// asserted before it deleted the semaphore would leave A waiting for good, and
+// the time-out would skip every later case. Deleting the semaphore ends A with
+// E_DLT, whatever the kernel did.
+enum { UNSET = 1, QUEUE_TIMEOUT_MS = 1000 };
+_Static_assert(UNSET > E_OK, "UNSET must not be a result of tk_wai_sem");
+
+typedef struct {
+  ID semid;
+  INT units;
+  TMO wait_ms;
+  volatile ER result;
+} request_t;
+
+static void requester(void *arg) {
+  request_t *request = arg;
+  request->result =
+      tk_wai_sem(request->semid, request->units, request->wait_ms);
+  test_checkpoint();
+}
+
+// Both priorities are above the case, so the request is made, or waits, before
+// this returns.
+static void start_request(request_t *request, ID semid, INT units, TMO wait_ms,
+                          PRI prio) {
+  request->semid = semid;
+  request->units = units;
+  request->wait_ms = wait_ms;
+  request->result = UNSET;
+  test_spawn(requester, prio, request);
+}
+
+// A semaphore that holds one unit, with A waiting at its head for two. The
+// signal that leaves the unit goes to *signalled, to be checked with the rest:
+// a semaphore that held no unit would refuse a late request on any kernel.
+static ID semaphore_with_head_waiting(ATR attr, request_t *head, PRI prio,
+                                      ER *signalled) {
+  ID semid = create_semaphore_with(attr, 0, 2);
+  start_request(head, semid, 2, TMO_FEVR, prio);
+  *signalled = tk_sig_sem(semid, 1);
+  return semid;
+}
+
+// With TA_FIRST the head of the queue is served first, so a later request must
+// not take the unit the head cannot use, even from a task of higher priority.
+// Without this a large request at the head can starve.
+static request_t g_fifo_head;
+static request_t g_fifo_late;
+
+static void fifo_first_keeps_the_head_ahead(void) {
+  ER signalled;
+  ID semid = semaphore_with_head_waiting(TA_TFIFO | TA_FIRST, &g_fifo_head,
+                                         SECOND_PRIORITY, &signalled);
+  start_request(&g_fifo_late, semid, 1, TMO_POL, FIRST_PRIORITY);
+
+  ER deleted = tk_del_sem(semid);
+  test_join_expect(2);
+
+  TEST_ASSERT_EQUAL(E_OK, signalled);
+  TEST_ASSERT_EQUAL(E_TMOUT, g_fifo_late.result);
+  TEST_ASSERT_EQUAL(E_DLT, g_fifo_head.result);
+  TEST_ASSERT_EQUAL(E_OK, deleted);
+}
+
+// With TA_TPRI | TA_FIRST a later request passes the head only when its task
+// has a strictly higher priority; one of the same priority queues behind it.
+typedef struct {
+  const char *name;
+  PRI head_prio;
+  PRI late_prio;
+  ER late_result;
+} priority_row_t;
+
+enum { PRIORITY_ROWS = 3 };
+static const priority_row_t s_priority_rows[PRIORITY_ROWS] = {
+    {"late is higher", 3, 2, E_OK},
+    {"same priority", 2, 2, E_TMOUT},
+    {"late is lower", 2, 3, E_TMOUT},
+};
+static request_t g_priority_head[PRIORITY_ROWS];
+static request_t g_priority_late[PRIORITY_ROWS];
+
+static void tpri_first_lets_only_a_higher_priority_pass(void) {
+  ER signalled[PRIORITY_ROWS];
+  ER deleted[PRIORITY_ROWS];
+  for (int row = 0; row < PRIORITY_ROWS; ++row) {
+    ID semid = semaphore_with_head_waiting(
+        TA_TPRI | TA_FIRST, &g_priority_head[row],
+        s_priority_rows[row].head_prio, &signalled[row]);
+    start_request(&g_priority_late[row], semid, 1, TMO_POL,
+                  s_priority_rows[row].late_prio);
+    deleted[row] = tk_del_sem(semid);
+  }
+  test_join_expect(2 * PRIORITY_ROWS);
+
+  for (int row = 0; row < PRIORITY_ROWS; ++row) {
+    TEST_ASSERT_EQUAL_MESSAGE(E_OK, signalled[row], s_priority_rows[row].name);
+    TEST_ASSERT_EQUAL_MESSAGE(s_priority_rows[row].late_result,
+                              g_priority_late[row].result,
+                              s_priority_rows[row].name);
+    TEST_ASSERT_EQUAL_MESSAGE(E_DLT, g_priority_head[row].result,
+                              s_priority_rows[row].name);
+    TEST_ASSERT_EQUAL_MESSAGE(E_OK, deleted[row], s_priority_rows[row].name);
+  }
+}
+
+// TA_CNT serves any request the units cover, not only the head's, so a small
+// request takes the unit the head cannot use, in either queue order. This
+// guards the other attribute against being made as strict as TA_FIRST.
+static request_t g_cnt_head[2];
+
+static void cnt_lets_a_small_request_pass(void) {
+  static const ATR attrs[2] = {TA_TFIFO | TA_CNT, TA_TPRI | TA_CNT};
+  ER signalled[2];
+  ER polled[2];
+  ER deleted[2];
+  for (int i = 0; i < 2; ++i) {
+    ID semid = semaphore_with_head_waiting(attrs[i], &g_cnt_head[i],
+                                           SECOND_PRIORITY, &signalled[i]);
+    polled[i] = tk_wai_sem(semid, 1, TMO_POL);
+    deleted[i] = tk_del_sem(semid);
+  }
+  test_join_expect(2);
+
+  for (int i = 0; i < 2; ++i) {
+    TEST_ASSERT_EQUAL_MESSAGE(E_OK, signalled[i], i ? "TA_TPRI" : "TA_TFIFO");
+    TEST_ASSERT_EQUAL_MESSAGE(E_OK, polled[i], i ? "TA_TPRI" : "TA_TFIFO");
+    TEST_ASSERT_EQUAL_MESSAGE(E_DLT, g_cnt_head[i].result,
+                              i ? "TA_TPRI" : "TA_TFIFO");
+    TEST_ASSERT_EQUAL_MESSAGE(E_OK, deleted[i], i ? "TA_TPRI" : "TA_TFIFO");
+  }
+}
+
+// A request that was refused waits in the queue behind the head, and is served
+// when the head has been. The checks in between matter: a kernel that serves B
+// at once passes a check on the final results alone.
+static request_t g_ordered_head;
+static request_t g_ordered_late;
+
+static void refused_request_is_served_after_the_head(void) {
+  ER signalled;
+  ID semid = semaphore_with_head_waiting(TA_TFIFO | TA_FIRST, &g_ordered_head,
+                                         SECOND_PRIORITY, &signalled);
+  start_request(&g_ordered_late, semid, 1, QUEUE_TIMEOUT_MS, FIRST_PRIORITY);
+  ER late_while_head_waits = g_ordered_late.result;
+
+  // The count reaches two: the head takes both units and B keeps waiting.
+  ER second_signal = tk_sig_sem(semid, 1);
+  ER head_after_second = g_ordered_head.result;
+  ER late_after_second = g_ordered_late.result;
+
+  ER third_signal = tk_sig_sem(semid, 1);
+  ER late_after_third = g_ordered_late.result;
+
+  ER deleted = tk_del_sem(semid);
+  test_join_expect(2);
+
+  TEST_ASSERT_EQUAL(E_OK, signalled);
+  TEST_ASSERT_EQUAL(UNSET, late_while_head_waits);
+  TEST_ASSERT_EQUAL(E_OK, second_signal);
+  TEST_ASSERT_EQUAL(E_OK, head_after_second);
+  TEST_ASSERT_EQUAL(UNSET, late_after_second);
+  TEST_ASSERT_EQUAL(E_OK, third_signal);
+  TEST_ASSERT_EQUAL(E_OK, late_after_third);
+  TEST_ASSERT_EQUAL(E_OK, deleted);
+}
+
+// On a TA_FIRST semaphore the head of the queue holds the waiters behind it
+// back. When the head leaves without its units (here its time limit runs out),
+// the units it could not use go to the next waiter at once. The kernel used to
+// leave that waiter waiting until the next signal, with the units lying there.
+static request_t g_leaving_head;
+static request_t g_served_next;
+
+// The head's limit is long enough that a stalled host cannot run it out
+// before the signal, which would serve the next waiter by the signal instead.
+enum { HEAD_LIMIT_MS = 200 };
+
+static void a_leaving_head_hands_its_units_on(void) {
+  ID semid = create_semaphore_with(TA_TFIFO | TA_FIRST, 0, 2);
+  start_request(&g_leaving_head, semid, 2, HEAD_LIMIT_MS, SECOND_PRIORITY);
+  start_request(&g_served_next, semid, 1, QUEUE_TIMEOUT_MS, FIRST_PRIORITY);
+  ER signalled = tk_sig_sem(semid, 1);
+  ER next_while_head_waits = g_served_next.result;
+
+  tk_dly_tsk(HEAD_LIMIT_MS + 100); // Past the head's time limit.
+  ER head_result = g_leaving_head.result;
+  ER next_result = g_served_next.result;
+
+  ER deleted = tk_del_sem(semid);
+  test_join_expect(2);
+
+  TEST_ASSERT_EQUAL(E_OK, signalled);
+  TEST_ASSERT_EQUAL(UNSET, next_while_head_waits);
+  TEST_ASSERT_EQUAL(E_TMOUT, head_result);
+  TEST_ASSERT_EQUAL(E_OK, next_result);
+  TEST_ASSERT_EQUAL(E_OK, deleted);
+}
+
 static const test_case_t s_cases[] = {
     {"binary_semaphore_is_exclusive", binary_semaphore_is_exclusive},
     {"counting_semaphore_grants_whole_requests",
@@ -247,6 +455,13 @@ static const test_case_t s_cases[] = {
     {"counts_out_of_range_are_refused", counts_out_of_range_are_refused},
     {"signal_past_the_maximum_keeps_the_count",
      signal_past_the_maximum_keeps_the_count},
+    {"fifo_first_keeps_the_head_ahead", fifo_first_keeps_the_head_ahead},
+    {"tpri_first_lets_only_a_higher_priority_pass",
+     tpri_first_lets_only_a_higher_priority_pass},
+    {"cnt_lets_a_small_request_pass", cnt_lets_a_small_request_pass},
+    {"refused_request_is_served_after_the_head",
+     refused_request_is_served_after_the_head},
+    {"a_leaving_head_hands_its_units_on", a_leaving_head_hands_its_units_on},
 };
 
 TEST_SUITE_MAIN("semaphore", s_cases, 10000)

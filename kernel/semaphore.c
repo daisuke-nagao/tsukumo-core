@@ -127,14 +127,22 @@ ID tk_cre_sem(CONST T_CSEM *pk_csem) {
  * resources are insufficient. When resources become available or on timeout,
  * the task is resumed.
  *
+ * A request takes the resources at once only if enough are left and no waiter
+ * comes before it. Under TA_CNT, any request may take them. Under TA_FIRST, a
+ * request that finds tasks waiting takes nothing at once, unless the semaphore
+ * is TA_TPRI and the task has a strictly higher priority than the first
+ * waiter. A request that may not take the resources is refused like one that
+ * finds too few: E_TMOUT for a poll, a wait otherwise.
+ *
  * @param semid Semaphore identifier.
  * @param cnt Number of resources requested.
  * @param tmout Timeout period (TMO_POL for polling; TMO_FEVR for infinite wait
  * or 1 to INT_MAX ms for finite timeout, counted as in tk_slp_tsk()).
  * @return E_OK upon success, or an error code like E_ID, E_PAR, E_TMOUT, or
- * E_NOEXS. E_CTX if interrupts are disabled (see tk_slp_tsk()): checked before
- * the semaphore is looked at, so even a request that could succeed at once is
- * refused and nothing is changed.
+ * E_NOEXS. E_PAR also for a cnt above the maximum of the semaphore, after
+ * E_NOEXS: such a request could only wait for ever. E_CTX if interrupts are
+ * disabled (see tk_slp_tsk()): checked before the semaphore is looked at, so
+ * even a request that could succeed at once is refused and nothing is changed.
  */
 ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
   // Validate parameters: semid must be within valid range, cnt positive,
@@ -161,9 +169,24 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
     EI(intsts);
     return E_NOEXS;
   }
+  if (cnt > semcb->maxsem) {
+    EI(intsts);
+    return E_PAR;
+  }
 
-  // Immediate check: if sufficient resources are available.
-  if (semcb->semcnt >= cnt) {
+  // Immediate check: sufficient resources, and no waiter that comes first. A
+  // check of the count alone let a small request pass the head of a TA_FIRST
+  // queue again and again. Refusing whenever a task waits is not right either:
+  // under TA_TPRI a request that outranks the head would be queued ahead of it.
+  BOOL may_take = semcb->semcnt >= cnt;
+  if (may_take && !tkmc_list_empty(&semcb->wait_queue) &&
+      (semcb->sematr & TA_CNT) == 0) {
+    const TCB *head =
+        tkmc_list_first_entry(&semcb->wait_queue, TCB, winfo.wait_queue);
+    may_take =
+        (semcb->sematr & TA_TPRI) != 0 && current->itskpri < head->itskpri;
+  }
+  if (may_take) {
     semcb->semcnt -= cnt;
     EI(intsts);
     return E_OK;
@@ -179,6 +202,7 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
 
   // Configure the waiting parameters for the task.
   tcb->winfo.semaphore.semcnt = cnt;
+  tcb->winfo.semaphore.semcb = semcb;
 
   // Reset the task's wait queue link for safety.
   tkmc_init_list_head(&tcb->winfo.wait_queue); // safety
@@ -295,7 +319,25 @@ ER tk_sig_sem(ID semid, INT cnt) {
 
   // Increase the semaphore's resource count.
   semcb->semcnt += cnt;
+  tkmc_sem_serve_waiters(semcb);
 
+  // Check if a higher-priority task is now ready for execution.
+  next = tkmc_get_highest_priority_task();
+  if (next != current) {
+    dispatch(); // Request a context switch if necessary.
+  }
+  EI(intsts);
+
+  return ercd;
+}
+
+/*
+ * See semaphore.h. Also called when a waiter leaves without its units (its
+ * time limit, tk_rel_wai()): under TA_FIRST it may have held back the waiters
+ * behind it. Under TA_CNT the walk then finds nothing, as every request the
+ * units covered was served when they were signalled.
+ */
+void tkmc_sem_serve_waiters(SEMCB *semcb) {
   TCB *pos, *n;
   // Traverse the wait queue safely; tasks are examined in FIFO order.
   tkmc_list_for_each_entry_safe(pos, n, &semcb->wait_queue, winfo.wait_queue) {
@@ -323,15 +365,6 @@ ER tk_sig_sem(ID semid, INT cnt) {
       break;
     }
   }
-
-  // Check if a higher-priority task is now ready for execution.
-  next = tkmc_get_highest_priority_task();
-  if (next != current) {
-    dispatch(); // Request a context switch if necessary.
-  }
-  EI(intsts);
-
-  return ercd;
 }
 
 /**

@@ -77,7 +77,7 @@ ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
 
     new_flgcb->flgid = new_flgid;
     new_flgcb->exinf = pk_cflg->exinf;
-    new_flgcb->flgatr = pk_cflg->flgatr;
+    new_flgcb->flgatr = flgatr; // The checked value, not a second read.
     new_flgcb->flgptn = pk_cflg->iflgptn;
   } else {
     // No available FLGCBs
@@ -118,6 +118,10 @@ static BOOL check_ptn(UINT flgptn, UINT waiptn, UINT wfmode) {
  * Returns E_CTX if interrupts are disabled (see tk_slp_tsk()). The check comes
  * before the flag is looked at, so even a pattern that is set already is
  * refused; nothing is changed and *p_flgptn is not written.
+ *
+ * Returns E_OBJ when a task already waits for a flag that allows one waiter
+ * (TA_WSGL). That check too comes before the pattern: a set pattern does not
+ * let the second task pass, nor does a poll, and the pattern stays as it is.
  */
 ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
   // Basic validation
@@ -152,6 +156,12 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
     return E_NOEXS;
   }
 
+  // A flag that allows one waiter refuses a second task outright.
+  if ((flgcb->flgatr & TA_WMUL) == 0 && !tkmc_list_empty(&flgcb->wait_queue)) {
+    EI(intsts);
+    return E_OBJ;
+  }
+
   UINT flgptn = flgcb->flgptn;
 
   // Immediate condition check
@@ -176,12 +186,6 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
   }
 
   TCB *tcb = current;
-
-  // Check for single-wait restriction
-  if ((flgcb->flgatr & TA_WMUL) == 0 && !tkmc_list_empty(&flgcb->wait_queue)) {
-    EI(intsts);
-    return E_OBJ;
-  }
 
   // Setup wait parameters
   tcb->winfo.event_flag.waiptn = waiptn;
@@ -280,11 +284,6 @@ ER tk_set_flg(ID flgid, UINT setptn) {
         // Take the task off the wait queue and the timer queue, and make it
         // ready.
         tkmc_complete_wait(tcb, E_OK);
-
-        // If only one task should be woken (TA_WSGL), stop here
-        if ((flgcb->flgatr & TA_WSGL) != 0) {
-          break;
-        }
       }
     }
 
@@ -301,7 +300,10 @@ ER tk_set_flg(ID flgid, UINT setptn) {
 }
 
 /**
- * @brief Clear specific bits in the event flag.
+ * @brief Clear bits of the event flag: the pattern becomes flgptn & clrptn.
+ *
+ * As μT-Kernel defines it, clrptn names the bits to keep; the bits that are 0
+ * in clrptn are cleared. To clear bit 0, pass ~0x1.
  */
 ER tk_clr_flg(ID flgid, UINT clrptn) {
   if (!tkmc_id_in_range(flgid, CFN_MAX_FLGID)) {
@@ -317,8 +319,7 @@ ER tk_clr_flg(ID flgid, UINT clrptn) {
     return E_NOEXS;
   }
 
-  // Clear specified bits from the flag pattern
-  flgcb->flgptn &= ~clrptn;
+  flgcb->flgptn &= clrptn;
 
   EI(intsts);
   return E_OK;

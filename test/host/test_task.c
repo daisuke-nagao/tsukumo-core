@@ -74,7 +74,12 @@ void test_task_start_clears_previous_wakeup_and_wait_state(void) {
   tcb->wupcause = E_RLWAI;
   tcb->tskwait = TTW_SEM;
   tcb->delay_ticks = 99;
-  memset(tcb->winfo.dummy, 0xa5, sizeof(tcb->winfo.dummy));
+  // What the wait info holds besides its queue link: the union of the
+  // per-object fields, whatever their layout.
+  unsigned char *details =
+      (unsigned char *)&tcb->winfo + sizeof(tcb->winfo.wait_queue);
+  const UINT details_size = sizeof(tcb->winfo) - sizeof(tcb->winfo.wait_queue);
+  memset(details, 0xa5, details_size);
 
   TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, 17));
   TEST_ASSERT_EQUAL_UINT(0, tcb->wupcnt);
@@ -82,9 +87,7 @@ void test_task_start_clears_previous_wakeup_and_wait_state(void) {
   TEST_ASSERT_EQUAL_UINT(0, tcb->tskwait);
   TEST_ASSERT_EQUAL_UINT(0, tcb->delay_ticks);
   TEST_ASSERT_TRUE(tkmc_list_empty(&tcb->winfo.wait_queue));
-  for (UINT i = 0; i < sizeof(tcb->winfo.dummy); ++i) {
-    TEST_ASSERT_EQUAL_UINT8(0, tcb->winfo.dummy[i]);
-  }
+  TEST_ASSERT_EACH_EQUAL_UINT8(0, details, details_size);
   TEST_ASSERT_EQUAL_PTR((FP)entry, tcb->task);
   TEST_ASSERT_EQUAL_PTR(&s_exinf, tcb->exinf);
   TEST_ASSERT_EQUAL_INT(PRIORITY, tcb->itskpri);
@@ -451,7 +454,8 @@ void test_wakeup_count_is_bounded_for_ready_and_non_sleep_waiting_tasks(void) {
 }
 
 void test_wakeup_count_is_bounded_for_a_running_task_with_interrupts_off(void) {
-  // A handler-equivalent fixture, not an actual ISR or a new self-wakeup rule.
+  // A handler-equivalent fixture, not an actual ISR: with interrupts off the
+  // running task may queue a request for itself.
   const UINT counts[] = {0, WAKEUP_LIMIT - 1, WAKEUP_LIMIT};
   for (UINT i = 0; i < sizeof(counts) / sizeof(counts[0]); ++i) {
     check_wakeup_limit(TTS_RUN, counts[i], TRUE);
@@ -479,4 +483,22 @@ void test_consuming_a_wakeup_makes_room_for_one_more_request(void) {
   TEST_ASSERT_EQUAL(E_QOVR, tk_wup_tsk(target));
   host_assert_unchanged(&before, "the replacement request fills the last slot");
   host_check_kernel_queues();
+}
+
+// A task that wakes itself with interrupts on is refused before the limit is
+// checked, so a full count gives E_OBJ too, and nothing changes.
+void test_a_task_cannot_wake_itself_with_interrupts_on(void) {
+  const UINT counts[] = {0, WAKEUP_LIMIT};
+  for (UINT i = 0; i < sizeof(counts) / sizeof(counts[0]); ++i) {
+    host_reset();
+    ID self = make_wakeup_target(TTS_RUN);
+    tkmc_tcbs[self - 1].wupcnt = counts[i];
+    host_snapshot_t before;
+    host_take_snapshot(&before);
+
+    TEST_ASSERT_EQUAL(E_OBJ, tk_wup_tsk(self));
+    TEST_ASSERT_TRUE(host_interrupts_enabled());
+    host_assert_unchanged(&before, "a refused self-wakeup changes nothing");
+    host_check_kernel_queues();
+  }
 }
