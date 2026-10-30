@@ -50,9 +50,14 @@ void tkmc_init_flgcb(void) {
  * @brief Create an event flag object.
  *
  * @param pk_cflg Pointer to the creation parameter structure
- * @return ID of the created flag, or error code
+ * @return ID of the created flag, or E_PAR for a NULL packet (before any
+ * access or allocation), E_RSATR for unsupported attributes, E_LIMIT when no
+ * flag is left. A refusal changes nothing.
  */
 ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
+  if (pk_cflg == NULL) {
+    return E_PAR;
+  }
   const ATR flgatr = pk_cflg->flgatr;
   static const ATR VALID_FLGATR = TA_TFIFO | TA_TPRI | TA_WSGL | TA_WMUL;
 
@@ -115,9 +120,12 @@ static BOOL check_ptn(UINT flgptn, UINT waiptn, UINT wfmode) {
  *
  * tmout is TMO_POL, TMO_FEVR, or 1 to INT_MAX ms, counted as in tk_slp_tsk().
  *
- * Returns E_CTX if interrupts are disabled (see tk_slp_tsk()). The check comes
- * before the flag is looked at, so even a pattern that is set already is
- * refused; nothing is changed and *p_flgptn is not written.
+ * A NULL p_flgptn is E_PAR, after the ID range check but before any context,
+ * existence, single-waiter or pattern check, even for a poll. Nothing changes.
+ *
+ * With valid arguments, returns E_CTX if interrupts are disabled (see
+ * tk_slp_tsk()), before looking at the flag. Even a pattern that is already
+ * set is refused; nothing changes and *p_flgptn is not written.
  *
  * Returns E_OBJ when a task already waits for a flag that allows one waiter
  * (TA_WSGL). That check too comes before the pattern: a set pattern does not
@@ -128,7 +136,7 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
   if (!tkmc_id_in_range(flgid, CFN_MAX_FLGID)) {
     return E_ID;
   }
-  if (waiptn == 0) {
+  if (p_flgptn == NULL || waiptn == 0) {
     return E_PAR;
   }
 

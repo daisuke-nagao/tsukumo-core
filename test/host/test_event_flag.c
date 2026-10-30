@@ -21,6 +21,7 @@
 // waiters behind it. Under TA_TPRI the queue is ordered by priority, then by
 // arrival.
 
+#include <sys/interrupt.h>
 #include <tk/tkernel.h>
 #include <unity.h>
 
@@ -54,6 +55,114 @@ static ID make_waiter(ID flgid, PRI prio, UINT waiptn, UINT wfmode,
   host_set_current(waiter);
   HOST_EXPECT_WAIT(tk_wai_flg(flgid, waiptn, wfmode, flgptn, TMO_FEVR));
   return waiter;
+}
+
+static void check_null_flag_creation(void) {
+  const BOOL interrupts = host_interrupts_enabled();
+  host_snapshot_t before;
+  host_take_snapshot(&before);
+  TEST_ASSERT_EQUAL(E_PAR, tk_cre_flg(NULL));
+  TEST_ASSERT_EQUAL_UINT(interrupts, host_interrupts_enabled());
+  host_assert_unchanged(&before, "a NULL flag creation packet");
+  host_check_kernel_queues();
+}
+
+void test_a_null_flag_packet_preserves_state_and_free_slots(void) {
+  for (UINT disabled = 0; disabled < 2; ++disabled) {
+    host_reset();
+    UINT intsts;
+    if (disabled) {
+      DI(intsts);
+    }
+    for (UINT i = 0; i < CFN_MAX_FLGID; ++i) {
+      check_null_flag_creation();
+    }
+    for (UINT i = 0; i < CFN_MAX_FLGID; ++i) {
+      TEST_ASSERT_EQUAL(i + 1, create_flag(TA_WSGL, 0));
+    }
+    check_null_flag_creation();
+    TEST_ASSERT_EQUAL(E_LIMIT, tk_cre_flg(&(T_CFLG){.flgatr = TA_WSGL}));
+    if (disabled) {
+      EI(intsts);
+    }
+  }
+}
+
+static void check_null_output(ID flgid, UINT mode, TMO tmout, ER expected) {
+  const BOOL interrupts = host_interrupts_enabled();
+  host_snapshot_t before;
+  host_take_snapshot(&before);
+  TEST_ASSERT_EQUAL(expected, tk_wai_flg(flgid, 0x1, mode, NULL, tmout));
+  TEST_ASSERT_EQUAL_UINT(interrupts, host_interrupts_enabled());
+  host_assert_unchanged(&before, "a NULL flag output pointer");
+  host_check_kernel_queues();
+}
+
+void test_a_null_flag_output_neither_clears_nor_waits(void) {
+  const TMO limits[] = {TMO_POL, WAIT_MS, TMO_FEVR};
+  const UINT modes[] = {TWF_ORW, TWF_ORW | TWF_CLR, TWF_ORW | TWF_BITCLR};
+  for (UINT pattern = 0; pattern < 2; ++pattern) {
+    host_reset();
+    ID flgid = create_flag(TA_WSGL, pattern);
+    host_set_current(host_make_task(HIGH_PRIORITY));
+    for (UINT disabled = 0; disabled < 2; ++disabled) {
+      UINT intsts;
+      if (disabled) {
+        DI(intsts);
+      }
+      for (UINT t = 0; t < sizeof(limits) / sizeof(limits[0]); ++t) {
+        for (UINT m = 0; m < sizeof(modes) / sizeof(modes[0]); ++m) {
+          check_null_output(flgid, modes[m], limits[t], E_PAR);
+        }
+      }
+      if (disabled) {
+        EI(intsts);
+      }
+    }
+    UINT output = SENTINEL;
+    TEST_ASSERT_EQUAL(pattern ? E_OK : E_TMOUT,
+                      tk_wai_flg(flgid, 0x1, TWF_ORW, &output, TMO_POL));
+    TEST_ASSERT_EQUAL_HEX32(pattern ? pattern : SENTINEL, output);
+  }
+}
+
+void test_a_null_flag_output_is_checked_after_id_before_existence(void) {
+  host_set_current(host_make_task(HIGH_PRIORITY));
+  const ID bad_ids[] = {0, -1, CFN_MAX_FLGID + 1};
+  for (UINT disabled = 0; disabled < 2; ++disabled) {
+    UINT intsts;
+    if (disabled) {
+      DI(intsts);
+    }
+    for (UINT i = 0; i < sizeof(bad_ids) / sizeof(bad_ids[0]); ++i) {
+      check_null_output(bad_ids[i], TWF_ORW, TMO_POL, E_ID);
+    }
+    check_null_output(1, TWF_ORW, TMO_POL, E_PAR); // In range, not created.
+    if (disabled) {
+      EI(intsts);
+    }
+  }
+}
+
+void test_a_null_flag_output_is_checked_before_the_single_waiter_rule(void) {
+  ID flgid = create_flag(TA_WSGL, 0x1);
+  UINT output = SENTINEL;
+  make_waiter(flgid, HIGH_PRIORITY, 0x2, TWF_ORW, &output);
+  host_set_current(host_make_task(LOW_PRIORITY));
+  const TMO limits[] = {TMO_POL, WAIT_MS, TMO_FEVR};
+  for (UINT disabled = 0; disabled < 2; ++disabled) {
+    UINT intsts;
+    if (disabled) {
+      DI(intsts);
+    }
+    for (UINT i = 0; i < sizeof(limits) / sizeof(limits[0]); ++i) {
+      check_null_output(flgid, TWF_ORW | TWF_CLR, limits[i], E_PAR);
+    }
+    if (disabled) {
+      EI(intsts);
+    }
+  }
+  TEST_ASSERT_EQUAL_HEX32(SENTINEL, output);
 }
 
 void test_clearing_a_flag_keeps_the_bits_of_the_mask(void) {

@@ -62,11 +62,15 @@ void tkmc_init_semcb(void) {
  *                - maxsem  : Maximum allowable resource count, 1 to
  *                            TK_SEMAPHORE_MAXCNT.
  *                - exinf   : Extended user information.
- * @return Semaphore identifier on success, or an error code: E_RSATR for an
+ * @return Semaphore identifier on success, or an error code: E_PAR for a NULL
+ * packet (before any access or allocation), then E_RSATR for an
  * attribute the kernel does not support, then E_PAR for a count out of range,
  * then E_LIMIT when no semaphore is left. A refusal changes nothing.
  */
 ID tk_cre_sem(CONST T_CSEM *pk_csem) {
+  if (pk_csem == NULL) {
+    return E_PAR;
+  }
   // Each field is read once, so a packet that changes during the call cannot
   // get a value past the checks.
   const ATR sematr = pk_csem->sematr;
