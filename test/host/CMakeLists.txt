@@ -16,11 +16,9 @@ include(${PROJECT_SOURCE_DIR}/DetermineTypes.cmake)
 configure_file(${PROJECT_SOURCE_DIR}/typedef.h.in
                ${CMAKE_BINARY_DIR}/include/tk/typedef.h @ONLY)
 
-# Sanitizers. -fno-sanitize=null: tkmc_offsetof() in kernel/list.h takes the
-# address of a member of a null pointer, which the null check reports on every
-# use. No recovery, so a finding stops the test and the exit status shows it.
-set(HOST_SANITIZE -fsanitize=address,undefined -fno-sanitize-recover=all
-                  -fno-sanitize=null)
+# Sanitizers. No recovery, so a finding stops the test and the exit status shows
+# it.
+set(HOST_SANITIZE -fsanitize=address,undefined -fno-sanitize-recover=all)
 
 # The kernel sources the tests use. memcpy.c and memset.c are left out: their
 # weak memcpy/memset aliases would fight with the C library's. memset.c is
@@ -53,8 +51,11 @@ add_executable(
   main.c
   fakes.c
   memset_under_test.c
+  test_errno.c
+  test_event_flag.c
   test_fixture.c
   test_list.c
+  test_mailbox.c
   test_memset.c
   test_object_id.c
   test_semaphore.c

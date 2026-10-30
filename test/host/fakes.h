@@ -127,15 +127,20 @@ extern jmp_buf host_wait_jmp;
 extern volatile int host_wait_armed;
 extern volatile int host_waited;
 
+// Arms HOST_EXPECT_WAIT, and clears a software interrupt request an earlier
+// call may have left: on the target the switch would have taken it already,
+// and a request the statement itself does not make must not count.
+extern void host_arm_wait(void);
+
 // Runs statement, and stops it where the current task would be switched out:
-// the task is waiting, a context switch has been requested (the machine
-// software interrupt is pending) and interrupts are back on. The test fails if
-// the statement returns instead, or if it leaves interrupts off.
+// the task is waiting, a context switch has been requested by the statement
+// (the machine software interrupt is pending) and interrupts are back on. The
+// test fails if the statement returns instead, or if it leaves interrupts off.
 #define HOST_EXPECT_WAIT(statement)                                            \
   do {                                                                         \
     host_waited = 0;                                                           \
     if (setjmp(host_wait_jmp) == 0) {                                          \
-      host_wait_armed = 1;                                                     \
+      host_arm_wait();                                                         \
       statement;                                                               \
     } else {                                                                   \
       host_waited = 1;                                                         \

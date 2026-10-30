@@ -104,7 +104,7 @@ extern void tk_ext_tsk(void);
 extern void tk_exd_tsk(void);
 extern ID tk_cre_tsk(CONST T_CTSK *pk_ctsk);
 extern ER tk_sta_tsk(ID tskid, INT stacd);
-extern ER tk_dly_tsk(TMO dlytm);
+extern ER tk_dly_tsk(RELTIM dlytm);
 extern ER tk_slp_tsk(TMO tmout);
 extern ER tk_rel_wai(ID tskid);
 extern ER tk_wup_tsk(ID tskid);
@@ -138,20 +138,17 @@ typedef struct T_CMBX {
   ATR mbxatr;  // Mailbox attributes
 } T_CMBX;
 
-// this struct is used to make sure that the size of the struct is 8 bytes
-struct dummy_struct {
-  union {
-    void *sekva; // no meaning, just to make the size occupy 4 bytes
-    void *next;
-  };
-  union {
-    void *antauxa; // no meaning, just to make the size occupy 4 bytes
-    void *prev;
-  };
-};
+// The kernel's list link (see kernel/list.h). It is declared here because the
+// kernel queues messages through T_MSG's link: a member of any other type,
+// even one of the same layout, would be accessed through a type it does not
+// have.
+typedef struct tkmc_list_head {
+  struct tkmc_list_head *next;
+  struct tkmc_list_head *prev;
+} tkmc_list_head;
 
 typedef struct T_MSG {
-  struct dummy_struct list;
+  tkmc_list_head list; // Used by the kernel while the message is queued
 } T_MSG;
 
 typedef struct T_MSG_PRI {

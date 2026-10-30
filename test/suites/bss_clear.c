@@ -12,6 +12,10 @@
 // of output. The result is "BSS OK", or a line that says what is wrong, on the
 // UART, and the exit status of the run.
 //
+// The entry also leaves a value in a0, as a board's boot code does (QEMU: the
+// hart ID), and usermain must get it: "BOOT ARG OK" comes first. The kernel
+// used to overwrite a0 while setting the trap vector.
+//
 // What it does not check, and why:
 // - The bytes before _bss_start. A canary there would have to sit in the
 //   alignment gap before .sbss, which is up to 15 bytes and not under the
@@ -37,6 +41,7 @@ extern unsigned char _bss_end[];
 extern volatile UW bss_dirty_ran;
 
 enum { PATTERN = 0xa5, RUN_LENGTH = 4, PROBE_SIZE = 512 };
+enum { BOOT_A0 = 0x5a5a }; // What bss_dirty_entry.S leaves in a0.
 
 // Nothing writes this, so after a boot it must be all zero. It tells a clear
 // that wrote the wrong value, or missed a short stretch inside the block, from
@@ -58,12 +63,18 @@ static __attribute__((noreturn)) void fail(const char *what,
 // The first task of the system. It runs on a small stack and keeps to simple
 // loops.
 void usermain(int a0) {
-  (void)a0;
-
   if (bss_dirty_ran != 1) {
     putstring("BSS DIRTY ENTRY DID NOT RUN\n");
     test_exit(1);
   }
+
+  if (a0 != BOOT_A0) {
+    putstring("BOOT ARGUMENT LOST: a0 is ");
+    puthex((UW)a0);
+    putstring("\n");
+    test_exit(1);
+  }
+  putstring("BOOT ARG OK\n");
 
   // The ends are checked on their own: a clear that stops one byte early or
   // starts one byte late leaves a single 0xa5 that no run would show.

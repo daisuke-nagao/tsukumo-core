@@ -355,12 +355,35 @@ set_source_files_properties(
 add_test_suite(
   memset SOURCES test/suites/memset.c test/suites/memset_under_test.c
   test/memset_matrix.c test/panic_hook.c)
+# tkmc_memcpy() and tkmc_memset() of the kernel library itself, as callers get
+# them, on bytes and on objects of other types.
+add_test_suite(memcpy SOURCES test/suites/memcpy.c)
+
+# The word loops of tkmc_memcpy() and tkmc_memset() must access memory as a type
+# that may alias any object (see kernel/memcpy.c). No test that runs can see a
+# wrong alias assumption reliably, as it shows only where the optimizer inlines
+# the function, so the IR clang makes is checked instead, with the flags of the
+# RISC-V build. It is registered only where the QEMU suites are, so that a build
+# without QEMU still has no tests and `ctest --no-tests=error` still fails.
+separate_arguments(word_tbaa_flags NATIVE_COMMAND "${CMAKE_C_FLAGS}")
+list(APPEND word_tbaa_flags ${COMMON_FLAGS} -I${PROJECT_SOURCE_DIR}/include
+     -I${CMAKE_BINARY_DIR}/include)
+if(QEMU_EXECUTABLE)
+  add_test(
+    NAME word-access-tbaa
+    COMMAND
+      ${CMAKE_COMMAND} -DCOMPILER=${CMAKE_C_COMPILER}
+      "-DFLAGS=${word_tbaa_flags}" -DOUT_DIR=${CMAKE_CURRENT_BINARY_DIR}
+      "-DSOURCES=${PROJECT_SOURCE_DIR}/kernel/memcpy.c;${PROJECT_SOURCE_DIR}/kernel/memset.c"
+      -DREADERS=memcpy -P ${PROJECT_SOURCE_DIR}/test/check_word_tbaa.cmake)
+endif()
 
 # The kernel must clear .bss. bss_dirty_entry.S runs first and fills it with
 # 0xa5, and the suite checks that no stretch of 0xa5 is left; QEMU starts with
-# zeroed RAM, which would hide a kernel that does not clear it.
+# zeroed RAM, which would hide a kernel that does not clear it. The entry also
+# leaves a value in a0, as boot code does, which must reach usermain.
 add_test_suite(bss-clear SOURCES test/bss_dirty_entry.S test/suites/bss_clear.c
-               OUTPUT_REGEX "BSS OK")
+               OUTPUT_REGEX "BOOT ARG OK.*BSS OK")
 
 # Kernel tests, one ELF and one ctest per feature.
 add_test_suite(task-timer SOURCES test/suites/task_timer.c)

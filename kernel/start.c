@@ -24,7 +24,9 @@ static void clear_bss(void);
 /*
  * Stack for the initial task (ini_tsk).
  * Aligned to 16 bytes to meet the alignment requirements of the RISC-V
- * architecture.
+ * architecture. 512 bytes: usermain runs on it, and every interrupt puts its
+ * 128 byte frame and the handler's frames on top, so a usermain that does more
+ * than start tasks should run its work in a task of its own.
  */
 static UINT ini_tsk_stack[128] __attribute__((aligned(16)));
 static UINT idl_tsk_stack[128] __attribute__((aligned(16)));

@@ -8,6 +8,23 @@
 
 #include "memset.h"
 
+// The word loops below read and write objects of any type through a word
+// pointer. C lets only character types access any object, so a plain UW access
+// to, say, a float is undefined, and an optimizer that inlines this function
+// may move it past the caller's own float accesses. may_alias (a clang and GCC
+// extension) gives a type the aliasing of a character type. The kernel is not
+// built with -fno-strict-aliasing instead, which would weaken it everywhere.
+// Nested: #if does not skip the right side of ||, and a compiler without
+// __has_attribute could not parse it.
+#if defined(__has_attribute)
+#if !__has_attribute(may_alias)
+#error "the word loops need __attribute__((may_alias))"
+#endif
+#else
+#error "the word loops need __attribute__((may_alias))"
+#endif
+typedef UW __attribute__((may_alias)) UW_ANY;
+
 /*
  * tkmc_memset - Fills a block of memory with a specified value.
  *
@@ -42,7 +59,7 @@ void *tkmc_memset(void *dest, int c, size_t n) {
 
   /* Fill memory in 4-byte chunks if aligned */
   if (n >= 4) {
-    UW *dw = (UW *)d8;
+    UW_ANY *dw = (UW_ANY *)d8;
     // Unsigned arithmetic: value is promoted to int, and 0x80 << 24 does not
     // fit in an int, which is undefined behaviour.
     UW word_value = (UW)value * 0x01010101u;

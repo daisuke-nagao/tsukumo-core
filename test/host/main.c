@@ -18,6 +18,7 @@ extern void test_semaphore_wait_ends_when_the_time_limit_runs_out(void);
 extern void test_release_wait_wakes_a_sleeping_task(void);
 extern void
 test_release_wait_takes_a_timed_semaphore_waiter_off_both_queues(void);
+extern void test_release_wait_keeps_a_queued_wakeup(void);
 extern void test_a_signal_disarms_the_time_limit_of_its_waiter(void);
 extern void test_waking_a_higher_priority_task_requests_a_context_switch(void);
 extern void test_waking_a_lower_priority_task_requests_no_context_switch(void);
@@ -56,6 +57,10 @@ extern void
 test_timer_boot_retries_a_read_that_carries_into_the_high_word(void);
 extern void
 test_timer_handler_retries_a_read_that_carries_into_the_high_word(void);
+extern void test_a_timer_interrupt_counts_every_period_that_has_passed(void);
+extern void test_a_repeated_timer_interrupt_changes_nothing(void);
+extern void test_a_late_timer_interrupt_ends_only_the_waits_it_reached(void);
+extern void test_a_new_wait_does_not_count_periods_from_before_it_began(void);
 
 extern void test_task_start_rebuilds_a_damaged_frame(void);
 extern void test_task_start_clears_previous_wakeup_and_wait_state(void);
@@ -99,10 +104,46 @@ extern void test_a_signal_past_the_maximum_wakes_no_waiter(void);
 extern void test_the_maximum_counts_units_before_they_go_to_waiters(void);
 extern void test_a_signal_refused_with_interrupts_off_leaves_them_off(void);
 extern void
+test_a_new_request_takes_units_only_in_the_order_of_the_semaphore(void);
+extern void
+test_a_request_refused_by_the_order_waits_for_ever_without_a_timer(void);
+extern void
+test_a_request_that_outranks_only_a_later_waiter_takes_nothing(void);
+extern void test_a_request_that_finds_no_waiter_takes_its_units_at_once(void);
+extern void
 test_wakeup_count_is_bounded_for_ready_and_non_sleep_waiting_tasks(void);
 extern void
 test_wakeup_count_is_bounded_for_a_running_task_with_interrupts_off(void);
 extern void test_consuming_a_wakeup_makes_room_for_one_more_request(void);
+extern void test_a_task_cannot_wake_itself_with_interrupts_on(void);
+extern void test_a_head_that_times_out_hands_its_units_to_the_next_waiter(void);
+extern void test_a_late_interrupt_expires_the_successor_before_the_head(void);
+extern void
+test_a_late_interrupt_serves_the_successor_before_its_later_deadline(void);
+extern void
+test_a_head_that_is_released_hands_its_units_to_the_next_waiter(void);
+extern void
+test_deleting_a_semaphore_hands_no_units_to_the_waiters_it_releases(void);
+extern void
+test_every_wake_call_requests_a_switch_only_to_a_higher_priority_task(void);
+extern void test_a_request_above_the_maximum_is_refused(void);
+extern void
+test_a_signal_serves_the_waiters_in_queue_order_as_far_as_it_goes(void);
+extern void test_a_delay_takes_the_whole_unsigned_range(void);
+extern void test_clearing_a_flag_keeps_the_bits_of_the_mask(void);
+extern void
+test_a_one_waiter_flag_refuses_a_second_task_before_the_pattern_check(void);
+extern void
+test_a_set_wakes_every_waiter_of_a_multi_waiter_flag_it_satisfies(void);
+extern void test_a_clear_by_one_waiter_is_seen_by_the_waiters_behind_it(void);
+extern void
+test_waiters_of_a_priority_flag_queue_by_priority_then_arrival(void);
+extern void
+test_a_mailbox_refuses_the_attributes_of_features_the_kernel_lacks(void);
+extern void
+test_receivers_of_a_priority_mailbox_queue_by_priority_then_arrival(void);
+extern void
+test_the_main_and_sub_error_codes_come_apart_as_they_were_joined(void);
 
 int main(void) {
   UNITY_BEGIN();
@@ -142,14 +183,20 @@ int main(void) {
   RUN_TEST(test_a_signal_past_the_maximum_wakes_no_waiter);
   RUN_TEST(test_the_maximum_counts_units_before_they_go_to_waiters);
   RUN_TEST(test_a_signal_refused_with_interrupts_off_leaves_them_off);
+  RUN_TEST(test_a_new_request_takes_units_only_in_the_order_of_the_semaphore);
+  RUN_TEST(test_a_request_refused_by_the_order_waits_for_ever_without_a_timer);
+  RUN_TEST(test_a_request_that_outranks_only_a_later_waiter_takes_nothing);
+  RUN_TEST(test_a_request_that_finds_no_waiter_takes_its_units_at_once);
   RUN_TEST(test_wakeup_count_is_bounded_for_ready_and_non_sleep_waiting_tasks);
   RUN_TEST(test_wakeup_count_is_bounded_for_a_running_task_with_interrupts_off);
   RUN_TEST(test_consuming_a_wakeup_makes_room_for_one_more_request);
+  RUN_TEST(test_a_task_cannot_wake_itself_with_interrupts_on);
   RUN_TEST(test_list_matches_a_model_under_random_operations);
   RUN_TEST(test_semaphore_waiter_blocks_and_a_signal_wakes_it);
   RUN_TEST(test_semaphore_wait_ends_when_the_time_limit_runs_out);
   RUN_TEST(test_release_wait_wakes_a_sleeping_task);
   RUN_TEST(test_release_wait_takes_a_timed_semaphore_waiter_off_both_queues);
+  RUN_TEST(test_release_wait_keeps_a_queued_wakeup);
   RUN_TEST(test_a_signal_disarms_the_time_limit_of_its_waiter);
   RUN_TEST(test_waking_a_higher_priority_task_requests_a_context_switch);
   RUN_TEST(test_waking_a_lower_priority_task_requests_no_context_switch);
@@ -184,5 +231,29 @@ int main(void) {
   RUN_TEST(test_timer_compare_crosses_the_low_word_boundary);
   RUN_TEST(test_timer_boot_retries_a_read_that_carries_into_the_high_word);
   RUN_TEST(test_timer_handler_retries_a_read_that_carries_into_the_high_word);
+  RUN_TEST(test_a_timer_interrupt_counts_every_period_that_has_passed);
+  RUN_TEST(test_a_repeated_timer_interrupt_changes_nothing);
+  RUN_TEST(test_a_late_timer_interrupt_ends_only_the_waits_it_reached);
+  RUN_TEST(test_a_new_wait_does_not_count_periods_from_before_it_began);
+  RUN_TEST(test_a_head_that_times_out_hands_its_units_to_the_next_waiter);
+  RUN_TEST(test_a_late_interrupt_expires_the_successor_before_the_head);
+  RUN_TEST(
+      test_a_late_interrupt_serves_the_successor_before_its_later_deadline);
+  RUN_TEST(test_a_head_that_is_released_hands_its_units_to_the_next_waiter);
+  RUN_TEST(test_deleting_a_semaphore_hands_no_units_to_the_waiters_it_releases);
+  RUN_TEST(
+      test_every_wake_call_requests_a_switch_only_to_a_higher_priority_task);
+  RUN_TEST(test_a_request_above_the_maximum_is_refused);
+  RUN_TEST(test_a_signal_serves_the_waiters_in_queue_order_as_far_as_it_goes);
+  RUN_TEST(test_a_delay_takes_the_whole_unsigned_range);
+  RUN_TEST(test_clearing_a_flag_keeps_the_bits_of_the_mask);
+  RUN_TEST(
+      test_a_one_waiter_flag_refuses_a_second_task_before_the_pattern_check);
+  RUN_TEST(test_a_set_wakes_every_waiter_of_a_multi_waiter_flag_it_satisfies);
+  RUN_TEST(test_a_clear_by_one_waiter_is_seen_by_the_waiters_behind_it);
+  RUN_TEST(test_waiters_of_a_priority_flag_queue_by_priority_then_arrival);
+  RUN_TEST(test_a_mailbox_refuses_the_attributes_of_features_the_kernel_lacks);
+  RUN_TEST(test_receivers_of_a_priority_mailbox_queue_by_priority_then_arrival);
+  RUN_TEST(test_the_main_and_sub_error_codes_come_apart_as_they_were_joined);
   return UNITY_END();
 }

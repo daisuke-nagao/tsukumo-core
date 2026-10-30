@@ -210,7 +210,20 @@ static void zero_delay_with_interrupts_on_returns_with_them_on(void) {
   TEST_ASSERT_TRUE(was_on);
 }
 
+// DI() fills the variable it is given, whatever its name. The macro used to
+// declare a local named status, so a caller's variable of that name was never
+// assigned, and EI() then worked from whatever it held.
+static void di_fills_a_variable_named_status(void) {
+  UINT status = 0xdeadbeefU;
+  DI(status);
+  UINT filled = status;
+  EI(status);
+  TEST_ASSERT_NOT_EQUAL_HEX32(0xdeadbeefU, filled);
+  TEST_ASSERT_FALSE(isDI(filled)); // Interrupts were on before the call.
+}
+
 static const test_case_t s_cases[] = {
+    {"di_fills_a_variable_named_status", di_fills_a_variable_named_status},
     {"delay_with_interrupts_off", delay_with_interrupts_off},
     {"sleep_with_interrupts_off", sleep_with_interrupts_off},
     {"semaphore_wait_with_interrupts_off", semaphore_wait_with_interrupts_off},

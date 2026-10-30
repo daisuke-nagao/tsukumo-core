@@ -67,7 +67,8 @@ typedef INT ER;   /* Error code */
 typedef INT PRI;  /* Priority */
 
 /* Time-related types */
-typedef W                    TMO;  /* Timeout in milliseconds */
+typedef W                    TMO;    /* Timeout in milliseconds */
+typedef UW                   RELTIM; /* Relative time in milliseconds */
 #if 0
 #if TK_SUPPORT_USEC
 typedef D                    TMO_U;  /* Timeout in microseconds */

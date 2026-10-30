@@ -12,9 +12,12 @@ _start:
   la gp, __global_pointer$
   .option relax
 
-  la a0, trap_handlers
-  addi a0, a0, 1
-  csrw mtvec, a0
+  /* a0 and a1 hold what the boot code passed (on QEMU the hart ID and the
+     device tree address) and go to tkmc_start as they are, so the vector
+     setup uses t0. */
+  la t0, trap_handlers
+  addi t0, t0, 1
+  csrw mtvec, t0
 
   /* Enable software and timer interrupts */
   li t0, (1<<3) | (1<<7)

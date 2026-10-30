@@ -24,6 +24,11 @@ _Static_assert(
     LO_PRIORITY < TEST_CASE_PRIORITY,
     "the receivers must preempt the case, to be blocked before it sends");
 
+// The kernel links messages through T_MSG's list. That member must have the
+// kernel's own link type, or the kernel would access it through another type.
+_Static_assert(_Generic(((T_MSG *)0)->list, tkmc_list_head: 1, default: 0),
+               "T_MSG's link must be a tkmc_list_head");
+
 typedef struct {
   T_MSG hdr;
   INT value;

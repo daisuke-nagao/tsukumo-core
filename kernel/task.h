@@ -21,8 +21,11 @@ typedef struct EventFlagInfo {
   UINT flgptn;
 } EventFlagInfo;
 
+struct SEMCB;
 typedef struct SemaphoreInfo {
   INT semcnt;
+  struct SEMCB *semcb; // The semaphore waited for; a waiter that leaves it
+                       // unserved must hand its place on to the next one.
 } SemaphoreInfo;
 
 struct T_MSG;
@@ -36,7 +39,6 @@ typedef struct WaitInfo {
     EventFlagInfo event_flag;
     SemaphoreInfo semaphore;
     MailboxInfo mailbox;
-    UB dummy[sizeof(EventFlagInfo)];
   };
 } WaitInfo;
 
@@ -68,8 +70,10 @@ extern TCB *tkmc_get_highest_priority_task(void);
 // takes the task off the timer queue and off the wait queue of the object it
 // waited for, clears what it waited for and its time limit, and puts it on its
 // ready queue once. The caller owns the rest: what the wait was for (units of a
-// semaphore, a flag pattern, a message), and the scheduling. Interrupts must be
-// disabled.
+// semaphore, a flag pattern, a message), and the scheduling. One exception: a
+// semaphore waiter that leaves with E_TMOUT or E_RLWAI took no units, so the
+// waiters behind it are served here (tkmc_sem_serve_waiters()), and they may
+// become ready too. Interrupts must be disabled.
 extern void tkmc_complete_wait(TCB *tcb, ER cause);
 extern void tkmc_yield(void);
 

@@ -42,18 +42,25 @@ ctest --test-dir <build dir> --output-on-failure --no-tests=error
   clock; `QEMU_ICOUNT_SHIFT` also accepts `auto`.
 - `--no-tests=error` makes `ctest` fail when no test was registered (QEMU not
   found at configure time) instead of reporting success.
-- `qemu-task-timer`, `qemu-event-flag`, `qemu-semaphore`, `qemu-mailbox` and
-  `qemu-memset` run the kernel suites. The test runner (`test/runner.c`) runs each case in its own
+- `qemu-task-timer`, `qemu-task-restart`, `qemu-event-flag`, `qemu-semaphore`,
+  `qemu-mailbox`, `qemu-memset` and `qemu-memcpy` run the kernel suites
+  (`qemu-task-restart` restarts one task 100 times, ended by `tk_ext_tsk()` and
+  by returning). The test runner (`test/runner.c`) runs each case in its own
   task, prints a result line per case and a summary, and ends QEMU with exit
   status 0 if no case failed and 1 if one did. A case that does not finish in
   time is reported as a timeout and aborts its suite.
+- `word-access-tbaa` runs no QEMU, but is registered only with the QEMU suites,
+  so `--no-tests=error` keeps working. It compiles `kernel/memcpy.c` and
+  `kernel/memset.c` to LLVM IR and checks that their word loops access memory
+  as a type that may alias any object (`test/check_word_tbaa.cmake`).
 - `qemu-task-create` checks what `tk_cre_tsk()` refuses (priority, stack size,
   NULL entry or buffer, stack end alignment, and the 32 bit wrap of the stack
   end) with `E_PAR`, one case per input. It starts no task.
 - `qemu-wait-context` checks that the wait calls (`tk_dly_tsk`, `tk_slp_tsk`,
   `tk_wai_sem`, `tk_wai_flg`, `tk_rcv_mbx`) return `E_CTX` and change nothing
   when interrupts are off. `DI()` stands in for an interrupt handler, which also
-  runs with interrupts off.
+  runs with interrupts off. It also checks that `DI()` assigns a variable named
+  `status`, the name of a local the macro used to declare.
 - `qemu-timer-wrap` moves the machine timer to 100 ms before a low-word wrap,
   with a nonzero high word, before starting the runner. A 300 ms delay must
   finish after the wrap. Its separate ELF keeps this clock jump out of the
@@ -65,8 +72,10 @@ ctest --test-dir <build dir> --output-on-failure --no-tests=error
   the exception: one plain test, `qemu-selftest-pass`, that must pass.
 - `qemu-bss-clear` checks that the kernel clears `.bss` at boot. QEMU starts with
   zeroed RAM, so `test/bss_dirty_entry.S`, linked first, fills `.bss` with 0xa5
-  and then starts the kernel as a board with dirty RAM would. The suite has no
-  test runner and prints `BSS OK` if no 0xa5 is left, which the ctest requires.
+  and then starts the kernel as a board with dirty RAM would. The entry also
+  leaves a value in `a0`, as boot code does, and `usermain()` must receive it
+  (`BOOT ARG OK`). The suite has no test runner and prints `BSS OK` if no 0xa5
+  is left; the ctest requires both lines.
 - `qemu-panic-illegal`, `qemu-panic-load-fault` and `qemu-panic-bad-stack` check
   that a fatal trap stops the kernel and reports its cause. The machine stops at
   the trap, so each ELF causes one trap; its replaced `tkmc_panic()`

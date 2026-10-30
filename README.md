@@ -68,6 +68,21 @@ if the output has a `PANIC OK` line (the kernel stopped and reported the right
 cause). See
 [docs/developer/notes/run_qemu.md](docs/developer/notes/run_qemu.md) for details.
 
+The suites should pass at every optimization level, with and without link-time
+optimization (LTO). The presets `debug` (-O0), `relwithdebinfo` (-O2) and
+`minsizerel` (-Os) each have an `-lto` twin; run the tests in all six:
+
+```shell
+cmake --preset relwithdebinfo-lto
+cmake --build --preset relwithdebinfo-lto
+ctest --test-dir ../build/relwithdebinfo-lto --output-on-failure --no-tests=error
+```
+
+At -O0 clang does not optimize functions across files, so `debug-lto` builds
+with LTO but optimizes little. Every new build directory downloads Unity at
+configure time; see the note on `FETCHCONTENT_SOURCE_DIR_UNITY` below to reuse
+an existing copy offline.
+
 ## Unit tests on the PC
 
 The logic of the kernel (lists, wait queues, the timer handler, `tkmc_memset`) also has unit

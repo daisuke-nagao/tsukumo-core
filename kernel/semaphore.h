@@ -26,6 +26,12 @@ typedef struct SEMCB {
 
 extern void tkmc_init_semcb(void);
 
+// Gives the units of the semaphore to the tasks that wait for them, from the
+// head of the queue, as far as the units go: under TA_FIRST the first request
+// the units do not cover stops it, under TA_CNT such a request is skipped.
+// Interrupts must be disabled. The caller schedules.
+extern void tkmc_sem_serve_waiters(SEMCB *semcb);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */

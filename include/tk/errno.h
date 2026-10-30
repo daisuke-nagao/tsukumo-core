@@ -14,7 +14,11 @@ extern "C" {
 #endif /* __cplusplus */
 
 /* 65536 == 0x10000 */
-#define MERCD(er) ((ER)((W)(er) / 65536))
+// The main code is the upper 16 bits as a signed value, shifted as the
+// specification writes it. A division by 65536 rounds toward zero, which gives
+// a main code one too high whenever the sub code is not 0 (-16 instead of -17
+// for ERCD(-17, 1)).
+#define MERCD(er) ((ER)((W)(er) >> 16))
 #define SERCD(er) ((H)((UW)(er) % 65536))
 #define ERCD(mer, ser) ((ER)((W)(mer) * 65536) + (UH)(ser))
 

@@ -44,6 +44,30 @@
       }
     },
     {
+      "name": "debug-lto",
+      "inherits": "debug",
+      "displayName": "Debug Build with LTO",
+      "cacheVariables": {
+        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON"
+      }
+    },
+    {
+      "name": "relwithdebinfo-lto",
+      "inherits": "relwithdebinfo",
+      "displayName": "Release with Debug Info with LTO",
+      "cacheVariables": {
+        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON"
+      }
+    },
+    {
+      "name": "minsizerel-lto",
+      "inherits": "minsizerel",
+      "displayName": "Minimum Size Release with LTO",
+      "cacheVariables": {
+        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON"
+      }
+    },
+    {
       "name": "host",
       "displayName": "PC unit tests (host clang, no RISC-V toolchain)",
       "generator": "Ninja",
@@ -71,6 +95,18 @@
     {
       "name": "minsizerel",
       "configurePreset": "minsizerel"
+    },
+    {
+      "name": "debug-lto",
+      "configurePreset": "debug-lto"
+    },
+    {
+      "name": "relwithdebinfo-lto",
+      "configurePreset": "relwithdebinfo-lto"
+    },
+    {
+      "name": "minsizerel-lto",
+      "configurePreset": "minsizerel-lto"
     },
     {
       "name": "host",
