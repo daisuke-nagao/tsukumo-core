@@ -83,6 +83,10 @@ with LTO but optimizes little. Every new build directory downloads Unity at
 configure time; see the note on `FETCHCONTENT_SOURCE_DIR_UNITY` below to reuse
 an existing copy offline.
 
+The [memory and mailbox validation record](docs/developer/notes/optimization-lto-validation.md)
+explains the aliasing risks, six configurations, reproduction steps, test
+results and limitations.
+
 ## Unit tests on the PC
 
 The logic of the kernel (lists, wait queues, the timer handler, `tkmc_memset`) also has unit
