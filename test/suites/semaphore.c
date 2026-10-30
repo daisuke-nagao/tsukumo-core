@@ -443,7 +443,23 @@ static void a_leaving_head_hands_its_units_on(void) {
   TEST_ASSERT_EQUAL(E_OK, deleted);
 }
 
+static void null_creation_packet_is_refused(void) {
+  TEST_ASSERT_EQUAL(E_PAR, tk_cre_sem(NULL));
+  UINT intsts, after;
+  DI(intsts);
+  ID refused = tk_cre_sem(NULL);
+  DI(after);
+  EI(intsts);
+  TEST_ASSERT_EQUAL(E_PAR, refused);
+  TEST_ASSERT_TRUE(isDI(after));
+
+  ID semid = create_semaphore(1, 1);
+  TEST_ASSERT_EQUAL(E_OK, tk_wai_sem(semid, 1, TMO_POL));
+  TEST_ASSERT_EQUAL(E_OK, tk_del_sem(semid));
+}
+
 static const test_case_t s_cases[] = {
+    {"null_creation_packet_is_refused", null_creation_packet_is_refused},
     {"binary_semaphore_is_exclusive", binary_semaphore_is_exclusive},
     {"counting_semaphore_grants_whole_requests",
      counting_semaphore_grants_whole_requests},

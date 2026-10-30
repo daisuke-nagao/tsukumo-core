@@ -12,6 +12,13 @@
 void setUp(void) { host_reset(); }
 void tearDown(void) {}
 
+extern void test_a_null_semaphore_packet_preserves_state_and_free_slots(void);
+extern void test_a_null_flag_packet_preserves_state_and_free_slots(void);
+extern void test_a_null_flag_output_neither_clears_nor_waits(void);
+extern void test_a_null_flag_output_is_checked_after_id_before_existence(void);
+extern void
+test_a_null_flag_output_is_checked_before_the_single_waiter_rule(void);
+
 extern void test_list_matches_a_model_under_random_operations(void);
 extern void test_semaphore_waiter_blocks_and_a_signal_wakes_it(void);
 extern void test_semaphore_wait_ends_when_the_time_limit_runs_out(void);
@@ -255,5 +262,10 @@ int main(void) {
   RUN_TEST(test_a_mailbox_refuses_the_attributes_of_features_the_kernel_lacks);
   RUN_TEST(test_receivers_of_a_priority_mailbox_queue_by_priority_then_arrival);
   RUN_TEST(test_the_main_and_sub_error_codes_come_apart_as_they_were_joined);
+  RUN_TEST(test_a_null_semaphore_packet_preserves_state_and_free_slots);
+  RUN_TEST(test_a_null_flag_packet_preserves_state_and_free_slots);
+  RUN_TEST(test_a_null_flag_output_neither_clears_nor_waits);
+  RUN_TEST(test_a_null_flag_output_is_checked_after_id_before_existence);
+  RUN_TEST(test_a_null_flag_output_is_checked_before_the_single_waiter_rule);
   return UNITY_END();
 }

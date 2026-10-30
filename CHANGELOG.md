@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added host regressions for NULL semaphore/flag creation packets and flag wait output pointers, including free-slot preservation, error precedence, unchanged state and interrupt state. The semaphore and event-flag QEMU suites also check NULL refusals and subsequent normal use.
 - Added tests of the fixes below: three on the PC of the units a departing semaphore waiter hands on (by time limit, by `tk_rel_wai()`, and none on delete) and the case `a_leaving_head_hands_its_units_on` in the `semaphore` suite; PC tests of `tk_clr_flg()`, of a second waiter on a `TA_WSGL` flag whose pattern is set, of a request above a semaphore's maximum, of `MERCD()`/`SERCD()`, of the attributes `tk_cre_mbx()` refuses and of `tk_dly_tsk(UINT_MAX)`; the case `di_fills_a_variable_named_status` in the `wait-context` suite; and the boot argument check of the `bss-clear` suite (`BOOT ARG OK`).
 - Added PC tests of behavior that had none: the task switch each wake call requests (`tk_wup_tsk()`, `tk_rel_wai()`, `tk_set_flg()`, `tk_snd_mbx()`, `tk_del_mbx()`, `tk_sig_sem()`) only for a task of higher priority, `tk_sig_sem()` serving two waiters in queue order under `TA_FIRST` and `TA_CNT`, a `TA_WMUL` flag waking several waiters with a clear seen by the waiters behind, and the `TA_TPRI` queue order of flag waiters and of mailbox receivers.
 - Added `debug-lto`, `relwithdebinfo-lto` and `minsizerel-lto` presets, so the tests run at -O0, -O2 and -Os with and without link-time optimization.
@@ -70,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `tkmc_context_switch` in favor of the more flexible `tkmc_yield` function.
 
 ### Fixed
+- `tk_cre_sem()` and `tk_cre_flg()` now reject NULL creation packets with `E_PAR` before reading them or allocating an object. `tk_wai_flg()` rejects a NULL output pointer with `E_PAR` after the ID range check and before context, existence, single-waiter and pattern checks, including polls. Refusals preserve kernel and interrupt state; some calls that previously returned `E_CTX`, `E_NOEXS`, `E_OBJ` or `E_TMOUT` now return `E_PAR` instead.
 - Delayed timer interrupts now complete waits in deadline order. A semaphore head that times out can no longer serve a successor whose deadline occurred earlier; tests cover both deadline orders with a single interrupt delayed past both.
 - On a `TA_FIRST` semaphore, a waiter that leaves without its units (its time limit runs out, or `tk_rel_wai()`) now hands them on: the waiters behind it are served from the head of the queue as far as the units go, at once. The units used to lie unused until the next `tk_sig_sem()`, while every new request was refused because a task was waiting; a producer that signals once per request stalled for good. The timer handler now ends the waits that are over one at a time, since ending one can end another.
 - `tk_clr_flg()` now keeps the bits of `clrptn` (`flgptn &= clrptn`), as μT-Kernel defines it; it cleared them. Callers must pass the mask of the bits to keep, for example `~0x1` to clear bit 0.

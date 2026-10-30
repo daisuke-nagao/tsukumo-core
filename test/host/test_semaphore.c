@@ -21,6 +21,7 @@
 #include <limits.h>
 #include <stdio.h>
 
+#include <sys/interrupt.h>
 #include <tk/tkernel.h>
 #include <unity.h>
 
@@ -52,16 +53,39 @@ static void check_count(ID semid, INT count) {
 }
 
 // Calls tk_cre_sem() with the packet and checks the refusal: the error code,
-// interrupts back on, and nothing the kernel keeps changed (the free list of
+// interrupts preserved, and nothing the kernel keeps changed (the free list of
 // semaphores runs through the control blocks, so taking one would show).
 static void check_create_refused(const T_CSEM *pk, ER expected) {
+  const BOOL interrupts = host_interrupts_enabled();
   host_snapshot_t before;
   host_take_snapshot(&before);
 
   TEST_ASSERT_EQUAL(expected, tk_cre_sem(pk));
-  TEST_ASSERT_TRUE(host_interrupts_enabled());
+  TEST_ASSERT_EQUAL_UINT(interrupts, host_interrupts_enabled());
   host_assert_unchanged(&before, "a refused tk_cre_sem()");
   host_check_kernel_queues();
+}
+
+void test_a_null_semaphore_packet_preserves_state_and_free_slots(void) {
+  for (UINT disabled = 0; disabled < 2; ++disabled) {
+    host_reset();
+    UINT intsts;
+    if (disabled) {
+      DI(intsts);
+    }
+    for (UINT i = 0; i < CFN_MAX_SEMID; ++i) {
+      check_create_refused(NULL, E_PAR);
+    }
+    for (UINT i = 0; i < CFN_MAX_SEMID; ++i) {
+      TEST_ASSERT_EQUAL(i + 1, create_semaphore(0, 1));
+    }
+    check_create_refused(NULL, E_PAR); // Even with no free control block.
+    T_CSEM good = packet(0, 1);
+    check_create_refused(&good, E_LIMIT);
+    if (disabled) {
+      EI(intsts);
+    }
+  }
 }
 
 // Calls tk_sig_sem() and checks the refusal in the same way.

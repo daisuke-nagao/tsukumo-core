@@ -7,11 +7,12 @@
 // Tests of event flags (tk_cre_flg, tk_wai_flg, tk_set_flg).
 //
 // Event flags cannot be deleted, so every case that creates one leaks it, and
-// the kernel has 16. This suite creates eight.
+// the kernel has 16. This suite creates ten.
 //
 // The cases that block run a child at priority 5, below the case (4): the child
 // only starts once the case has blocked in tk_wai_flg(), and then sets bits.
 
+#include <sys/interrupt.h>
 #include <tk/tkernel.h>
 #include <unity.h>
 
@@ -241,7 +242,51 @@ static void calls_with_a_negative_id(void) { check_flag_calls_refused(-1); }
 
 // The refusals come last: before the fix they read and may write the memory in
 // front of the flag table, and the cases after them would run on what is left.
+static void null_creation_packet_is_refused(void) {
+  TEST_ASSERT_EQUAL(E_PAR, tk_cre_flg(NULL));
+  UINT intsts, after;
+  DI(intsts);
+  ID refused = tk_cre_flg(NULL);
+  DI(after);
+  EI(intsts);
+  TEST_ASSERT_EQUAL(E_PAR, refused);
+  TEST_ASSERT_TRUE(isDI(after));
+
+  ID flgid = create_flag(TA_WSGL, 0x1);
+  UINT output = 0;
+  TEST_ASSERT_EQUAL(E_OK, tk_wai_flg(flgid, 0x1, TWF_ORW, &output, TMO_POL));
+  TEST_ASSERT_EQUAL_HEX32(0x1, output);
+}
+
+static void null_output_neither_clears_nor_waits(void) {
+  ID flgid = create_flag(TA_WSGL, 0x1);
+  const TMO limits[] = {TMO_POL, CASE_WAIT_MS, TMO_FEVR};
+  const UINT modes[] = {TWF_ORW | TWF_CLR, TWF_ORW | TWF_BITCLR};
+  for (UINT request = 1; request <= 2; ++request) {
+    for (UINT t = 0; t < sizeof(limits) / sizeof(limits[0]); ++t) {
+      for (UINT m = 0; m < sizeof(modes) / sizeof(modes[0]); ++m) {
+        TEST_ASSERT_EQUAL(
+            E_PAR, tk_wai_flg(flgid, request, modes[m], NULL, limits[t]));
+      }
+    }
+  }
+  UINT intsts, after;
+  DI(intsts);
+  ER refused = tk_wai_flg(flgid, 0x1, TWF_ORW | TWF_CLR, NULL, TMO_POL);
+  DI(after);
+  EI(intsts);
+  TEST_ASSERT_EQUAL(E_PAR, refused);
+  TEST_ASSERT_TRUE(isDI(after));
+
+  UINT output = 0;
+  TEST_ASSERT_EQUAL(E_OK, tk_wai_flg(flgid, 0x1, TWF_ORW, &output, TMO_POL));
+  TEST_ASSERT_EQUAL_HEX32(0x1, output);
+}
+
 static const test_case_t s_cases[] = {
+    {"null_creation_packet_is_refused", null_creation_packet_is_refused},
+    {"null_output_neither_clears_nor_waits",
+     null_output_neither_clears_nor_waits},
     {"poll_wait_modes", poll_wait_modes},
     {"wait_times_out", wait_times_out},
     {"blocked_or_wait_wakes", blocked_or_wait_wakes},
