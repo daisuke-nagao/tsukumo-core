@@ -344,6 +344,37 @@ add_test_suite(panic-load-fault SOURCES test/suites/panic_load_fault.c
 add_test_suite(panic-bad-stack SOURCES test/suites/panic_bad_stack.c
                test/panic_hook.c OUTPUT_REGEX "PANIC OK")
 
+# Each startup failure stops before the runner exists. Wrapping is confined to
+# these ELFs; successful earlier calls still use the real task APIs.
+set(startup_cases success initial-create initial-start idle-create idle-start
+                  idle-start-mie)
+foreach(stage RANGE 0 5)
+  list(GET startup_cases ${stage} startup_case)
+  if(stage EQUAL 0)
+    set(startup_marker "STARTUP SUCCESS OK")
+  else()
+    set(startup_marker "STARTUP FAILURE OK stage=")
+  endif()
+  add_test_suite(startup-${startup_case} SOURCES test/suites/startup.c
+                 OUTPUT_REGEX "${startup_marker}")
+  set(startup_target ${PROJECT_NAME}-test-startup-${startup_case}.elf)
+  if(stage EQUAL 5)
+    target_compile_definitions(${startup_target} PRIVATE STARTUP_FAIL_STAGE=4
+                                                         STARTUP_ENABLE_MIE=1)
+  else()
+    target_compile_definitions(${startup_target}
+                               PRIVATE STARTUP_FAIL_STAGE=${stage})
+  endif()
+  target_link_options(
+    ${startup_target}
+    PRIVATE
+    LINKER:--wrap=tk_cre_tsk
+    LINKER:--wrap=tk_sta_tsk
+    LINKER:--wrap=tkmc_get_highest_priority_task
+    LINKER:--wrap=tkmc_start_timer
+    LINKER:--wrap=__launch_task)
+endforeach()
+
 # tkmc_memset() is tested with the shift check on, trapping: undefined shifts
 # leave the bytes right, and only the check can tell. The options go on the file
 # that includes kernel/memset.c, not on kernel/memset.c itself, because the
