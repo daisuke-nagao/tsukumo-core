@@ -392,6 +392,8 @@ add_test_suite(task-create SOURCES test/suites/task_create.c)
 add_test_suite(timer-wrap SOURCES test/suites/timer_wrap.c)
 add_test_suite(event-flag SOURCES test/suites/event_flag.c)
 add_test_suite(semaphore SOURCES test/suites/semaphore.c)
+add_test_suite(semaphore-wait-release SOURCES
+               test/suites/semaphore_wait_release.c)
 add_test_suite(mailbox SOURCES test/suites/mailbox.c)
 add_test_suite(wait-context SOURCES test/suites/wait_context.c)
 

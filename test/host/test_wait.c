@@ -814,6 +814,163 @@ void test_deleting_a_semaphore_hands_no_units_to_the_waiters_it_releases(void) {
   check_kernel_state();
 }
 
+static const ATR departure_attrs[] = {TA_TFIFO | TA_FIRST, TA_TPRI | TA_FIRST,
+                                      TA_TFIFO | TA_CNT, TA_TPRI | TA_CNT};
+
+static void check_departure_waiter(ID id, ID semid, BOOL waiting, BOOL timed,
+                                   ER cause) {
+  TCB *tcb = tcb_of(id);
+  TEST_ASSERT_EQUAL_UINT(waiting ? TTS_WAI : TTS_RDY, tcb->tskstat);
+  TEST_ASSERT_EQUAL_UINT(waiting ? TTW_SEM : 0, tcb->tskwait);
+  TEST_ASSERT_EQUAL(waiting && timed, in_queue(&tkmc_timer_queue, &tcb->head));
+  TEST_ASSERT_EQUAL(!waiting,
+                    in_queue(&tkmc_ready_queue[tcb->itskpri - 1], &tcb->head));
+  if (waiting) {
+    TEST_ASSERT_TRUE(
+        in_queue(&tkmc_semcbs[semid - 1].wait_queue, &tcb->winfo.wait_queue));
+    TEST_ASSERT_EQUAL(timed, tcb->delay_ticks != 0);
+  } else {
+    TEST_ASSERT_TRUE(tkmc_list_empty(&tcb->winfo.wait_queue));
+    TEST_ASSERT_EQUAL_UINT(0, tcb->delay_ticks);
+    TEST_ASSERT_EQUAL(cause, tcb->wupcause);
+  }
+  host_check_kernel_queues();
+}
+
+static ID departure_fixture(ATR attr, TMO b_timeout, ID *a, ID *b, ID *caller) {
+  host_reset();
+  ID semid = tk_cre_sem(&(T_CSEM){.sematr = attr, .maxsem = 2});
+  TEST_ASSERT_GREATER_THAN(0, semid);
+  *a = host_make_task(3);
+  *b = host_make_task(4);
+  *caller = host_make_task(5);
+  host_set_current(*a);
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, 2, 100));
+  host_set_current(*b);
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, b_timeout));
+  host_set_current(*caller);
+  TEST_ASSERT_EQUAL_PTR(&tcb_of(*a)->winfo.wait_queue,
+                        tkmc_semcbs[semid - 1].wait_queue.next);
+  TEST_ASSERT_EQUAL(0, tkmc_semcbs[semid - 1].semcnt);
+  check_departure_waiter(*a, semid, TRUE, TRUE, 0);
+  check_departure_waiter(*b, semid, TRUE, b_timeout > 0, 0);
+  return semid;
+}
+
+static void signal_before_departure(ID semid, ATR attr, ID a, ID b,
+                                    BOOL b_timed, ID caller) {
+  BOOL cnt = (attr & TA_CNT) != 0;
+  UINT requests = host_write_count(MSIP);
+  TEST_ASSERT_EQUAL(E_OK, tk_sig_sem(semid, 1));
+  TEST_ASSERT_EQUAL(cnt ? 0 : 1, tkmc_semcbs[semid - 1].semcnt);
+  check_departure_waiter(a, semid, TRUE, TRUE, 0);
+  check_departure_waiter(b, semid, !cnt, b_timed, E_OK);
+  TEST_ASSERT_EQUAL_UINT(requests + (cnt ? 1 : 0), host_write_count(MSIP));
+  TEST_ASSERT_EQUAL_PTR(tcb_of(caller), current);
+  TEST_ASSERT_EQUAL_PTR(tcb_of(cnt ? b : caller), next);
+  TEST_ASSERT_TRUE(host_interrupts_enabled());
+}
+
+void test_semaphore_departure_attributes_on_timeout(void) {
+  for (UINT row = 0; row < sizeof(departure_attrs) / sizeof(departure_attrs[0]);
+       ++row) {
+    ATR attr = departure_attrs[row];
+    ID a, b, caller;
+    ID semid = departure_fixture(attr, 200, &a, &b, &caller);
+    signal_before_departure(semid, attr, a, b, TRUE, caller);
+    UINT requests = host_write_count(MSIP);
+    UINT saved;
+    DI(saved);
+    host_tick(10);
+    TEST_ASSERT_EQUAL_UINT(1, tcb_of(a)->delay_ticks);
+    check_departure_waiter(a, semid, TRUE, TRUE, 0);
+    check_departure_waiter(b, semid, (attr & TA_CNT) == 0, TRUE, E_OK);
+    TEST_ASSERT_EQUAL_UINT(requests, host_write_count(MSIP));
+    host_tick(1);
+    TEST_ASSERT_FALSE(host_interrupts_enabled());
+    check_departure_waiter(a, semid, FALSE, FALSE, E_TMOUT);
+    check_departure_waiter(b, semid, FALSE, FALSE, E_OK);
+    TEST_ASSERT_EQUAL(0, tkmc_semcbs[semid - 1].semcnt);
+    TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_semcbs[semid - 1].wait_queue));
+    TEST_ASSERT_EQUAL_UINT(requests + 1, host_write_count(MSIP));
+    TEST_ASSERT_EQUAL_PTR(tcb_of(a), next);
+    TEST_ASSERT_EQUAL_PTR(tcb_of(caller), current);
+    EI(saved);
+    check_kernel_state();
+  }
+}
+
+void test_semaphore_departure_attributes_on_release(void) {
+  for (UINT row = 0; row < sizeof(departure_attrs) / sizeof(departure_attrs[0]);
+       ++row) {
+    for (UINT irq = 0; irq < 2; ++irq) {
+      ID a, b, caller;
+      ID semid =
+          departure_fixture(departure_attrs[row], TMO_FEVR, &a, &b, &caller);
+      signal_before_departure(semid, departure_attrs[row], a, b, FALSE, caller);
+      UINT requests = host_write_count(MSIP);
+      UINT saved = 0;
+      if (!irq) {
+        DI(saved);
+      }
+      TEST_ASSERT_EQUAL(E_OK, tk_rel_wai(a));
+      TEST_ASSERT_EQUAL(irq, host_interrupts_enabled());
+      check_departure_waiter(a, semid, FALSE, FALSE, E_RLWAI);
+      check_departure_waiter(b, semid, FALSE, FALSE, E_OK);
+      TEST_ASSERT_EQUAL(0, tkmc_semcbs[semid - 1].semcnt);
+      TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_semcbs[semid - 1].wait_queue));
+      TEST_ASSERT_EQUAL_UINT(requests + 1, host_write_count(MSIP));
+      TEST_ASSERT_EQUAL_PTR(tcb_of(a), next);
+      TEST_ASSERT_EQUAL_PTR(tcb_of(caller), current);
+      if (!irq) {
+        EI(saved);
+      }
+      check_kernel_state();
+    }
+  }
+}
+
+void test_semaphore_departure_attributes_on_delete(void) {
+  for (UINT row = 0; row < sizeof(departure_attrs) / sizeof(departure_attrs[0]);
+       ++row) {
+    for (UINT signalled = 0; signalled < 2; ++signalled) {
+      for (UINT irq = 0; irq < 2; ++irq) {
+        ID a, b, caller;
+        ID semid =
+            departure_fixture(departure_attrs[row], 200, &a, &b, &caller);
+        if (signalled) {
+          signal_before_departure(semid, departure_attrs[row], a, b, TRUE,
+                                  caller);
+        }
+        BOOL b_served = signalled && (departure_attrs[row] & TA_CNT);
+        UINT requests = host_write_count(MSIP);
+        UINT saved = 0;
+        if (!irq) {
+          DI(saved);
+        }
+        TEST_ASSERT_EQUAL(E_OK, tk_del_sem(semid));
+        TEST_ASSERT_EQUAL(irq, host_interrupts_enabled());
+        check_departure_waiter(a, semid, FALSE, FALSE, E_DLT);
+        check_departure_waiter(b, semid, FALSE, FALSE, b_served ? E_OK : E_DLT);
+        TEST_ASSERT_EQUAL_UINT(requests + 1, host_write_count(MSIP));
+        TEST_ASSERT_EQUAL_PTR(tcb_of(a), next);
+        TEST_ASSERT_EQUAL_PTR(tcb_of(caller), current);
+        if (!irq) {
+          EI(saved);
+        }
+        host_snapshot_t snapshot;
+        host_take_snapshot(&snapshot);
+        DI(saved);
+        host_tick(1);
+        EI(saved);
+        host_assert_unchanged(&snapshot, "deleted waiters must have no timer");
+        TEST_ASSERT_EQUAL_UINT(CFN_MAX_SEMID, count_creatable_semaphores());
+        check_kernel_state();
+      }
+    }
+  }
+}
+
 // Every call that makes a waiting task ready asks for a task switch when that
 // task outranks the running one, and not otherwise. Without the request the
 // woken task would run only at the next switch the system happens to make.

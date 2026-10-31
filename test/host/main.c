@@ -12,6 +12,10 @@
 void setUp(void) { host_reset(); }
 void tearDown(void) {}
 
+extern void test_semaphore_departure_attributes_on_timeout(void);
+extern void test_semaphore_departure_attributes_on_release(void);
+extern void test_semaphore_departure_attributes_on_delete(void);
+
 extern void test_a_null_semaphore_packet_preserves_state_and_free_slots(void);
 extern void test_a_null_flag_packet_preserves_state_and_free_slots(void);
 extern void test_a_null_flag_output_neither_clears_nor_waits(void);
@@ -198,6 +202,9 @@ int main(void) {
   RUN_TEST(test_wakeup_count_is_bounded_for_a_running_task_with_interrupts_off);
   RUN_TEST(test_consuming_a_wakeup_makes_room_for_one_more_request);
   RUN_TEST(test_a_task_cannot_wake_itself_with_interrupts_on);
+  RUN_TEST(test_semaphore_departure_attributes_on_timeout);
+  RUN_TEST(test_semaphore_departure_attributes_on_release);
+  RUN_TEST(test_semaphore_departure_attributes_on_delete);
   RUN_TEST(test_list_matches_a_model_under_random_operations);
   RUN_TEST(test_semaphore_waiter_blocks_and_a_signal_wakes_it);
   RUN_TEST(test_semaphore_wait_ends_when_the_time_limit_runs_out);
