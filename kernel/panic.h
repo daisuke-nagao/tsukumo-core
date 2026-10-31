@@ -37,6 +37,34 @@ extern __attribute__((noreturn)) void tkmc_fatal_trap(UW mcause, UW mepc,
 /// tkmc_last_trap, so the first cause is lost.
 extern __attribute__((noreturn)) void tkmc_panic(UW mcause, UW mepc, UW mtval);
 
+typedef enum {
+  TKMC_STARTUP_NONE = 0,
+  TKMC_STARTUP_INITIAL_CREATE,
+  TKMC_STARTUP_INITIAL_START,
+  TKMC_STARTUP_IDLE_CREATE,
+  TKMC_STARTUP_IDLE_START
+} tkmc_startup_stage;
+
+typedef struct {
+  tkmc_startup_stage stage;
+  ER error;
+} tkmc_startup_record;
+
+/// The last startup API failure, separate from CPU trap CSRs. BSS clearing
+/// leaves stage == TKMC_STARTUP_NONE until a failure is recorded.
+extern volatile tkmc_startup_record tkmc_last_startup_failure;
+
+/// Disables interrupts, records the failed stage and API result, then calls
+/// tkmc_startup_panic(). Does not undo partial startup or retry. Never returns.
+extern __attribute__((noreturn)) void
+tkmc_fatal_startup(tkmc_startup_stage stage, ER error);
+
+/// Startup failure hook. The weak default stops in a wfi loop. A board may
+/// replace it to report the record. Entered with interrupts disabled, before
+/// scheduling starts: do not enable interrupts, call task APIs or return.
+extern __attribute__((noreturn)) void
+tkmc_startup_panic(tkmc_startup_stage stage, ER error);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */

@@ -68,6 +68,20 @@ if the output has a `PANIC OK` line (the kernel stopped and reported the right
 cause). See
 [docs/developer/notes/run_qemu.md](docs/developer/notes/run_qemu.md) for details.
 
+If creation or starting of the initial or idle task fails, startup stops with
+interrupts disabled, before scheduling or starting the timer. The debugger-visible
+`tkmc_last_startup_failure` in `kernel/panic.h` records the stage and original
+error; `TKMC_STARTUP_NONE` means no startup failure was recorded. This is separate
+from the CPU exception record `tkmc_last_trap`. A board can replace the weak,
+non-returning `tkmc_startup_panic(stage, error)` hook to report the failure; it must
+keep interrupts disabled and avoid task APIs. The default waits forever in a
+`wfi` loop. Partial startup is not undone or retried.
+
+The `startup-*` QEMU tests inject failures through test-only link wrappers and
+check that later startup steps are not reached. They also check normal startup
+through those wrappers and a failure injected with interrupts enabled. These
+tests require a matching `STARTUP FAILURE OK` or `STARTUP SUCCESS OK` output marker.
+
 The suites should pass at every optimization level, with and without link-time
 optimization (LTO). The presets `debug` (-O0), `relwithdebinfo` (-O2) and
 `minsizerel` (-Os) each have an `-lto` twin; run the tests in all six:

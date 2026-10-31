@@ -7,6 +7,7 @@
 #include "panic.h"
 
 volatile tkmc_trap_record tkmc_last_trap;
+volatile tkmc_startup_record tkmc_last_startup_failure;
 
 // The record is written here, not in tkmc_panic(), so that it exists even when
 // a board or a test replaces the hook, and a test can check what the kernel
@@ -25,6 +26,23 @@ __attribute__((weak)) void tkmc_panic(UW mcause, UW mepc, UW mtval) {
   (void)mcause;
   (void)mepc;
   (void)mtval;
+  for (;;) {
+    __asm__ volatile("wfi");
+  }
+}
+
+void tkmc_fatal_startup(tkmc_startup_stage stage, ER error) {
+  UINT intsts;
+  DI(intsts);
+  tkmc_last_startup_failure.stage = stage;
+  tkmc_last_startup_failure.error = error;
+  tkmc_startup_panic(stage, error);
+}
+
+__attribute__((weak)) void tkmc_startup_panic(tkmc_startup_stage stage,
+                                              ER error) {
+  (void)stage;
+  (void)error;
   for (;;) {
     __asm__ volatile("wfi");
   }

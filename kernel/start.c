@@ -10,6 +10,7 @@
 #include "ini_tsk.h"
 #include "mailbox.h"
 #include "memset.h"
+#include "panic.h"
 #include "semaphore.h"
 #include "task.h"
 #include "timer.h"
@@ -65,9 +66,15 @@ void tkmc_start(int a0, int a1) {
 
     /* Create the initial task and retrieve its task ID. */
     ID ini_tsk_id = tk_cre_tsk(&pk_ctsk);
+    if (ini_tsk_id <= 0) {
+      tkmc_fatal_startup(TKMC_STARTUP_INITIAL_CREATE, ini_tsk_id);
+    }
 
     /* Start the initial task with the argument a0. */
-    tk_sta_tsk(ini_tsk_id, a0);
+    ER error = tk_sta_tsk(ini_tsk_id, a0);
+    if (error != E_OK) {
+      tkmc_fatal_startup(TKMC_STARTUP_INITIAL_START, error);
+    }
   }
 
   /* create tkmc_idl_tsk */
@@ -85,9 +92,15 @@ void tkmc_start(int a0, int a1) {
 
     /* Create the initial task and retrieve its task ID. */
     ID idl_tsk_id = tk_cre_tsk(&pk_ctsk);
+    if (idl_tsk_id <= 0) {
+      tkmc_fatal_startup(TKMC_STARTUP_IDLE_CREATE, idl_tsk_id);
+    }
 
     /* Start the initial task with the argument a0. */
-    tk_sta_tsk(idl_tsk_id, a0);
+    ER error = tk_sta_tsk(idl_tsk_id, a0);
+    if (error != E_OK) {
+      tkmc_fatal_startup(TKMC_STARTUP_IDLE_START, error);
+    }
   }
 
   /* Retrieve the highest-priority task (should be the initial task). */
