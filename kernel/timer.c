@@ -9,6 +9,7 @@
 // clang-format on
 #include "timer.h"
 #include "asm/rv32/address.h"
+#include "context.h"
 #include "dispatch.h"
 #include "list.h"
 #include "task.h"
@@ -174,13 +175,13 @@ void tkmc_schedule_timer(TCB *tcb, UINT delay_ticks, UINT tskwait) {
  * Returns:
  * - E_OK when the delay has passed.
  * - E_RLWAI if tk_rel_wai() ended the delay early.
- * - E_CTX if interrupts are disabled (in an interrupt handler or between DI()
- *   and EI()), even for dlytm == 0. Nothing is changed. See tk_slp_tsk().
+ * - E_CTX if interrupts are disabled, no current task exists, or execution is
+ *   in an ISR, even for dlytm == 0. Nothing is changed. See tk_slp_tsk().
  */
 ER tk_dly_tsk(RELTIM dlytm) {
   UINT intsts;
   DI(intsts);
-  if (isDI(intsts)) {
+  if (!tkmc_can_block(intsts)) {
     EI(intsts);
     return E_CTX;
   }
@@ -219,11 +220,10 @@ ER tk_dly_tsk(RELTIM dlytm) {
  * - E_OK if the task was woken up or a wakeup request was queued.
  * - E_TMOUT if tmout ran out, or at once for TMO_POL without a queued wakeup.
  * - E_PAR if tmout is below TMO_FEVR.
- * - E_CTX if interrupts are disabled, even when a wakeup is queued. Nothing is
- *   changed. The task is switched out when interrupts come back on, so with
- *   them off it would stay in the waiting state while it runs. Checking MIE
- *   does not see a handler that enables interrupts again; that needs a counter
- *   of handler nesting, which the kernel does not keep.
+ * - E_CTX if interrupts are disabled, no current task exists, or execution is
+ *   in an ISR, even when a wakeup is queued. Nothing is changed. ISR state is
+ *   recorded by the trap entry independently of MIE. Only single-level ISR
+ *   execution with interrupts kept disabled is supported.
  */
 ER tk_slp_tsk(TMO tmout) {
   if (tmout < TMO_FEVR) {
@@ -233,7 +233,7 @@ ER tk_slp_tsk(TMO tmout) {
   UINT intsts;
   ER ercd = E_OK;
   DI(intsts);
-  if (isDI(intsts)) {
+  if (!tkmc_can_block(intsts)) {
     EI(intsts);
     return E_CTX;
   }

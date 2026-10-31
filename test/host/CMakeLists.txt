@@ -25,6 +25,7 @@ set(HOST_SANITIZE -fsanitize=address,undefined -fno-sanitize-recover=all)
 # tested on its own through memset_under_test.c (see there).
 add_library(
   kernel-host STATIC
+  ${PROJECT_SOURCE_DIR}/kernel/context.c
   ${PROJECT_SOURCE_DIR}/kernel/task.c
   ${PROJECT_SOURCE_DIR}/kernel/timer.c
   ${PROJECT_SOURCE_DIR}/kernel/semaphore.c

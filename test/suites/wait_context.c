@@ -9,10 +9,8 @@
 // with the task still in the waiting state. The kernel refuses it with E_CTX
 // and changes nothing.
 //
-// An interrupt handler runs with interrupts off (a trap clears MIE), so DI()
-// stands in for one here: the suites have no way to run code in a handler. A
-// handler that enables interrupts again is not covered; the kernel does not
-// see it either.
+// These cases cover task-side DI(). The task-context suites separately enter
+// real timer/dispatch traps and check the MIE-independent ISR state.
 //
 // Each case looks at the state of the running task before it enables
 // interrupts again, because the stranded wait ends by itself as soon as they

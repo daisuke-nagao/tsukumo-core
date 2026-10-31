@@ -8,6 +8,7 @@
 
 volatile tkmc_trap_record tkmc_last_trap;
 volatile tkmc_startup_record tkmc_last_startup_failure;
+volatile tkmc_context_record tkmc_last_context_failure;
 
 // The record is written here, not in tkmc_panic(), so that it exists even when
 // a board or a test replaces the hook, and a test can check what the kernel
@@ -43,6 +44,21 @@ __attribute__((weak)) void tkmc_startup_panic(tkmc_startup_stage stage,
                                               ER error) {
   (void)stage;
   (void)error;
+  for (;;) {
+    __asm__ volatile("wfi");
+  }
+}
+
+void tkmc_fatal_context(tkmc_context_api api) {
+  UINT intsts;
+  DI(intsts);
+  tkmc_last_context_failure.api = api;
+  tkmc_last_context_failure.error = E_CTX;
+  tkmc_context_panic(api);
+}
+
+__attribute__((weak)) void tkmc_context_panic(tkmc_context_api api) {
+  (void)api;
   for (;;) {
     __asm__ volatile("wfi");
   }

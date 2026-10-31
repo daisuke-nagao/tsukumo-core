@@ -6,6 +6,7 @@
 
 #include <tk/tkernel.h>
 
+#include "context.h"
 #include "dispatch.h"
 #include "event_flag.h"
 #include "object_id.h"
@@ -123,8 +124,9 @@ static BOOL check_ptn(UINT flgptn, UINT waiptn, UINT wfmode) {
  * A NULL p_flgptn is E_PAR, after the ID range check but before any context,
  * existence, single-waiter or pattern check, even for a poll. Nothing changes.
  *
- * With valid arguments, returns E_CTX if interrupts are disabled (see
- * tk_slp_tsk()), before looking at the flag. Even a pattern that is already
+ * With valid arguments, returns E_CTX if interrupts are disabled, no current
+ * task exists or execution is in an ISR (see tk_slp_tsk()), before looking at
+ * the flag. Even a pattern that is already
  * set is refused; nothing changes and *p_flgptn is not written.
  *
  * Returns E_OBJ when a task already waits for a flag that allows one waiter
@@ -153,7 +155,7 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
 
   UINT intsts = 0;
   DI(intsts);
-  if (isDI(intsts)) {
+  if (!tkmc_can_block(intsts)) {
     EI(intsts);
     return E_CTX;
   }

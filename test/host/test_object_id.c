@@ -50,8 +50,7 @@ typedef struct {
   const char *name;
   ER (*call)(ID id);
   ID max;
-  // tk_rcv_mbx refuses a call with no running task before it looks for the
-  // mailbox, so it is called from a task.
+  // Wait calls need a current task before looking up an object.
   BOOL from_a_task;
 } api_t;
 
@@ -59,10 +58,10 @@ static const api_t s_apis[] = {
     {"tk_sta_tsk", call_sta_tsk, CFN_MAX_TSKID, FALSE},
     {"tk_rel_wai", call_rel_wai, CFN_MAX_TSKID, FALSE},
     {"tk_wup_tsk", call_wup_tsk, CFN_MAX_TSKID, FALSE},
-    {"tk_wai_sem", call_wai_sem, CFN_MAX_SEMID, FALSE},
+    {"tk_wai_sem", call_wai_sem, CFN_MAX_SEMID, TRUE},
     {"tk_sig_sem", call_sig_sem, CFN_MAX_SEMID, FALSE},
     {"tk_del_sem", call_del_sem, CFN_MAX_SEMID, FALSE},
-    {"tk_wai_flg", call_wai_flg, CFN_MAX_FLGID, FALSE},
+    {"tk_wai_flg", call_wai_flg, CFN_MAX_FLGID, TRUE},
     {"tk_set_flg", call_set_flg, CFN_MAX_FLGID, FALSE},
     {"tk_clr_flg", call_clr_flg, CFN_MAX_FLGID, FALSE},
     {"tk_snd_mbx", call_snd_mbx, CFN_MAX_MBXID, FALSE},

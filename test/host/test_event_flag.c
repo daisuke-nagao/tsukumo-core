@@ -166,6 +166,7 @@ void test_a_null_flag_output_is_checked_before_the_single_waiter_rule(void) {
 }
 
 void test_clearing_a_flag_keeps_the_bits_of_the_mask(void) {
+  host_set_current(host_make_task(4));
   ID flgid = create_flag(TA_TFIFO | TA_WMUL, 0x0F);
 
   TEST_ASSERT_EQUAL(E_OK, tk_clr_flg(flgid, 0x03));
