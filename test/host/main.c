@@ -12,6 +12,10 @@
 void setUp(void) { host_reset(); }
 void tearDown(void) {}
 
+extern void test_invalid_termination_context_stops_before_changing_tasks(void);
+extern void test_isr_and_absent_current_refuse_every_wait_without_changes(void);
+extern void test_isr_and_absent_current_preserve_argument_error_priority(void);
+
 extern void test_semaphore_departure_attributes_on_timeout(void);
 extern void test_semaphore_departure_attributes_on_release(void);
 extern void test_semaphore_departure_attributes_on_delete(void);
@@ -158,6 +162,9 @@ test_the_main_and_sub_error_codes_come_apart_as_they_were_joined(void);
 
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_invalid_termination_context_stops_before_changing_tasks);
+  RUN_TEST(test_isr_and_absent_current_refuse_every_wait_without_changes);
+  RUN_TEST(test_isr_and_absent_current_preserve_argument_error_priority);
   RUN_TEST(test_task_start_rebuilds_a_damaged_frame);
   RUN_TEST(test_task_start_clears_previous_wakeup_and_wait_state);
   RUN_TEST(test_starting_a_non_dormant_task_leaves_it_unchanged);

@@ -5,6 +5,7 @@
  */
 
 #include "mailbox.h"
+#include "context.h"
 #include "dispatch.h"
 #include "list.h"
 #include "object_id.h"
@@ -313,10 +314,10 @@ ER tk_snd_mbx(ID mbxid, T_MSG *pk_msg) {
  *
  * tmout is TMO_POL, TMO_FEVR, or 1 to INT_MAX ms, counted as in tk_slp_tsk().
  *
- * Returns E_CTX if there is no current task, or if interrupts are disabled
- * (see tk_slp_tsk()). The second check comes before the mailbox is looked at,
- * so even a queued message is refused; nothing is changed and *ppk_msg is not
- * written.
+ * Returns E_CTX if there is no current task, execution is in an ISR, or
+ * interrupts are disabled (see tk_slp_tsk()). The context check comes before
+ * the mailbox is looked at, so even a queued message is refused; nothing is
+ * changed and *ppk_msg is not written.
  */
 ER tk_rcv_mbx(ID mbxid, T_MSG **ppk_msg, TMO tmout) {
   if (!tkmc_id_in_range(mbxid, CFN_MAX_MBXID)) {
@@ -325,15 +326,11 @@ ER tk_rcv_mbx(ID mbxid, T_MSG **ppk_msg, TMO tmout) {
   if (ppk_msg == NULL || tmout < TMO_FEVR) {
     return E_PAR;
   }
-  if (current == NULL) {
-    return E_CTX;
-  }
-
   MBXCB *mbxcb = &tkmc_mbxcbs[mbxid - 1];
   UINT intsts = 0;
 
   DI(intsts);
-  if (isDI(intsts)) {
+  if (!tkmc_can_block(intsts)) {
     EI(intsts);
     return E_CTX;
   }

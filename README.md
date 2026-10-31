@@ -82,6 +82,24 @@ check that later startup steps are not reached. They also check normal startup
 through those wrappers and a failure injected with interrupts enabled. These
 tests require a matching `STARTUP FAILURE OK` or `STARTUP SUCCESS OK` output marker.
 
+Wait calls (`tk_slp_tsk`, `tk_dly_tsk`, `tk_wai_sem`, `tk_wai_flg`, `tk_rcv_mbx`)
+require a current task, interrupts enabled on entry, and execution outside an
+ISR. After argument checks, an invalid context returns `E_CTX` before changing
+task/object state or outputs, even for polling, immediate success or a zero delay.
+The RV32 timer and software-dispatch trap entries track ISR execution separately
+from MIE and clear it before a task resumes. Only a single hart and single-level
+ISRs that keep interrupts disabled are supported; enabling interrupts inside an
+ISR or nesting interrupts is not supported.
+
+`tk_ext_tsk` and `tk_exd_tsk` have no error return. Invalid context calls stop
+before changing task state. `tkmc_last_context_failure` in `kernel/panic.h`
+records the API and `E_CTX` separately from trap and startup records. Its weak,
+non-returning `tkmc_context_panic(api)` hook may be replaced for reporting, but
+must keep interrupts disabled and avoid task APIs. The default loops on `wfi`.
+The `task-context-*` suites test real interrupt entry/exit, deferred dispatch,
+prelaunch calls without a current task, and invalid termination. The masked-source
+MIE-enabled probes check defensive rejection, not nested-interrupt support.
+
 The suites should pass at every optimization level, with and without link-time
 optimization (LTO). The presets `debug` (-O0), `relwithdebinfo` (-O2) and
 `minsizerel` (-Os) each have an `-lto` twin; run the tests in all six:
@@ -123,7 +141,7 @@ task's initial frame) is not checked either. See `test/host/fakes.h`.
 
 What is compiled and what is not:
 
-- `kernel/task.c`, `timer.c`, `semaphore.c`, `event_flag.c` and `mailbox.c` are
+- `kernel/context.c`, `task.c`, `timer.c`, `semaphore.c`, `event_flag.c` and `mailbox.c` are
   compiled. `memset.c` is compiled through `test/host/memset_under_test.c`, which
   neutralises its weak `memset` alias so that it does not clash with the C
   library. `start.c` (boot, linker symbols, the first task launch) and

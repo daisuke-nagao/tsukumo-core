@@ -11,6 +11,7 @@
 #include <unity.h>
 
 #include "asm/rv32/address.h"
+#include "context.h"
 #include "event_flag.h"
 #include "mailbox.h"
 #include "semaphore.h"
@@ -259,6 +260,7 @@ void host_assert_unchanged(const host_snapshot_t *s, const char *what) {
 }
 
 void host_reset(void) {
+  tkmc_isr_active = 0;
   host_log_count = 0;
   s_interrupts_enabled = 1;
   s_msip = s_mtimecmp_low = s_mtimecmp_high = 0;

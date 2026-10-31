@@ -42,6 +42,7 @@ add_library(
   kernel/asm/rv32/launch_task.S
   kernel/asm/rv32/idl_tsk.S
   kernel/start.c
+  kernel/context.c
   kernel/task.c
   kernel/ini_tsk.c
   kernel/memcpy.c
@@ -373,6 +374,35 @@ foreach(stage RANGE 0 5)
     LINKER:--wrap=tkmc_get_highest_priority_task
     LINKER:--wrap=tkmc_start_timer
     LINKER:--wrap=__launch_task)
+endforeach()
+
+# Actual timer/dispatch entry and prelaunch/termination failures, not simulated
+# ISR calls. Each fatal case needs its own boot; no production injection flags.
+set(context_cases
+    isr
+    no-current-wait
+    di-ext
+    di-exd
+    isr-ext
+    isr-exd
+    no-current-ext
+    no-current-exd)
+foreach(mode RANGE 0 7)
+  list(GET context_cases ${mode} context_case)
+  if(mode EQUAL 0)
+    set(context_marker "1 Tests 0 Failures")
+  elseif(mode EQUAL 1)
+    set(context_marker "NO CURRENT WAIT OK")
+  else()
+    set(context_marker "CONTEXT STOP OK")
+  endif()
+  add_test_suite(task-context-${context_case} SOURCES
+                 test/suites/task_context.c OUTPUT_REGEX "${context_marker}")
+  set(context_target ${PROJECT_NAME}-test-task-context-${context_case}.elf)
+  target_compile_definitions(${context_target}
+                             PRIVATE CONTEXT_TEST_MODE=${mode})
+  target_link_options(${context_target} PRIVATE LINKER:--wrap=tk_cre_tsk
+                      LINKER:--wrap=tkmc_timer_handler LINKER:--wrap=schedule)
 endforeach()
 
 # tkmc_memset() is tested with the shift check on, trapping: undefined shifts

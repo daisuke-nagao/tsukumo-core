@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added host context matrices and real-trap QEMU regressions for waits and task termination from ISR, interrupt-disabled and prelaunch contexts, including unchanged state, error precedence and dispatch after ISR return.
 - Added QEMU startup failure injection for initial/idle task creation and starting, a failure with interrupts enabled, and normal startup through the same link wrappers. The tests check failure records and prevent continuation into scheduling, timer startup or initial launch on both clocks.
 - Added host regressions and a `semaphore-wait-release` QEMU suite for FIFO/priority ordering with FIRST/CNT allocation: notification before head timeout or forced release, and deletion with zero or one available unit. The host checks queues, timers and dispatch requests; QEMU checks actual wait return values on both clocks.
 - Added host regressions for NULL semaphore/flag creation packets and flag wait output pointers, including free-slot preservation, error precedence, unchanged state and interrupt state. The semaphore and event-flag QEMU suites also check NULL refusals and subsequent normal use.
@@ -73,6 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `tkmc_context_switch` in favor of the more flexible `tkmc_yield` function.
 
 ### Fixed
+- Track single-level ISR execution independently of MIE in the RV32 timer/dispatch entries. Wait APIs reject ISR or absent-current calls with `E_CTX` before state changes. Invalid `tk_ext_tsk`/`tk_exd_tsk` calls record a separate context failure and stop with interrupts disabled instead of changing a task and returning. ISR interrupt re-enabling and nested interrupts remain unsupported.
 - Check initial and idle task creation/start results during boot. On failure, preserve the stage and original error separately from CPU trap records, disable interrupts and enter a non-returning startup panic hook. The weak default stops without cleanup or retry.
 - `tk_cre_sem()` and `tk_cre_flg()` now reject NULL creation packets with `E_PAR` before reading them or allocating an object. `tk_wai_flg()` rejects a NULL output pointer with `E_PAR` after the ID range check and before context, existence, single-waiter and pattern checks, including polls. Refusals preserve kernel and interrupt state; some calls that previously returned `E_CTX`, `E_NOEXS`, `E_OBJ` or `E_TMOUT` now return `E_PAR` instead.
 - Delayed timer interrupts now complete waits in deadline order. A semaphore head that times out can no longer serve a successor whose deadline occurred earlier; tests cover both deadline orders with a single interrupt delayed past both.

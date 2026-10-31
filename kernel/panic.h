@@ -65,6 +65,29 @@ tkmc_fatal_startup(tkmc_startup_stage stage, ER error);
 extern __attribute__((noreturn)) void
 tkmc_startup_panic(tkmc_startup_stage stage, ER error);
 
+typedef enum {
+  TKMC_CONTEXT_NONE = 0,
+  TKMC_CONTEXT_EXT_TSK,
+  TKMC_CONTEXT_EXD_TSK
+} tkmc_context_api;
+
+typedef struct {
+  tkmc_context_api api;
+  ER error;
+} tkmc_context_record;
+
+/// Invalid void termination calls record E_CTX without changing task state.
+/// Separate from startup failures and CPU trap CSRs; zero means no failure.
+extern volatile tkmc_context_record tkmc_last_context_failure;
+
+/// Disables interrupts, records api/E_CTX, then calls tkmc_context_panic().
+extern __attribute__((noreturn)) void tkmc_fatal_context(tkmc_context_api api);
+
+/// Weak reporting hook, entered with interrupts disabled and task state intact.
+/// Default: wfi forever. Replacements must not enable interrupts, use task APIs
+/// or return. Invalid termination calls stop the whole system.
+extern __attribute__((noreturn)) void tkmc_context_panic(tkmc_context_api api);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */

@@ -71,7 +71,12 @@ mtrap_handler:
   sw zero, 0(a0)
 
   mv a0, sp
+  la t0, tkmc_isr_active
+  li t1, 1
+  sw t1, 0(t0)
   call schedule
+  la t0, tkmc_isr_active
+  sw zero, 0(t0)
   mv sp, a0
 
   lw a0, 28*4(sp)
@@ -142,7 +147,12 @@ timer_interrupt:
   sw t5, 26*4(sp)
   sw t6, 27*4(sp)
 
+  la t0, tkmc_isr_active
+  li t1, 1
+  sw t1, 0(t0)
   call tkmc_timer_handler
+  la t0, tkmc_isr_active
+  sw zero, 0(t0)
 
   /* Return from interrupt */
   lw t6, 27*4(sp)

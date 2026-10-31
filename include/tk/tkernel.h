@@ -100,6 +100,8 @@ typedef struct T_CTSK {
   void *bufptr; /* Buffer Pointer */
 } T_CTSK;
 
+// Termination requires a current task, interrupts enabled and execution outside
+// an ISR. Invalid calls stop the system before changing the TCB or queues.
 extern void tk_ext_tsk(void);
 extern void tk_exd_tsk(void);
 extern ID tk_cre_tsk(CONST T_CTSK *pk_ctsk);

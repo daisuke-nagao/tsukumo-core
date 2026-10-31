@@ -161,6 +161,7 @@ void test_refused_creations_use_up_no_semaphore(void) {
 // Each accepted pair starts with its initial count, takes signals up to its
 // maximum and refuses one more.
 void test_the_counts_at_both_ends_of_the_range_are_accepted(void) {
+  host_set_current(host_make_task(HIGH_PRIORITY));
   static const counts_t good[] = {
       {0, 1}, {1, 1}, {0, LIMIT}, {LIMIT, LIMIT}, {1, 3}};
   for (UINT i = 0; i < sizeof(good) / sizeof(good[0]); ++i) {
@@ -175,6 +176,7 @@ void test_the_counts_at_both_ends_of_the_range_are_accepted(void) {
 }
 
 void test_a_signal_past_the_maximum_is_refused_and_keeps_the_count(void) {
+  host_set_current(host_make_task(HIGH_PRIORITY));
   static const struct {
     INT isemcnt;
     INT maxsem;
@@ -238,6 +240,7 @@ void test_the_maximum_counts_units_before_they_go_to_waiters(void) {
 }
 
 void test_a_signal_refused_with_interrupts_off_leaves_them_off(void) {
+  host_set_current(host_make_task(HIGH_PRIORITY));
   ID semid = create_semaphore(1, 1);
   host_snapshot_t before;
   host_take_snapshot(&before);

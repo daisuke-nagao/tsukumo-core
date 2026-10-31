@@ -9,6 +9,8 @@
 // out, because the switch is taken when interrupts come back on. The kernel
 // refuses it with E_CTX before it touches anything; it used to put the caller
 // on a wait queue, return E_OK and leave a running task in the waiting state.
+// The additional context matrix checks absent current and independent ISR
+// state, including MIE on, and captures invalid termination before mutation.
 //
 // A refusal is checked to change nothing the kernel keeps: every task, ready
 // queue, timer queue, semaphore, event flag and mailbox as bytes, the current
@@ -23,18 +25,37 @@
 // success and the poll.
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <tk/tkernel.h>
 #include <unity.h>
 
 #include "asm/rv32/address.h"
+#include "context.h"
 #include "event_flag.h"
 #include "fakes.h"
 #include "mailbox.h"
+#include "panic.h"
 #include "semaphore.h"
 #include "task.h"
 
 static const UINT FLAG_SENTINEL = 0xdeadbeefU;
+
+static jmp_buf s_context_failure;
+static volatile BOOL s_catch_context, s_failure_irq_off;
+static volatile tkmc_context_api s_failed_api;
+
+// The host does not compile the RV32 panic implementation. QEMU tests the
+// real record/hook; this trap checks guard placement and unchanged kernel
+// state.
+void tkmc_fatal_context(tkmc_context_api api) {
+  if (!s_catch_context) {
+    abort();
+  }
+  s_failed_api = api;
+  s_failure_irq_off = !host_interrupts_enabled();
+  longjmp(s_context_failure, 1);
+}
 
 enum {
   HIGH_PRIORITY = 4,
@@ -92,7 +113,7 @@ typedef struct {
   TMO tmo;
   UINT waiptn;
   UINT wfmode;
-  BOOL null_output; // tk_rcv_mbx(): no place to put the message.
+  BOOL null_output; // Flag/mailbox: no place to put the output.
   ER expected;
 } row_t;
 
@@ -107,7 +128,8 @@ static ER call_row(const row_t *row, UINT *flgptn, T_MSG **message) {
                       row->tmo);
   case API_FLG:
     return tk_wai_flg(row->id == USE_FIXTURE_ID ? s_flgid : row->id,
-                      row->waiptn, row->wfmode, flgptn, row->tmo);
+                      row->waiptn, row->wfmode,
+                      row->null_output ? NULL : flgptn, row->tmo);
   case API_MBX:
     return tk_rcv_mbx(row->id == USE_FIXTURE_ID ? s_mbxid : row->id,
                       row->null_output ? NULL : message, row->tmo);
@@ -270,4 +292,161 @@ void test_a_delay_of_zero_with_interrupts_on_yields_and_leaves_them_on(void) {
   TEST_ASSERT_EQUAL_PTR(&tkmc_tcbs[peer - 1], next);
   TEST_ASSERT_EQUAL_UINT(requests + 1, host_write_count(MSIP));
   host_check_kernel_queues();
+}
+
+void test_invalid_termination_context_stops_before_changing_tasks(void) {
+  for (UINT api = 0; api < 2; ++api) {
+    for (UINT mode = 0; mode < 3; ++mode) {
+      for (UINT irq = 0; irq < 2; ++irq) {
+        // A valid task with IRQ on is the permitted termination path.
+        if (mode == 0 && irq) {
+          continue;
+        }
+        host_reset();
+        fresh(FALSE);
+        if (mode == 1) {
+          current = NULL;
+        }
+        tkmc_isr_active = mode == 2;
+        host_snapshot_t before;
+        host_take_snapshot(&before);
+        UINT saved;
+        if (!irq) {
+          DI(saved);
+        }
+        s_catch_context = TRUE;
+        volatile BOOL returned = FALSE;
+        if (setjmp(s_context_failure) == 0) {
+          if (api) {
+            tk_exd_tsk();
+          } else {
+            tk_ext_tsk();
+          }
+          returned = TRUE;
+        }
+        s_catch_context = FALSE;
+        EI(0);
+        TEST_ASSERT_FALSE_MESSAGE(returned, "invalid termination returned");
+        TEST_ASSERT_EQUAL(api ? TKMC_CONTEXT_EXD_TSK : TKMC_CONTEXT_EXT_TSK,
+                          s_failed_api);
+        TEST_ASSERT_TRUE(s_failure_irq_off);
+        TEST_ASSERT_EQUAL(mode == 2, tkmc_in_isr());
+        host_assert_unchanged(&before,
+                              "invalid termination must not unlink a task");
+        host_check_kernel_queues();
+      }
+    }
+  }
+}
+
+void test_isr_and_absent_current_refuse_every_wait_without_changes(void) {
+  static const TMO limits[] = {TMO_POL, 100, TMO_FEVR};
+  for (UINT mode = 0; mode < 2; ++mode) {
+    for (UINT irq = 0; irq < 2; ++irq) {
+      for (UINT ready = 0; ready < 2; ++ready) {
+        for (api_t api = API_DLY; api < API_COUNT; ++api) {
+          for (UINT limit = 0; limit < 3; ++limit) {
+            host_reset();
+            fresh(ready);
+            if (mode == 0) {
+              current = NULL;
+            }
+            tkmc_isr_active = mode == 1;
+            row_t row = valid_row(api, limits[limit]);
+            UINT pattern = FLAG_SENTINEL;
+            T_MSG *message = &s_sentinel;
+            host_snapshot_t before;
+            host_take_snapshot(&before);
+            UINT saved;
+            if (!irq) {
+              DI(saved);
+            }
+            ER result = call_row(&row, &pattern, &message);
+            BOOL after_irq = host_interrupts_enabled();
+            EI(0);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(E_CTX, result, row.label);
+            TEST_ASSERT_EQUAL(irq, after_irq);
+            TEST_ASSERT_EQUAL(mode == 1, tkmc_in_isr());
+            TEST_ASSERT_EQUAL_UINT(FLAG_SENTINEL, pattern);
+            TEST_ASSERT_EQUAL_PTR(&s_sentinel, message);
+            host_assert_unchanged(&before, row.label);
+            host_check_kernel_queues();
+          }
+        }
+      }
+    }
+  }
+  tkmc_isr_active = 1;
+  host_reset();
+  TEST_ASSERT_FALSE(tkmc_in_isr());
+}
+
+void test_isr_and_absent_current_preserve_argument_error_priority(void) {
+  for (UINT mode = 0; mode < 2; ++mode) {
+    for (api_t api = API_SLP; api < API_COUNT; ++api) {
+      for (UINT bad = 0; bad < 5; ++bad) {
+        host_reset();
+        fresh(TRUE);
+        if (!mode) {
+          current = NULL;
+        }
+        tkmc_isr_active = mode;
+        row_t row = valid_row(api, TMO_POL);
+        row.expected = E_PAR;
+        switch (bad) {
+        case 0:
+          row.tmo = -2;
+          break;
+        case 1:
+          if (api == API_SLP) {
+            continue;
+          }
+          row.id = 0;
+          row.expected = E_ID;
+          break;
+        case 2:
+          if (api == API_SLP) {
+            continue;
+          }
+          row.id = UNUSED_ID;
+          row.expected = E_CTX;
+          break;
+        case 3:
+          if (api == API_SLP) {
+            continue;
+          }
+          if (api == API_SEM) {
+            row.cnt = 0;
+          } else {
+            row.null_output = TRUE;
+          }
+          break;
+        default:
+          if (api == API_SLP) {
+            continue;
+          }
+          if (api == API_SEM) {
+            row.cnt = 2;
+            row.expected = E_CTX;
+          } else if (api == API_FLG) {
+            row.waiptn = 0;
+          } else {
+            continue;
+          }
+          break;
+        }
+        UINT pattern = FLAG_SENTINEL;
+        T_MSG *message = &s_sentinel;
+        host_snapshot_t before;
+        host_take_snapshot(&before);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(
+            row.expected, call_row(&row, &pattern, &message), row.label);
+        TEST_ASSERT_TRUE(host_interrupts_enabled());
+        TEST_ASSERT_EQUAL(mode, tkmc_in_isr());
+        TEST_ASSERT_EQUAL_UINT(FLAG_SENTINEL, pattern);
+        TEST_ASSERT_EQUAL_PTR(&s_sentinel, message);
+        host_assert_unchanged(&before, row.label);
+      }
+    }
+  }
 }

@@ -6,6 +6,7 @@
 
 #include "semaphore.h"
 
+#include "context.h"
 #include "dispatch.h"
 #include "object_id.h"
 #include "task.h"
@@ -145,7 +146,8 @@ ID tk_cre_sem(CONST T_CSEM *pk_csem) {
  * @return E_OK upon success, or an error code like E_ID, E_PAR, E_TMOUT, or
  * E_NOEXS. E_PAR also for a cnt above the maximum of the semaphore, after
  * E_NOEXS: such a request could only wait for ever. E_CTX if interrupts are
- * disabled (see tk_slp_tsk()): checked before the semaphore is looked at, so
+ * disabled, no current task exists or execution is in an ISR (see
+ * tk_slp_tsk()): checked before the semaphore is looked at, so
  * even a request that could succeed at once is refused and nothing is changed.
  */
 ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
@@ -163,7 +165,7 @@ ER tk_wai_sem(ID semid, INT cnt, TMO tmout) {
 
   UINT intsts = 0;
   DI(intsts);
-  if (isDI(intsts)) {
+  if (!tkmc_can_block(intsts)) {
     EI(intsts);
     return E_CTX;
   }

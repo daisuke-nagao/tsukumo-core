@@ -6,9 +6,11 @@
 
 #include "task.h"
 #include "asm/rv32/address.h"
+#include "context.h"
 #include "dispatch.h"
 #include "memset.h"
 #include "object_id.h"
+#include "panic.h"
 #include "semaphore.h"
 
 /* Memory-mapped addresses for the CLINT (Core Local Interruptor) */
@@ -386,18 +388,19 @@ void tkmc_yield(void) {
  * Terminate the current task.
  * - Moves the task to the TTS_DMT state.
  * - Triggers a context switch to the next ready task.
- * - This function does not return, provided interrupts are enabled: the switch
- *   is taken when they come back on at the end. Called with them disabled, it
- *   returns, and the caller keeps running as a dormant task whose list link
- *   is no longer valid. There is no return value to report this with; the
- *   specification does not allow the call from such a context.
+ * - Requires a current task, interrupts enabled and execution outside an ISR.
+ *   An invalid call stops with a context failure before changing task state.
  */
 void tk_ext_tsk(void) {
-  TCB *tmp = current;
   UINT intsts = 0;
 
   /* Disable interrupts to ensure atomic operations */
   DI(intsts);
+
+  if (!tkmc_can_block(intsts)) {
+    tkmc_fatal_context(TKMC_CONTEXT_EXT_TSK);
+  }
+  TCB *tmp = current;
 
   /* Remove the current task from the ready queue */
   tkmc_list_del(&tmp->head);
@@ -419,16 +422,19 @@ void tk_ext_tsk(void) {
  * - Moves the task to the TTS_NOEXS state.
  * - Returns the task to the free list for reuse.
  * - Triggers a context switch to the next ready task.
- * - This function does not return, with the same condition as tk_ext_tsk():
- *   called with interrupts disabled, it returns, and the caller keeps running
- *   on a task that is on the free list.
+ * - Requires the same context as tk_ext_tsk(). An invalid call stops before
+ *   changing task state or returning the TCB to the free list.
  */
 void tk_exd_tsk(void) {
-  TCB *tmp = current;
   UINT intsts = 0;
 
   /* Disable interrupts to ensure atomic operations */
   DI(intsts);
+
+  if (!tkmc_can_block(intsts)) {
+    tkmc_fatal_context(TKMC_CONTEXT_EXD_TSK);
+  }
+  TCB *tmp = current;
 
   /* Remove the current task from the ready queue */
   tkmc_list_del(&tmp->head);
