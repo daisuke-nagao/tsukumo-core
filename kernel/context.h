@@ -13,11 +13,16 @@
 extern "C" {
 #endif /* __cplusplus */
 
-// Set by the RV32 timer/dispatch trap entries, cleared before task execution.
-// Single hart, single-level interrupts only; this is not nesting support.
-extern volatile UINT tkmc_isr_active;
+// How many trap entries the CPU is inside: the RV32 timer, external-interrupt
+// and dispatch trap entries add 1 on entry and take it off before the task
+// resumes. It is above 1 only in an external interrupt that a handler with
+// interrupts on lets a source of a higher priority interrupt (see
+// docs/kernel/interrupts.md). Internal to the kernel: callers ask
+// tkmc_in_isr().
+// Single hart only.
+extern volatile UINT tkmc_isr_depth;
 
-static inline BOOL tkmc_in_isr(void) { return tkmc_isr_active != 0; }
+static inline BOOL tkmc_in_isr(void) { return tkmc_isr_depth != 0; }
 
 // intsts is the interrupt state saved on API entry, before DI().
 static inline BOOL tkmc_can_block(UINT intsts) {

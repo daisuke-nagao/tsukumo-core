@@ -32,9 +32,34 @@ static void insert_msg_fifo(MBXCB *mbxcb, T_MSG *msg) {
   tkmc_list_add_tail(msg_link(msg), &mbxcb->mbx_queue);
 }
 
+// Queues msg behind the queued messages of the same or a higher priority, and
+// ahead of those of a lower one (a lower msgpri is a higher priority).
+//
+// Interrupts are disabled for the call. A message that goes at the head or at
+// the tail takes a constant number of steps. One that goes between two queued
+// messages takes a number of steps up to the number of messages ahead of it, so
+// that case is as long as the queue is, which the kernel does not bound.
+//
+// Not done: one list per priority, which would make every insert constant but
+// needs a limit on msgpri, and the specification gives none (any positive value
+// is valid); and enabling interrupts during the scan, which no caller allows
+// (interrupt handlers use this call too) and which would let the queue, or the
+// mailbox itself, change under the cursor.
 static void insert_msg_pri(MBXCB *mbxcb, T_MSG_PRI *msg) {
   tkmc_list_head *new_link = msg_link(&msg->msgque);
   tkmc_list_head *pos = mbxcb->mbx_queue.next;
+
+  // A message that is not ahead of the last one goes at the tail. Checked
+  // first, because the scan below would walk the whole queue for it.
+  if (!tkmc_list_empty(&mbxcb->mbx_queue)) {
+    const T_MSG_PRI *last =
+        (const T_MSG_PRI *)msg_from_link(mbxcb->mbx_queue.prev);
+
+    if (msg->msgpri >= last->msgpri) {
+      tkmc_list_add_tail(new_link, &mbxcb->mbx_queue);
+      return;
+    }
+  }
 
   while (pos != &mbxcb->mbx_queue) {
     T_MSG_PRI *queued = (T_MSG_PRI *)msg_from_link(pos);
@@ -202,6 +227,12 @@ ID tk_cre_mbx(CONST T_CMBX *pk_cmbx) {
 
 /**
  * @brief Delete a mailbox object.
+ *
+ * Tasks that wait on the mailbox end their wait with E_DLT. Messages still
+ * queued are left to the application: the kernel does not touch them, so their
+ * link is undefined afterwards and they may be sent again. Interrupts are
+ * disabled for a time that does not depend on the number of queued messages
+ * (it grows with the number of waiting tasks, at most CFN_MAX_TSKID).
  */
 ER tk_del_mbx(ID mbxid) {
   if (!tkmc_id_in_range(mbxid, CFN_MAX_MBXID)) {
@@ -223,12 +254,9 @@ ER tk_del_mbx(ID mbxid) {
     make_waiter_ready(tcb, E_DLT, NULL);
   }
 
-  while (!tkmc_list_empty(&mbxcb->mbx_queue)) {
-    tkmc_list_head *link = mbxcb->mbx_queue.next;
-    tkmc_list_del(link);
-    tkmc_init_list_head(link);
-  }
-
+  // The queued messages are not visited. The application owns them, and
+  // tk_snd_mbx() overwrites a message's link, so a deleted mailbox that still
+  // linked them would not harm a later send of one of them.
   mbxcb->mbxid = mbxid | NOEXS_MASK;
   mbxcb->exinf = NULL;
   mbxcb->mbxatr = 0;
@@ -252,6 +280,10 @@ ER tk_del_mbx(ID mbxid) {
  * @param[in] mbxid Mailbox ID.
  * @param[in] pk_msg Pointer to the message to be sent.
  * @return E_OK on success, or an error code such as E_ID, E_PAR, or E_NOEXS.
+ *
+ * Interrupts are disabled for a time that does not depend on the number of
+ * queued messages, except for a TA_MPRI message that goes between two queued
+ * ones (see insert_msg_pri()), whose time grows with the messages ahead of it.
  *
  * @pre mbxid > 0 && mbxid <= CFN_MAX_MBXID
  * @pre pk_msg != NULL

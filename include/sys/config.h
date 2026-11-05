@@ -42,6 +42,10 @@ _Static_assert(CFN_MAX_FLGID < 0x80000000,
 /* Maximum number of mailboxes */
 #define CFN_MAX_MBXID 8
 
+/* Number of interrupt numbers (PLIC source IDs). Number 0 does not exist, so
+ * the highest one is CFN_MAX_INTNO - 1. */
+#define CFN_MAX_INTNO 32
+
 /* Maximum number of mutexes */
 // #define CFN_MAX_MTXID 4
 

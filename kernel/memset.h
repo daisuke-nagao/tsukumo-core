@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2025 Daisuke Nagao
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #ifndef UUID_0195F4F1_7309_7258_9597_92815600478A
 #define UUID_0195F4F1_7309_7258_9597_92815600478A
 

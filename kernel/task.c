@@ -69,6 +69,8 @@ static void default_tcb(TCB *tcb) {
 ///
 /// The padding ensures the structure is exactly 32 words (128 bytes),
 /// matching the register save area expectations in the trap handling mechanism.
+/// The outermost external trap borrows the first padding word (word 29) to keep
+/// the `mie` bits it masked, until it leaves.
 typedef union StashedRegisters {
   struct {
     UINT ra;                             ///< Return address (x1)
@@ -151,9 +153,8 @@ void tkmc_init_tcb(void) {
  * The size check only tells that the frame fits. How deep the task can go
  * below it is up to the caller, who must also leave room for the kernel: an
  * interrupt saves a frame of sizeof(StashedRegisters) bytes on the stack of
- * the task it interrupts and runs its handler there, so every stack needs that
- * frame plus the handler's own frames (see the -fstack-usage output) below the
- * task's deepest point.
+ * the task it interrupts and runs its handler on the interrupt stack, so every
+ * stack needs that frame below the task's deepest point and nothing more.
  */
 ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
   if (pk_ctsk == NULL) {
@@ -525,11 +526,12 @@ ER tk_rel_wai(ID tskid) {
  * - E_OK on success.
  * - E_ID if the task ID is out of range, 0 included.
  * - E_NOEXS if the task does not exist.
- * - E_OBJ if the task is dormant, or is the running task and interrupts are
- *   enabled. Nothing changes. With interrupts disabled, as in a handler, the
- *   running task gets a request queued. Like the E_CTX check of tk_slp_tsk(),
- *   this cannot tell a handler from a task that called DI(), so such a task
- *   can still queue a request for itself.
+ * - E_OBJ if the task is dormant, or is the running task and the caller is not
+ *   an ISR. Nothing changes. The caller is an ISR when the RV32 trap entries
+ *   say so (tkmc_in_isr()), whatever MIE is: a task that called DI() is still
+ *   a task and cannot queue a request for itself. An ISR has interrupted the
+ *   running task, so it may queue a request for it, also a handler that has
+ *   turned interrupts on (see docs/kernel/interrupts.md).
  * - E_QOVR if the queued count is already TK_WAKEUP_MAXCNT. Nothing changes.
  */
 ER tk_wup_tsk(ID tskid) {
@@ -549,8 +551,8 @@ ER tk_wup_tsk(ID tskid) {
 
   // Check the task state
   UINT tskstat = tcb->tskstat;
-  if (tcb == current && !isDI(intsts)) {
-    ercd = E_OBJ; // A task cannot wake itself
+  if (tcb == current && !tkmc_in_isr()) {
+    ercd = E_OBJ; // A task cannot wake itself, with interrupts on or off
   } else if (tskstat == TTS_WAI) {
     UINT tskwait = tcb->tskwait;
     if (tskwait == TTW_SLP) {

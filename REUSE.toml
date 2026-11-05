@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Daisuke Nagao
+#
+# SPDX-License-Identifier: MIT
+
+version = 1
+
+# Formats that take no SPDX header comment (or keep it out of the way). They
+# match by extension, so a new Markdown, YAML or JSON file needs no change here.
+# The years are one range for all of them, not the year each file was created.
+[[annotations]]
+path = ["**.md", "**.yml", "**.yaml", "**.json", "requirements.txt", ".gitattributes"]
+SPDX-FileCopyrightText = "2024-2026 Daisuke Nagao"
+SPDX-License-Identifier = "MIT"

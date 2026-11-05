@@ -24,7 +24,8 @@
 //   Shorter than a run, it is not told from a stray 0xa5 that the kernel may
 //   hold; and a longer one needs only a clear that skips a whole block.
 // - The bytes after _bss_end. That is the boot stack, in use; a clear that
-//   reached it would crash the kernel, which shows as a hang.
+//   reached it would crash the kernel, which shows as a hang. (The interrupt
+//   stack follows it, and is not in use until a trap.)
 // - The first and last byte of .bss are compared with 0xa5 while the kernel is
 //   running, so a variable that the kernel writes there (one that is 0xa5 by
 //   chance, or one written before this check) would hide an error at the edge,

@@ -31,9 +31,10 @@ ctest --test-dir <build dir> --output-on-failure --no-tests=error
 ```
 
 - `ctest` does not rebuild, so build first.
-- The QEMU tests run with `-icount shift=5`: guest time follows the number of
-  instructions the guest has run, not the host clock. The UART log is then the
-  same on every run and a suite takes a fraction of a second. Each passing
+- The QEMU tests run with `-icount shift=5,sleep=off`: guest time follows the
+  number of instructions the guest has run, not the host clock, and jumps to
+  the next timer deadline while the idle task halts in `wfi`. The UART log is
+  then the same on every run and a suite takes a fraction of a second. Each passing
   suite also runs once on the host clock as `qemu-<suite>-hostclock` (label
   `host-clock`; `ctest -L host-clock` runs just those, `ctest -LE host-clock`
   skips them), because a fixed schedule can hide a race that only the host clock
@@ -61,6 +62,49 @@ ctest --test-dir <build dir> --output-on-failure --no-tests=error
   when interrupts are off. `DI()` stands in for an interrupt handler, which also
   runs with interrupts off. It also checks that `DI()` assigns a variable named
   `status`, the name of a local the macro used to declare.
+- `qemu-idle-halt` reads `minstret` around a 100 ms sleep and checks that the
+  sleep took about that long and that the guest retired between 1000 and 100000
+  instructions, so an idle task that spins fails it. QEMU counts instructions
+  in `minstret` only under `-icount`, so the suite has no `-hostclock` run. It
+  is registered only when `QEMU_ICOUNT_SHIFT` is a number of 8 or less: with
+  `auto` or a larger shift a spinning idle task would not run enough
+  instructions to fail it.
+- `qemu-mailbox-cost` reads `minstret` around one mailbox call on a mailbox that
+  holds 200 messages and on an empty one, and checks that the counts differ by
+  at most 100 instructions: that is how long the call keeps interrupts off.
+  Cases: `tk_del_mbx()`; a `TA_MPRI` send at or behind the last queued message;
+  a send ahead of every message. A send between two queued messages scans and
+  is not measured. Like `qemu-idle-halt` it needs `-icount` with a shift of 8 or
+  less, so it has no `-hostclock` run.
+- `qemu-timer-cost` wraps `tkmc_timer_handler()` at link time and reads
+  `minstret` around it, while 1, 8 and 29 timed waits end in the same tick. It
+  reports the instructions of the handler call that ended them (see
+  [timer-handler-cost.md](timer-handler-cost.md)) and has no budget: a case
+  fails only if the waits did not end together. Like `qemu-mailbox-cost` it
+  needs `-icount` with a shift of 8 or less, so it has no `-hostclock` run.
+- `qemu-timer-switch` wraps `schedule()` at link time to record the `mcause` of
+  the trap that runs it. A task that a timer interrupt wakes must be switched to
+  in the timer trap (checked over four sleeps, because the runner can wake in
+  the same trap and run first); a task woken by `tk_wup_tsk()` is switched to in
+  the software interrupt; and a task that a timer trap preempts keeps the
+  registers `t0`-`t6`, `a2`-`a7` and `s1`-`s11` it held.
+- `qemu-interrupt` (and `qemu-interrupt-hostclock`) checks `tk_def_int()`,
+  `EnableInt()` and `DisableInt()` with the transmitter-empty interrupt of the
+  UART, which software raises and clears (PLIC source 10): the handler runs with
+  its number as an ISR with interrupts off, a task it wakes is switched to in the
+  same trap (`schedule()` is wrapped to record `mcause`), a disabled source
+  waits, the default handler switches a source without a handler off, and bad
+  numbers, levels and definitions are refused. The handler, the timer handler
+  and `schedule()` must run on the interrupt stack with a depth of 1 in all
+  three traps, a task keeps every register (`s0` included) through a trap, and
+  the most the deepest paths use of that stack is measured. The goldfish RTC
+  (PLIC source 11) is raised the same way, by an alarm at a time that has
+  already passed (an alarm in the future would follow the host's clock, not the
+  guest's), and nests in a UART handler that turns interrupts on: it is served
+  inside the handler at a higher priority and after it at the same or a lower
+  one, the timer waits for the handler, a task that the nested handler wakes
+  runs once, after the outermost handler, and a task keeps every register
+  through a nested trap. The claims QEMU cannot give are tested on the PC.
 - `qemu-timer-wrap` moves the machine timer to 100 ms before a low-word wrap,
   with a nonzero high word, before starting the runner. A 300 ms delay must
   finish after the wrap. Its separate ELF keeps this clock jump out of the

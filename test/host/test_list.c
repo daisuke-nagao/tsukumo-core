@@ -8,7 +8,8 @@
 // built on: random sequences of add, add_tail, del and a safe traversal that
 // deletes some of the nodes it passes are applied to a list and to an array
 // that models it, and after every step the list must match the model, forwards
-// and backwards.
+// and backwards. A second test runs the safe traversal over every small list
+// with every subset of its nodes deleted.
 
 #include <stdio.h>
 
@@ -48,10 +49,7 @@ static BOOL in_model(INT id) {
   return FALSE;
 }
 
-static void check_matches_model(UINT seed, UINT step) {
-  char where[40];
-  snprintf(where, sizeof(where), "seed %u, step %u", seed, step);
-
+static void check_matches_model(const char *where) {
   TEST_ASSERT_EQUAL_INT_MESSAGE(g_length == 0, tkmc_list_empty(&g_head), where);
 
   UINT index = 0;
@@ -176,7 +174,7 @@ static void run_seed(UINT seed) {
         ++g_singles;
       }
     }
-    check_matches_model(seed, step);
+    check_matches_model(where);
   }
 }
 
@@ -194,4 +192,58 @@ void test_list_matches_a_model_under_random_operations(void) {
   TEST_ASSERT_GREATER_THAN_UINT(0, g_sweeps);
   TEST_ASSERT_GREATER_THAN_UINT(0, g_empties);
   TEST_ASSERT_GREATER_THAN_UINT(0, g_singles);
+}
+
+// The safe traversal on every list of up to EXHAUSTIVE_LENGTH nodes, with every
+// subset of its nodes deleted on the way. That takes in the empty list, a
+// single node deleted and kept, the last node deleted alone, the first node
+// deleted alone, and every node deleted. In several of them the node that the
+// traversal fetched ahead is the head of the list itself, which must be fetched
+// from without reading the node just deleted. The random test above reaches
+// these cases by chance only, and does not check that it did.
+//
+// A body may delete the node it is on and no other; deleting the node that the
+// traversal fetched ahead is outside the contract (kernel/list.h) and is not
+// tried.
+enum { EXHAUSTIVE_LENGTH = 5 };
+
+void test_a_safe_traversal_survives_deleting_any_subset_of_nodes(void) {
+  UINT cases = 0;
+  for (UINT length = 0; length <= EXHAUSTIVE_LENGTH; ++length) {
+    for (UINT deleted = 0; deleted < (1u << length); ++deleted) {
+      char where[40];
+      snprintf(where, sizeof(where), "length %u, deleted 0x%x", length,
+               deleted);
+
+      tkmc_init_list_head(&g_head);
+      for (INT id = 0; id < (INT)length; ++id) {
+        g_nodes[id].id = id;
+        tkmc_list_add_tail(&g_nodes[id].link, &g_head);
+      }
+
+      UINT visited = 0;
+      node_t *pos, *n;
+      tkmc_list_for_each_entry_safe(pos, n, &g_head, link) {
+        TEST_ASSERT_LESS_THAN_UINT_MESSAGE(length, visited, where);
+        TEST_ASSERT_EQUAL_INT_MESSAGE((INT)visited, pos->id, where);
+        if (((deleted >> visited) & 1u) != 0) {
+          tkmc_list_del(&pos->link);
+          check_poisoned(where, pos->id);
+        }
+        ++visited;
+      }
+      TEST_ASSERT_EQUAL_UINT_MESSAGE(length, visited, where);
+
+      g_length = 0;
+      for (UINT id = 0; id < length; ++id) {
+        if (((deleted >> id) & 1u) == 0) {
+          g_model[g_length++] = (INT)id;
+        }
+      }
+      check_matches_model(where);
+      ++cases;
+    }
+  }
+  // 2^0 + 2^1 + ... + 2^5: no case was left out.
+  TEST_ASSERT_EQUAL_UINT(63, cases);
 }

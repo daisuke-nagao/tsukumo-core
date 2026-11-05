@@ -232,6 +232,31 @@ static void timeout_leaves_no_waiter(void) {
   TEST_ASSERT_EQUAL(E_OK, tk_del_mbx(mbxid));
 }
 
+// Messages left in a mailbox that is deleted belong to the application again,
+// and can be sent to another mailbox: the deleted one leaves them untouched,
+// links and all, and a send overwrites the link.
+static void messages_of_a_deleted_mailbox_can_be_sent_again(void) {
+  ID doomed = create_mailbox(TA_TFIFO | TA_MPRI);
+  priority_message_t first = {.hdr.msgpri = 2, .value = 1};
+  priority_message_t second = {.hdr.msgpri = 1, .value = 2};
+  T_MSG *received = 0;
+
+  TEST_ASSERT_EQUAL(E_OK, tk_snd_mbx(doomed, (T_MSG *)&first.hdr));
+  TEST_ASSERT_EQUAL(E_OK, tk_snd_mbx(doomed, (T_MSG *)&second.hdr));
+  TEST_ASSERT_EQUAL(E_OK, tk_del_mbx(doomed));
+
+  ID mbxid = create_mailbox(TA_TFIFO | TA_MPRI);
+  TEST_ASSERT_EQUAL(E_OK, tk_snd_mbx(mbxid, (T_MSG *)&first.hdr));
+  TEST_ASSERT_EQUAL(E_OK, tk_snd_mbx(mbxid, (T_MSG *)&second.hdr));
+  TEST_ASSERT_EQUAL(E_OK, tk_rcv_mbx(mbxid, &received, TMO_POL));
+  TEST_ASSERT_EQUAL_PTR(&second.hdr, received);
+  TEST_ASSERT_EQUAL(E_OK, tk_rcv_mbx(mbxid, &received, TMO_POL));
+  TEST_ASSERT_EQUAL_PTR(&first.hdr, received);
+  TEST_ASSERT_EQUAL(E_TMOUT, tk_rcv_mbx(mbxid, &received, TMO_POL));
+
+  TEST_ASSERT_EQUAL(E_OK, tk_del_mbx(mbxid));
+}
+
 static const test_case_t s_cases[] = {
     {"fifo_queue", fifo_queue},
     {"priority_queue", priority_queue},
@@ -240,6 +265,8 @@ static const test_case_t s_cases[] = {
     {"wait_queue_priority", wait_queue_priority},
     {"delete_releases_waiter", delete_releases_waiter},
     {"timeout_leaves_no_waiter", timeout_leaves_no_waiter},
+    {"messages_of_a_deleted_mailbox_can_be_sent_again",
+     messages_of_a_deleted_mailbox_can_be_sent_again},
 };
 
 TEST_SUITE_MAIN("mailbox", s_cases, 5000)

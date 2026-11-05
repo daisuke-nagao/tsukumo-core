@@ -30,7 +30,12 @@ void tearDown(void) {}
 // Every task gets its own stack and none is handed out twice in one boot:
 // there is no way to end a hung task, so reusing its stack would corrupt the
 // next case. The suite is a fresh boot, so a fixed pool is enough.
-enum { STACK_WORDS = 512, POOL_STACKS = 48, LEDGER_SIZE = 8 };
+//
+// The ledger holds as many children as the kernel has tasks, so that a case can
+// fill the task table (the timer-cost suite does). The pool is not sized to
+// match: it stays at 48 stacks, since most suites use few, and a suite that
+// needs more of them, over all its cases, has to change POOL_STACKS.
+enum { STACK_WORDS = 512, POOL_STACKS = 48, LEDGER_SIZE = CFN_MAX_TSKID };
 
 static UW s_runner_stack[STACK_WORDS] __attribute__((aligned(16)));
 static UW s_pool[POOL_STACKS][STACK_WORDS] __attribute__((aligned(16)));
