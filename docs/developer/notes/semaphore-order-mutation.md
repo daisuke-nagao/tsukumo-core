@@ -6,35 +6,56 @@ Run on 2026-11-05 (JST).
 
 `tk_wai_sem()` decides at once whether a request takes units, or waits
 behind the tasks that already wait (`kernel/semaphore.c`, the `may_take`
-block). The rule, added by commit `ae2c050` (F11):
+block). The current rule is:
 
 - A request takes units at once only if enough are left.
 - If tasks wait and the semaphore is not `TA_CNT`, the request also has to
   outrank the head of the queue. That is possible only under `TA_TPRI`, and
   only with a strictly higher priority.
 
-`ae2c050` changed the kernel and added the tests in one commit, so nothing
-showed that the tests fail on the old code, or on a wrong fix. This note
-records that. Each wrong version of the rule below was run against the host
+Checking that the correct rule passes does not show whether the tests catch a
+count-only rule or a wrong ordering check. This note records that comparison.
+Each wrong version of the rule below was run against the host
 tests (`host-tests`) and the QEMU semaphore tests (the four CTest tests that
 `ctest -R qemu-semaphore` selects).
 
 ## How to repeat it
 
-1. Edit the `may_take` block of `tk_wai_sem()` in `kernel/semaphore.c` (the
+Use a clean, disposable checkout with the build tools described in the
+[README](../../../README.md). These steps repeat the **Host after** and
+**QEMU** columns using the checked-in tests. **Host before** records an earlier
+experiment with the baseline test cases described below; that baseline is not
+a separate checked-in test target.
+
+1. Configure the correct implementation with `cmake --preset host` and
+   `cmake --preset debug`, then run the commands below to build it and check
+   that both test sets pass.
+2. Edit the `may_take` block of `tk_wai_sem()` in `kernel/semaphore.c` (the
    lines from `BOOL may_take = ...` to the end of the `if` that follows).
-2. Build and run the PC tests: preset `host`, test `host-tests`.
-3. Build and run the QEMU tests: preset `debug`, `ctest -R qemu-semaphore`.
-4. Undo the edit. `git diff kernel/semaphore.c` must be empty.
+   Apply one change from the results table, keeping the rest of the function
+   unchanged.
+3. Rebuild and run both test sets from the repository root:
+
+   ```shell
+   cmake --build --preset host
+   ctest --preset host
+   cmake --build --preset debug
+   ctest --test-dir ../build/debug -R "^qemu-semaphore" --output-on-failure --no-tests=error
+   ```
+
+4. Record the failing test names, then undo the edit before trying another
+   change. `git diff -- kernel/semaphore.c` must be empty after restoration.
+5. Rebuild and rerun the correct implementation to confirm that it passes.
 
 The changes below were made one at a time. Each one changes only the lines it
 names.
 
 ## Results
 
-"Host before" is the set of host tests that failed with the tests as they were
-when this branch began. "Host after" is the same change against the tests of
-this branch. The QEMU tests are the same before and after. "QEMU" lists the
+"Host before" lists failures with the baseline host tests, before the
+expansions described in "What the check found". "Host after" lists failures
+with the expanded host tests checked in under `test/host/test_semaphore.c`.
+The QEMU tests are the same in both comparisons. "QEMU" lists the
 cases of the `semaphore` suite that failed (they fail in both the QEMU-clock
 and the host-clock run); "none" means all four QEMU tests passed.
 
@@ -56,7 +77,8 @@ and the host-clock run); "none" means all four QEMU tests passed.
 | M12 a refused request returns `E_TMOUT` instead of waiting | 38 tests | 37 tests | all four QEMU tests |
 | M13 with no task waiting, take whenever any unit is left (`semcnt > 0`) | maximum-counts | maximum-counts | none |
 
-Test names are shortened. These tests exist on this branch:
+Test names are shortened. These tests are checked in and registered by
+`test/host/main.c`:
 
 - "order table" is
   `test_a_new_request_takes_units_only_in_the_order_of_the_semaphore`.
@@ -65,7 +87,8 @@ Test names are shortened. These tests exist on this branch:
 - "maximum-counts" is
   `test_the_maximum_counts_units_before_they_go_to_waiters`.
 
-These two existed only before this branch, and are gone from it (see below):
+These two names refer to baseline cases incorporated into the expanded tests
+(see below); they are not separate tests in the checkout:
 
 - "for-ever" is
   `test_a_request_refused_by_the_order_waits_for_ever_without_a_timer`.
@@ -78,7 +101,7 @@ here only to show that a request that should wait, and does not, is noticed.
 
 ## What the check found
 
-Two changes passed every test, on the host and on QEMU, when this branch began:
+Two changes passed every baseline host test and every QEMU test:
 
 - M9b, a rule that is skipped for a wait for ever under `TA_TPRI`. The only
   test in which the order decided a request that waits for ever used
@@ -92,13 +115,12 @@ Four more were caught by one host test each, and by no QEMU case:
   against a queue of two waiters.
 - M9, a rule that is skipped for every wait for ever. Only one test had the
   order decide a request that waits for ever.
-- M10, a missing count check on the path that lets a request go first. When
-  the branch began, only the rows of the order table with no unit left showed
-  it.
+- M10, a missing count check on the path that lets a request go first. In the
+  baseline, only the rows of the order table with no unit left showed it.
 - M13, a count check that takes any unit when no task waits. Only one test
   asks for more units than are left when no task waits.
 
-The tests of this branch change the following:
+The expanded host tests differ from the baseline as follows:
 
 - The order table also runs each row as a wait for ever, which queues the
   request with no timer. This is the for-ever test's case, which was the
@@ -109,7 +131,7 @@ The tests of this branch change the following:
   single case of a request that outranks only the later waiter with a table of
   five priorities, each tried as a poll and as a wait with a time limit.
 
-After this branch every change still fails a host test, but several fail only
+With the expanded tests every change fails a host test, but several fail only
 one: M2, M9, M9b, M10 and M11 fail only the order table, M6 only
 head-not-later, and M13 only maximum-counts. The tests were made wider, not
 duplicated: the order table now covers M9b and M11, which nothing did, but a
@@ -126,8 +148,9 @@ queue of two under `TA_TPRI`.
 
 ## Notes on the method
 
-- M0 matches the code before `ae2c050` (`if (semcb->semcnt >= cnt)` in
-  `tk_wai_sem()`).
+- M0 replaces the entire ordering decision with the count-only predicate
+  `BOOL may_take = semcb->semcnt >= cnt;`, leaving the following
+  `if (may_take)` acquisition and wait handling unchanged.
 - M9b and M11 are written to match the gaps found in the tests; they are not
   mistakes seen in the history of the kernel.
 - No change is equivalent to the correct code: every one failed at least one
