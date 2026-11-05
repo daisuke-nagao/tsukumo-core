@@ -69,6 +69,9 @@ ctest --test-dir <build dir> --output-on-failure --no-tests=error
   is registered only when `QEMU_ICOUNT_SHIFT` is a number of 8 or less: with
   `auto` or a larger shift a spinning idle task would not run enough
   instructions to fail it.
+  It also runs a lowest-priority child through repeated `tk_dly_tsk(0)` calls
+  with only software interrupts enabled. Each yield must resume without a
+  timer tick; an idle task that halts despite this ready child times out.
 - `qemu-mailbox-cost` reads `minstret` around one mailbox call on a mailbox that
   holds 200 messages and on an empty one, and checks that the counts differ by
   at most 100 instructions: that is how long the call keeps interrupts off.

@@ -362,10 +362,17 @@ ER tk_sta_tsk(ID tskid, INT stacd) {
   return E_OK;
 }
 
+BOOL tkmc_idle_can_halt(void) {
+  const tkmc_list_head *queue = &tkmc_ready_queue[CFN_MAX_PRI - 1];
+  // The queue contains idle; matching ends mean it contains no peer.
+  return tkmc_get_highest_priority_task() == current &&
+         queue->next == queue->prev;
+}
+
 /*
  * Yield the CPU to allow other tasks to run.
  * - Moves the current task to the end of its ready queue.
- * - Triggers a context switch if a higher-priority task is ready.
+ * - Triggers a context switch if another task is selected.
  */
 void tkmc_yield(void) {
   TCB *tmp = current;

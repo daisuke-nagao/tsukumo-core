@@ -47,7 +47,36 @@ static void idle_stops_the_cpu_while_all_tasks_wait(void) {
                                      "the guest kept running while idle");
 }
 
+static void lowest_priority_child(void *arg) {
+  (void)arg;
+  UW saved_mie;
+  // Leave only software interrupts enabled: a yield must not need a tick or
+  // an external interrupt to get past idle. A regression hits CTest's timeout.
+  __asm__ volatile("csrrw %0, mie, %1"
+                   : "=r"(saved_mie)
+                   : "r"(1u << 3)
+                   : "memory");
+  ER result = E_OK;
+  for (UINT i = 0; i < 8; ++i) {
+    ER ercd = tk_dly_tsk(0);
+    if (ercd != E_OK) {
+      result = ercd;
+      break;
+    }
+  }
+  __asm__ volatile("csrw mie, %0" ::"r"(saved_mie) : "memory");
+  TEST_ASSERT_EQUAL(E_OK, result);
+  test_checkpoint();
+}
+
+static void lowest_priority_yield_resumes_without_a_tick(void) {
+  test_spawn(lowest_priority_child, CFN_MAX_PRI, NULL);
+  test_join_expect(1);
+}
+
 static const test_case_t s_cases[] = {
+    {"lowest_priority_yield_resumes_without_a_tick",
+     lowest_priority_yield_resumes_without_a_tick},
     {"idle_stops_the_cpu_while_all_tasks_wait",
      idle_stops_the_cpu_while_all_tasks_wait},
 };
