@@ -1,0 +1,41 @@
+name: Bug report
+description: Report behavior that differs from what you expect.
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The commands you ran, in order. If you can, include a short test that fails.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: What you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: What happened instead. Paste the output or log here.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+      description: The output of `git rev-parse HEAD`, or the release you used.
+      placeholder: a1b2c3d
+  - type: input
+    id: preset
+    attributes:
+      label: Build preset
+      description: The CMake preset you built with.
+      placeholder: debug
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Your operating system and the versions of clang, CMake, and QEMU.

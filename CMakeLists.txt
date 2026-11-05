@@ -51,6 +51,7 @@ add_library(
   kernel/event_flag.c
   kernel/semaphore.c
   kernel/mailbox.c
+  kernel/intctl.c
   kernel/panic.c)
 
 # Set include paths for the kernel library
@@ -117,8 +118,16 @@ target_compile_options(
   test-runner PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS} -fstack-usage>)
 target_compile_features(test-runner PRIVATE c_std_11)
 
-# add_test_suite(<name> SOURCES <files>... [EXPECT_FAIL OUTPUT_REGEX <regex>
-# [FAIL_REGEX <regex>]])
+# add_test_suite(<name> SOURCES <files>... [ICOUNT_ONLY] [EXPECT_FAIL
+# OUTPUT_REGEX <regex> [FAIL_REGEX <regex>]])
+#
+# ICOUNT_ONLY is for a suite that reads minstret. QEMU counts instructions in
+# minstret only under -icount; on the host clock it returns host timer ticks, a
+# value that is not comparable. Such a suite gets no -hostclock ctest. A suite
+# also reads instructions per guest time, which is 2^-shift of it, so it runs
+# only for a number of 8 or less in QEMU_ICOUNT_SHIFT: with "auto" the ratio
+# follows the host, and with a larger shift a spinning idle task would run too
+# few instructions for idle-halt to tell it from a halted one.
 #
 # Builds the suite ELF and registers its ctests in one place, so a suite can
 # never be built without being run. A plain suite is one ctest, which fails on
@@ -134,8 +143,8 @@ target_compile_features(test-runner PRIVATE c_std_11)
 #   the summary. It is one regex because PASS_REGULAR_EXPRESSION entries are
 #   alternatives, not a conjunction; chain the expected lines with ".*".
 function(add_test_suite name)
-  cmake_parse_arguments(SUITE "EXPECT_FAIL" "OUTPUT_REGEX;FAIL_REGEX" "SOURCES"
-                        ${ARGN})
+  cmake_parse_arguments(SUITE "EXPECT_FAIL;ICOUNT_ONLY"
+                        "OUTPUT_REGEX;FAIL_REGEX" "SOURCES" ${ARGN})
   # An empty or misspelled OUTPUT_REGEX would register a -output test that
   # passes on any output, which is worse than no test.
   if(SUITE_UNPARSED_ARGUMENTS OR SUITE_KEYWORDS_MISSING_VALUES)
@@ -155,6 +164,14 @@ function(add_test_suite name)
   target_compile_features(${elf} PRIVATE c_std_11)
 
   if(NOT QEMU_EXECUTABLE)
+    return()
+  endif()
+  if(SUITE_ICOUNT_ONLY AND NOT (QEMU_ICOUNT_SHIFT MATCHES "^[0-9]+$"
+                                AND QEMU_ICOUNT_SHIFT LESS_EQUAL 8))
+    message(
+      WARNING
+        "${name}: not run, it needs QEMU_ICOUNT_SHIFT to be a number of 8 or less"
+    )
     return()
   endif()
   set(qemu_command ${QEMU_EXECUTABLE} ${QEMU_RUN_ARGS} $<TARGET_FILE:${elf}>)
@@ -180,7 +197,7 @@ function(add_test_suite name)
       set_property(TEST qemu-${name} PROPERTY PASS_REGULAR_EXPRESSION
                                               "${SUITE_OUTPUT_REGEX}")
     endif()
-    if(QEMU_ICOUNT_SHIFT MATCHES "^[0-9]+$|^auto$")
+    if(QEMU_ICOUNT_SHIFT MATCHES "^[0-9]+$|^auto$" AND NOT SUITE_ICOUNT_ONLY)
       add_test(NAME qemu-${name}-hostclock
                COMMAND ${QEMU_EXECUTABLE} ${QEMU_HOST_CLOCK_ARGS}
                        $<TARGET_FILE:${elf}>)
@@ -256,8 +273,9 @@ find_program(
 # waits and made runs differ; with -icount the UART log is identical from run to
 # run and a suite takes a fraction of the time. Larger shifts run faster but
 # leave fewer instructions per 10 ms tick; 5 leaves about 300000. The kernel
-# idle task spins instead of halting, so -icount's sleep=off would not skip any
-# time and is not used.
+# idle task halts in wfi, so sleep=off lets the guest clock jump to the next
+# timer deadline while every task waits, instead of waiting for it in real time.
+# Without sleep=off a wait of 100 ms would also last 100 ms of wall time.
 #
 # One fixed schedule can hide a race that only the host clock shows, so every
 # passing suite also runs once on the host clock as <name>-hostclock, labeled
@@ -277,7 +295,7 @@ endif()
 set(QEMU_HOST_CLOCK_ARGS -machine virt -bios none -nographic -kernel)
 set(QEMU_RUN_ARGS -machine virt -bios none -nographic)
 if(QEMU_ICOUNT_SHIFT MATCHES "^[0-9]+$")
-  list(APPEND QEMU_RUN_ARGS -icount shift=${QEMU_ICOUNT_SHIFT})
+  list(APPEND QEMU_RUN_ARGS -icount shift=${QEMU_ICOUNT_SHIFT},sleep=off)
   set(QEMU_TEST_PROPERTIES TIMEOUT 30)
 else()
   if(QEMU_ICOUNT_SHIFT STREQUAL "auto")
@@ -457,6 +475,38 @@ add_test_suite(semaphore-wait-release SOURCES
                test/suites/semaphore_wait_release.c)
 add_test_suite(mailbox SOURCES test/suites/mailbox.c)
 add_test_suite(wait-context SOURCES test/suites/wait_context.c)
+# External interrupts through the PLIC, and the stack the traps run on. The
+# test-only link wraps of schedule() and tkmc_timer_handler() keep the mcause of
+# the trap that switches to a task the handler woke, and where the C part of
+# each trap ran.
+add_test_suite(interrupt SOURCES test/suites/interrupt.c
+               test/spin_with_registers.S)
+target_link_options(${PROJECT_NAME}-test-interrupt.elf PRIVATE
+                    LINKER:--wrap=schedule LINKER:--wrap=tkmc_timer_handler)
+add_test_suite(idle-halt ICOUNT_ONLY SOURCES test/suites/idle_halt.c)
+
+# How long a mailbox call keeps interrupts disabled, from the guest's
+# retired-instruction counter.
+add_test_suite(mailbox-cost ICOUNT_ONLY SOURCES test/suites/mailbox_cost.c)
+
+# How long the timer interrupt handler runs when many timed waits end in one
+# tick, from the guest's retired-instruction counter. The test-only link wrap
+# reads the counter around the handler on the trap path.
+add_test_suite(timer-cost ICOUNT_ONLY SOURCES test/suites/timer_cost.c)
+target_link_options(${PROJECT_NAME}-test-timer-cost.elf PRIVATE
+                    LINKER:--wrap=tkmc_timer_handler)
+
+# tk_wup_tsk() from the actual timer trap: the test-only link wrap runs the call
+# on the trap path, in the task the trap interrupted.
+add_test_suite(wakeup-context SOURCES test/suites/wakeup_context.c)
+target_link_options(${PROJECT_NAME}-test-wakeup-context.elf PRIVATE
+                    LINKER:--wrap=tkmc_timer_handler)
+
+# Which trap makes a task switch: the test-only link wrap of schedule() keeps
+# the mcause of the trap that ran it.
+add_test_suite(timer-switch SOURCES test/suites/timer_switch.c)
+target_link_options(${PROJECT_NAME}-test-timer-switch.elf PRIVATE
+                    LINKER:--wrap=schedule)
 
 if(NOT QEMU_EXECUTABLE)
   message(

@@ -61,6 +61,29 @@ SECTIONS
     PROVIDE(_stack_end = .);
   } >ram AT>ram
 
+  /*
+   * The stack the C parts of the trap entries run on (see start.S). It comes
+   * after .stack and not before .bss: a stack grows down, so an overflow runs
+   * into the section below. Below this one that is the boot stack, which is not
+   * used after boot and which the fatal exception entry takes anew; below .bss
+   * it would corrupt the kernel's tables. Nothing detects an overflow.
+   *
+   * The size is for the nesting of the external interrupt, which is as deep as
+   * the PLIC has priorities (7): each level pushes a 128 byte trap frame and
+   * the frames of its handler, so 2048 bytes leave about 290 bytes a level. A
+   * stack of 1024 would be full at 3 or 4 levels.
+   */
+  .isr_stack (NOLOAD) : {
+    . = ALIGN(16);
+    PROVIDE(_isr_stack_start = .);
+    . = . + 2048;
+    PROVIDE(_isr_stack_end = .);
+  } >ram AT>ram
+  ASSERT(_isr_stack_end - _isr_stack_start == 2048,
+         "the interrupt stack is not 2048 bytes")
+  ASSERT(_isr_stack_start >= _stack_end,
+         "the interrupt stack is not above the boot stack")
+
   /* Reserve 16 bytes per CPU (adjust as needed) */
   /*
   .cpu_specific_memory : {

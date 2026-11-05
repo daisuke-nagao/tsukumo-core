@@ -30,7 +30,8 @@ add_library(
   ${PROJECT_SOURCE_DIR}/kernel/timer.c
   ${PROJECT_SOURCE_DIR}/kernel/semaphore.c
   ${PROJECT_SOURCE_DIR}/kernel/event_flag.c
-  ${PROJECT_SOURCE_DIR}/kernel/mailbox.c)
+  ${PROJECT_SOURCE_DIR}/kernel/mailbox.c
+  ${PROJECT_SOURCE_DIR}/kernel/intctl.c)
 target_include_directories(
   kernel-host
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/shadow ${PROJECT_SOURCE_DIR}/include
@@ -55,6 +56,7 @@ add_executable(
   test_errno.c
   test_event_flag.c
   test_fixture.c
+  test_intctl.c
   test_list.c
   test_mailbox.c
   test_memset.c

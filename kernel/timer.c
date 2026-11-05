@@ -222,8 +222,8 @@ ER tk_dly_tsk(RELTIM dlytm) {
  * - E_PAR if tmout is below TMO_FEVR.
  * - E_CTX if interrupts are disabled, no current task exists, or execution is
  *   in an ISR, even when a wakeup is queued. Nothing is changed. ISR state is
- *   recorded by the trap entry independently of MIE. Only single-level ISR
- *   execution with interrupts kept disabled is supported.
+ *   recorded by the trap entry independently of MIE, so it also holds in a
+ *   handler that has turned interrupts on.
  */
 ER tk_slp_tsk(TMO tmout) {
   if (tmout < TMO_FEVR) {

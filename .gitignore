@@ -67,3 +67,6 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# Python virtual environment for pre-commit (see CONTRIBUTING.md)
+.venv/

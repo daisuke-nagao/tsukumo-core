@@ -95,7 +95,7 @@ static void capture(void) {
   copy_bytes(snapshot.mailboxes, tkmc_mbxcbs, sizeof(snapshot.mailboxes));
   snapshot.running = current;
   snapshot.scheduled = next;
-  snapshot.isr = tkmc_isr_active;
+  snapshot.isr = tkmc_isr_depth;
   snapshot.msip = in_w(MSIP);
 }
 
@@ -110,7 +110,7 @@ static BOOL unchanged(void) {
          equal_bytes(snapshot.mailboxes, tkmc_mbxcbs,
                      sizeof(snapshot.mailboxes)) &&
          snapshot.running == current && snapshot.scheduled == next &&
-         snapshot.isr == tkmc_isr_active && snapshot.msip == in_w(MSIP);
+         snapshot.isr == tkmc_isr_depth && snapshot.msip == in_w(MSIP);
 }
 
 static BOOL irq_enabled(void) {

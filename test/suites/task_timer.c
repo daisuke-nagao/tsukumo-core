@@ -197,14 +197,32 @@ static void release_wait_keeps_a_queued_wakeup(void) {
   TEST_ASSERT_EQUAL(E_OK, released);
 }
 
-// A task that wakes itself is refused and queues nothing.
+// A task that wakes itself is refused and queues nothing, with interrupts on
+// and with them off: DI() does not make a task an ISR. The result is kept and
+// checked after interrupts are back on, since a failed assert must not run in
+// the DI section. The poll afterwards finds no request.
 static void task_cannot_wake_itself(void) {
   UINT intsts;
   DI(intsts);
   ID self = current->tskid;
   EI(intsts);
-  TEST_ASSERT_EQUAL(E_OBJ, tk_wup_tsk(self));
-  TEST_ASSERT_EQUAL(E_TMOUT, tk_slp_tsk(TMO_POL));
+  for (UINT off = 0; off < 2; ++off) {
+    UINT saved = 0;
+    if (off) {
+      DI(saved);
+    }
+    ER ercd = tk_wup_tsk(self);
+    UINT probe;
+    DI(probe);
+    BOOL was_off = isDI(probe);
+    EI(probe);
+    if (off) {
+      EI(saved);
+    }
+    TEST_ASSERT_EQUAL(E_OBJ, ercd);
+    TEST_ASSERT_EQUAL(off, was_off);
+    TEST_ASSERT_EQUAL(E_TMOUT, tk_slp_tsk(TMO_POL));
+  }
 }
 
 // A timer interrupt held back for ten periods still counts all ten: the child's

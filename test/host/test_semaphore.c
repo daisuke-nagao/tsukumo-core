@@ -276,27 +276,44 @@ typedef enum { TAKES, REFUSED } order_t;
 typedef struct {
   ATR sematr;
   PRI priority; // of the new request; the head waits at HIGH_PRIORITY
-  INT left;     // units left while the head waits for two
+  INT units;    // the head waits for all of them, and they are the maximum
+  INT left;     // units left while the head waits
+  INT request;  // units the new request asks for
   order_t expected;
 } order_row_t;
 
+// A request for one unit, behind a head that waits for two.
+#define ONE_OF_TWO(sematr, priority, left, expected)                           \
+  {sematr, priority, 2, left, 1, expected}
+
 static const order_row_t order_rows[] = {
-    {TA_TFIFO | TA_FIRST, HIGH_PRIORITY - 1, 1, REFUSED},
-    {TA_TFIFO | TA_FIRST, HIGH_PRIORITY, 1, REFUSED},
-    {TA_TFIFO | TA_FIRST, LOW_PRIORITY, 1, REFUSED},
-    {TA_TPRI | TA_FIRST, HIGH_PRIORITY - 1, 1, TAKES},
-    {TA_TPRI | TA_FIRST, HIGH_PRIORITY, 1, REFUSED},
-    {TA_TPRI | TA_FIRST, LOW_PRIORITY, 1, REFUSED},
-    {TA_TFIFO | TA_CNT, HIGH_PRIORITY - 1, 1, TAKES},
-    {TA_TFIFO | TA_CNT, HIGH_PRIORITY, 1, TAKES},
-    {TA_TFIFO | TA_CNT, LOW_PRIORITY, 1, TAKES},
-    {TA_TPRI | TA_CNT, HIGH_PRIORITY - 1, 1, TAKES},
-    {TA_TPRI | TA_CNT, HIGH_PRIORITY, 1, TAKES},
-    {TA_TPRI | TA_CNT, LOW_PRIORITY, 1, TAKES},
+    ONE_OF_TWO(TA_TFIFO | TA_FIRST, HIGH_PRIORITY - 1, 1, REFUSED),
+    ONE_OF_TWO(TA_TFIFO | TA_FIRST, HIGH_PRIORITY, 1, REFUSED),
+    ONE_OF_TWO(TA_TFIFO | TA_FIRST, LOW_PRIORITY, 1, REFUSED),
+    ONE_OF_TWO(TA_TPRI | TA_FIRST, HIGH_PRIORITY - 1, 1, TAKES),
+    ONE_OF_TWO(TA_TPRI | TA_FIRST, HIGH_PRIORITY, 1, REFUSED),
+    ONE_OF_TWO(TA_TPRI | TA_FIRST, LOW_PRIORITY, 1, REFUSED),
+    ONE_OF_TWO(TA_TFIFO | TA_CNT, HIGH_PRIORITY - 1, 1, TAKES),
+    ONE_OF_TWO(TA_TFIFO | TA_CNT, HIGH_PRIORITY, 1, TAKES),
+    ONE_OF_TWO(TA_TFIFO | TA_CNT, LOW_PRIORITY, 1, TAKES),
+    ONE_OF_TWO(TA_TPRI | TA_CNT, HIGH_PRIORITY - 1, 1, TAKES),
+    ONE_OF_TWO(TA_TPRI | TA_CNT, HIGH_PRIORITY, 1, TAKES),
+    ONE_OF_TWO(TA_TPRI | TA_CNT, LOW_PRIORITY, 1, TAKES),
     // With no unit left, not even a request that may go first takes one.
-    {TA_TPRI | TA_FIRST, HIGH_PRIORITY - 1, 0, REFUSED},
-    {TA_TFIFO | TA_CNT, HIGH_PRIORITY - 1, 0, REFUSED},
-    {TA_TPRI | TA_CNT, HIGH_PRIORITY - 1, 0, REFUSED},
+    ONE_OF_TWO(TA_TPRI | TA_FIRST, HIGH_PRIORITY - 1, 0, REFUSED),
+    ONE_OF_TWO(TA_TFIFO | TA_CNT, HIGH_PRIORITY - 1, 0, REFUSED),
+    ONE_OF_TWO(TA_TPRI | TA_CNT, HIGH_PRIORITY - 1, 0, REFUSED),
+    // A request for more than one unit: the head waits for three, two are left.
+    // The units a request asks for decide, as well as the order, whether it
+    // takes them: three are not there, however the order would let it pass.
+    {TA_TFIFO | TA_FIRST, HIGH_PRIORITY - 1, 3, 2, 2, REFUSED},
+    {TA_TPRI | TA_FIRST, HIGH_PRIORITY - 1, 3, 2, 2, TAKES},
+    {TA_TPRI | TA_FIRST, HIGH_PRIORITY, 3, 2, 2, REFUSED},
+    {TA_TFIFO | TA_CNT, HIGH_PRIORITY, 3, 2, 2, TAKES},
+    {TA_TFIFO | TA_FIRST, HIGH_PRIORITY - 1, 3, 2, 3, REFUSED},
+    {TA_TPRI | TA_FIRST, HIGH_PRIORITY - 1, 3, 2, 3, REFUSED},
+    {TA_TFIFO | TA_CNT, HIGH_PRIORITY, 3, 2, 3, REFUSED},
+    {TA_TPRI | TA_CNT, HIGH_PRIORITY - 1, 3, 2, 3, REFUSED},
 };
 
 static UINT count_in_queue(const tkmc_list_head *head) {
@@ -337,16 +354,16 @@ static const char *attribute_name(ATR sematr) {
   }
 }
 
-// A semaphore of two units with the row's attribute, on which a task waits for
-// both while row->left of them are there, and a new task at the row's priority,
-// running, to make the request. The waiting task goes to *head and the new one
-// to *late.
-static ID head_waits_for_two(const order_row_t *row, ID *head, ID *late) {
-  ID semid = tk_cre_sem(
-      &(T_CSEM){.exinf = 0, .sematr = row->sematr, .isemcnt = 0, .maxsem = 2});
+// A semaphore of row->units units (all of them its maximum) with the row's
+// attribute, on which a task waits for all of them while row->left of them are
+// there, and a new task at the row's priority, running, to make the request.
+// The waiting task goes to *head and the new one to *late.
+static ID head_waits(const order_row_t *row, ID *head, ID *late) {
+  ID semid = tk_cre_sem(&(T_CSEM){
+      .exinf = 0, .sematr = row->sematr, .isemcnt = 0, .maxsem = row->units});
   TEST_ASSERT_GREATER_THAN(0, semid);
   ID other;
-  *head = make_waiter(semid, 2, &other);
+  *head = make_waiter(semid, row->units, &other);
   if (row->left > 0) {
     TEST_ASSERT_EQUAL(E_OK, tk_sig_sem(semid, row->left));
   }
@@ -357,12 +374,12 @@ static ID head_waits_for_two(const order_row_t *row, ID *head, ID *late) {
   return semid;
 }
 
-// After the late request took its unit at once: the count is down by one (the
-// return code alone would not show a request that waited, as the PC does not
-// switch it out without HOST_EXPECT_WAIT), and the head still waits, alone.
-static void check_took_one(ID semid, ID head, const char *label) {
+// After the late request took its units at once: the count is down by them
+// (the return code alone would not show a request that waited, as the PC does
+// not switch it out without HOST_EXPECT_WAIT), and the head still waits, alone.
+static void check_took(ID semid, ID head, INT remaining, const char *label) {
   SEMCB *semcb = &tkmc_semcbs[semid - 1];
-  TEST_ASSERT_EQUAL_MESSAGE(0, semcb->semcnt, label);
+  TEST_ASSERT_EQUAL_MESSAGE(remaining, semcb->semcnt, label);
   TEST_ASSERT_EQUAL_UINT_MESSAGE(1, count_in_queue(&semcb->wait_queue), label);
   TEST_ASSERT_EQUAL_PTR_MESSAGE(&tkmc_tcbs[head - 1], first_waiter(semcb),
                                 label);
@@ -372,11 +389,11 @@ static void check_took_one(ID semid, ID head, const char *label) {
 
 static void check_poll(const order_row_t *row, const char *label) {
   ID head, late;
-  ID semid = head_waits_for_two(row, &head, &late);
+  ID semid = head_waits(row, &head, &late);
   host_snapshot_t before;
   host_take_snapshot(&before);
 
-  ER ercd = tk_wai_sem(semid, 1, TMO_POL);
+  ER ercd = tk_wai_sem(semid, row->request, TMO_POL);
   if (row->expected == REFUSED) {
     TEST_ASSERT_EQUAL_MESSAGE(E_TMOUT, ercd, label);
     TEST_ASSERT_TRUE_MESSAGE(host_interrupts_enabled(), label);
@@ -384,29 +401,33 @@ static void check_poll(const order_row_t *row, const char *label) {
     return;
   }
   TEST_ASSERT_EQUAL_MESSAGE(E_OK, ercd, label);
-  check_took_one(semid, head, label);
-  // The unit is all the request changed. Giving it back asks for no switch
+  check_took(semid, head, row->left - row->request, label);
+  // The units are all the request changed. Giving them back asks for no switch
   // only while the late task is the highest priority ready one: the task that
   // make_waiter() left ready runs at LOW_PRIORITY and was queued first.
   if (row->priority < LOW_PRIORITY) {
-    TEST_ASSERT_EQUAL(E_OK, tk_sig_sem(semid, 1));
+    TEST_ASSERT_EQUAL(E_OK, tk_sig_sem(semid, row->request));
     host_assert_unchanged(&before, label);
   }
 }
 
-static void check_timed_wait(const order_row_t *row, const char *label) {
+// A request with a time limit, or for ever, that the order refuses waits in
+// the queue, with a timer if it has a limit and with none if it does not.
+static void check_wait_with_limit(const order_row_t *row, TMO tmout,
+                                  const char *label) {
   ID head, late;
-  ID semid = head_waits_for_two(row, &head, &late);
+  ID semid = head_waits(row, &head, &late);
   SEMCB *semcb = &tkmc_semcbs[semid - 1];
 
   if (row->expected == TAKES) {
-    TEST_ASSERT_EQUAL_MESSAGE(E_OK, tk_wai_sem(semid, 1, WAIT_MS), label);
-    check_took_one(semid, head, label);
+    TEST_ASSERT_EQUAL_MESSAGE(E_OK, tk_wai_sem(semid, row->request, tmout),
+                              label);
+    check_took(semid, head, row->left - row->request, label);
     return;
   }
-  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, WAIT_MS));
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, row->request, tmout));
   // The late task waits once, in its place in the queue (ahead of the head
-  // only under TA_TPRI with the higher priority), with its time limit, and
+  // only under TA_TPRI with the higher priority), asking for its units, and
   // leaves the units it found.
   TCB *tcb = &tkmc_tcbs[late - 1];
   BOOL goes_first =
@@ -418,54 +439,66 @@ static void check_timed_wait(const order_row_t *row, const char *label) {
   TEST_ASSERT_EQUAL_PTR_MESSAGE(goes_first ? &tkmc_tcbs[head - 1] : tcb,
                                 last_waiter(semcb), label);
   TEST_ASSERT_EQUAL_UINT_MESSAGE(TTW_SEM, tcb->tskwait, label);
-  TEST_ASSERT_EQUAL_UINT_MESSAGE(tkmc_ms_to_ticks(WAIT_MS), tcb->delay_ticks,
-                                 label);
-  TEST_ASSERT_TRUE_MESSAGE(in_queue(&tkmc_timer_queue, &tcb->head), label);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(row->request, tcb->winfo.semaphore.semcnt,
+                                label);
+  if (tmout == TMO_FEVR) {
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(0, tcb->delay_ticks, label);
+    // On no ready queue and no timer queue.
+    TEST_ASSERT_TRUE_MESSAGE(tkmc_list_empty(&tcb->head), label);
+    TEST_ASSERT_TRUE_MESSAGE(tkmc_list_empty(&tkmc_timer_queue), label);
+  } else {
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(tkmc_ms_to_ticks(tmout), tcb->delay_ticks,
+                                   label);
+    TEST_ASSERT_TRUE_MESSAGE(in_queue(&tkmc_timer_queue, &tcb->head), label);
+  }
   host_check_kernel_queues();
 }
 
 // A poll the order refuses is E_TMOUT and changes nothing; a request with a
-// time limit the order refuses waits in the queue. A request the order allows
-// takes its unit either way.
+// time limit, or for ever, that the order refuses waits in the queue. A request
+// the order allows takes its units either way.
 void test_a_new_request_takes_units_only_in_the_order_of_the_semaphore(void) {
   for (UINT i = 0; i < sizeof(order_rows) / sizeof(order_rows[0]); ++i) {
     const order_row_t *row = &order_rows[i];
-    char label[96];
-    snprintf(label, sizeof(label), "%s, priority %d against %d, %d left",
+    char label[112];
+    snprintf(label, sizeof(label),
+             "%s, priority %d against %d, %d left, asks for %d",
              attribute_name(row->sematr), (int)row->priority,
-             (int)HIGH_PRIORITY, (int)row->left);
+             (int)HIGH_PRIORITY, (int)row->left, (int)row->request);
 
+    // The label names the run, as Unity reports nothing else about a failure.
+    char run[128];
     host_reset();
-    check_poll(row, label);
+    snprintf(run, sizeof(run), "%s: poll", label);
+    check_poll(row, run);
     host_reset();
-    check_timed_wait(row, label);
+    snprintf(run, sizeof(run), "%s: wait %d ms", label, (int)WAIT_MS);
+    check_wait_with_limit(row, WAIT_MS, run);
+    host_reset();
+    snprintf(run, sizeof(run), "%s: wait for ever", label);
+    check_wait_with_limit(row, TMO_FEVR, run);
   }
-}
-
-// A request that waits for ever is queued in the same way, with no time limit.
-void test_a_request_refused_by_the_order_waits_for_ever_without_a_timer(void) {
-  const order_row_t row = {TA_TFIFO | TA_FIRST, HIGH_PRIORITY - 1, 1, REFUSED};
-  ID head, late;
-  ID semid = head_waits_for_two(&row, &head, &late);
-  SEMCB *semcb = &tkmc_semcbs[semid - 1];
-  TCB *tcb = &tkmc_tcbs[late - 1];
-
-  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, TMO_FEVR));
-  TEST_ASSERT_EQUAL(1, semcb->semcnt);
-  TEST_ASSERT_EQUAL_UINT(2, count_in_queue(&semcb->wait_queue));
-  TEST_ASSERT_EQUAL_PTR(&tkmc_tcbs[head - 1], first_waiter(semcb));
-  TEST_ASSERT_EQUAL_PTR(tcb, last_waiter(semcb));
-  TEST_ASSERT_EQUAL_UINT(TTW_SEM, tcb->tskwait);
-  TEST_ASSERT_EQUAL_UINT(0, tcb->delay_ticks);
-  TEST_ASSERT_TRUE(tkmc_list_empty(&tcb->head)); // On no ready or timer queue.
-  TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_timer_queue));
-  host_check_kernel_queues();
 }
 
 // Under TA_TPRI the request is weighed against the head of the queue, not
 // against any waiter: one that outranks a waiter further back but not the head
-// would be queued behind the head, so it takes nothing.
-void test_a_request_that_outranks_only_a_later_waiter_takes_nothing(void) {
+// would be queued behind the head, so it takes nothing. The queue holds the
+// head (at HIGH_PRIORITY - 1, for two units) and a later waiter (at
+// LOW_PRIORITY, for one), and one unit is left.
+typedef struct {
+  PRI priority; // of the new request, which asks for one unit
+  order_t expected;
+} later_row_t;
+
+static const later_row_t later_rows[] = {
+    {HIGH_PRIORITY - 2, TAKES},   // outranks both waiters
+    {HIGH_PRIORITY - 1, REFUSED}, // as the head
+    {HIGH_PRIORITY, REFUSED},     // outranks the later waiter only
+    {LOW_PRIORITY, REFUSED},      // as the later waiter
+    {LOW_PRIORITY + 1, REFUSED},
+};
+
+static ID two_waiters_and_a_request_at(PRI priority) {
   ID semid = tk_cre_sem(&(T_CSEM){
       .exinf = 0, .sematr = TA_TPRI | TA_FIRST, .isemcnt = 0, .maxsem = 2});
   TEST_ASSERT_GREATER_THAN(0, semid);
@@ -480,13 +513,54 @@ void test_a_request_that_outranks_only_a_later_waiter_takes_nothing(void) {
   TEST_ASSERT_EQUAL(E_OK, tk_sig_sem(semid, 1));
   TEST_ASSERT_EQUAL(1, tkmc_semcbs[semid - 1].semcnt);
   TEST_ASSERT_EQUAL_UINT(2, count_in_queue(&tkmc_semcbs[semid - 1].wait_queue));
+  host_set_current(host_make_task(priority));
+  return semid;
+}
 
-  host_set_current(host_make_task(HIGH_PRIORITY));
-  host_snapshot_t before;
-  host_take_snapshot(&before);
-  TEST_ASSERT_EQUAL(E_TMOUT, tk_wai_sem(semid, 1, TMO_POL));
-  TEST_ASSERT_TRUE(host_interrupts_enabled());
-  host_assert_unchanged(&before, "a poll that outranks only a later waiter");
+void test_a_request_is_weighed_against_the_head_not_a_later_waiter(void) {
+  for (UINT i = 0; i < sizeof(later_rows) / sizeof(later_rows[0]); ++i) {
+    const later_row_t *row = &later_rows[i];
+    char label[64];
+    snprintf(label, sizeof(label),
+             "request at priority %d, waiters at %d and %d", (int)row->priority,
+             (int)HIGH_PRIORITY - 1, (int)LOW_PRIORITY);
+
+    host_reset();
+    ID semid = two_waiters_and_a_request_at(row->priority);
+    SEMCB *semcb = &tkmc_semcbs[semid - 1];
+    host_snapshot_t before;
+    host_take_snapshot(&before);
+    ER ercd = tk_wai_sem(semid, 1, TMO_POL);
+    if (row->expected == REFUSED) {
+      TEST_ASSERT_EQUAL_MESSAGE(E_TMOUT, ercd, label);
+      TEST_ASSERT_TRUE_MESSAGE(host_interrupts_enabled(), label);
+      host_assert_unchanged(&before, label);
+    } else {
+      TEST_ASSERT_EQUAL_MESSAGE(E_OK, ercd, label);
+      TEST_ASSERT_EQUAL_MESSAGE(0, semcb->semcnt, label);
+      TEST_ASSERT_EQUAL_UINT_MESSAGE(2, count_in_queue(&semcb->wait_queue),
+                                     label);
+    }
+
+    // With a time limit, a refused request waits among the others.
+    host_reset();
+    semid = two_waiters_and_a_request_at(row->priority);
+    semcb = &tkmc_semcbs[semid - 1];
+    if (row->expected == REFUSED) {
+      HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, WAIT_MS));
+      TEST_ASSERT_EQUAL_MESSAGE(1, semcb->semcnt, label);
+      TEST_ASSERT_EQUAL_UINT_MESSAGE(3, count_in_queue(&semcb->wait_queue),
+                                     label);
+      TEST_ASSERT_TRUE_MESSAGE(
+          in_queue(&semcb->wait_queue, &current->winfo.wait_queue), label);
+    } else {
+      TEST_ASSERT_EQUAL_MESSAGE(E_OK, tk_wai_sem(semid, 1, WAIT_MS), label);
+      TEST_ASSERT_EQUAL_MESSAGE(0, semcb->semcnt, label);
+      TEST_ASSERT_EQUAL_UINT_MESSAGE(2, count_in_queue(&semcb->wait_queue),
+                                     label);
+    }
+    host_check_kernel_queues();
+  }
 }
 
 // With no task waiting, every attribute lets a request take its units at once,

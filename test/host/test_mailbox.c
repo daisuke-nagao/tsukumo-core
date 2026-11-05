@@ -12,6 +12,8 @@
 // a mailbox refuses them with E_RSATR. tk_cre_mbx() used to accept and ignore
 // them.
 
+#include <stdio.h>
+
 #include <tk/tkernel.h>
 #include <unity.h>
 
@@ -60,4 +62,61 @@ void test_receivers_of_a_priority_mailbox_queue_by_priority_then_arrival(void) {
     TEST_ASSERT_EQUAL_PTR(&messages[i], tcb_of(expected[i])->winfo.mailbox.msg);
   }
   host_check_kernel_queues();
+}
+
+// The order of the messages of a TA_MPRI mailbox: ascending msgpri (1 is the
+// highest priority), and in the order they were sent among equal msgpri. A
+// message that goes at the tail takes a shortcut of its own, so the sequences
+// mix runs of repeated and rising priorities, which take it, with random ones,
+// which go between queued messages.
+enum { MAX_MESSAGES = 40, PRIORITIES = 5, SEQUENCES = 300 };
+
+// A fixed generator, so a failing run can be reproduced from the seed.
+static UINT next_random(UINT *state) {
+  *state = *state * 1664525u + 1013904223u;
+  return *state >> 8;
+}
+
+void test_a_priority_mailbox_delivers_by_priority_then_arrival(void) {
+  host_set_current(host_make_task(LOW_PRIORITY));
+  static T_MSG_PRI messages[MAX_MESSAGES];
+
+  for (UINT seed = 1; seed <= SEQUENCES; ++seed) {
+    char where[32];
+    snprintf(where, sizeof(where), "seed %u", seed);
+    UINT state = seed;
+    ID mbxid = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = TA_TFIFO | TA_MPRI});
+    TEST_ASSERT_GREATER_THAN(0, mbxid);
+
+    UINT length = next_random(&state) % (MAX_MESSAGES + 1);
+    PRI previous = 1;
+    for (UINT i = 0; i < length; ++i) {
+      PRI priority = (PRI)(next_random(&state) % PRIORITIES + 1);
+      if (next_random(&state) % 2 != 0) {
+        priority = previous + (PRI)(next_random(&state) % 2);
+        priority = priority > PRIORITIES ? PRIORITIES : priority;
+      }
+      messages[i].msgpri = priority;
+      previous = priority;
+      TEST_ASSERT_EQUAL_MESSAGE(E_OK, tk_snd_mbx(mbxid, &messages[i].msgque),
+                                where);
+    }
+
+    // The model: stable by priority.
+    for (PRI priority = 1; priority <= PRIORITIES; ++priority) {
+      for (UINT i = 0; i < length; ++i) {
+        if (messages[i].msgpri != priority) {
+          continue;
+        }
+        T_MSG *received = NULL;
+        TEST_ASSERT_EQUAL_MESSAGE(E_OK, tk_rcv_mbx(mbxid, &received, TMO_POL),
+                                  where);
+        TEST_ASSERT_EQUAL_PTR_MESSAGE(&messages[i].msgque, received, where);
+      }
+    }
+    T_MSG *none = NULL;
+    TEST_ASSERT_EQUAL_MESSAGE(E_TMOUT, tk_rcv_mbx(mbxid, &none, TMO_POL),
+                              where);
+    TEST_ASSERT_EQUAL_MESSAGE(E_OK, tk_del_mbx(mbxid), where);
+  }
 }

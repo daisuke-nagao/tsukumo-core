@@ -8,6 +8,7 @@
 
 #include "event_flag.h"
 #include "ini_tsk.h"
+#include "intctl.h"
 #include "mailbox.h"
 #include "memset.h"
 #include "panic.h"
@@ -26,8 +27,9 @@ static void clear_bss(void);
  * Stack for the initial task (ini_tsk).
  * Aligned to 16 bytes to meet the alignment requirements of the RISC-V
  * architecture. 512 bytes: usermain runs on it, and every interrupt puts its
- * 128 byte frame and the handler's frames on top, so a usermain that does more
- * than start tasks should run its work in a task of its own.
+ * 128 byte frame on top (the handler runs on the interrupt stack), so a
+ * usermain that does more than start tasks should run its work in a task of
+ * its own.
  */
 static UINT ini_tsk_stack[128] __attribute__((aligned(16)));
 static UINT idl_tsk_stack[128] __attribute__((aligned(16)));
@@ -51,6 +53,7 @@ void tkmc_start(int a0, int a1) {
   tkmc_init_semcb();
   tkmc_init_timer();
   tkmc_init_mbxcb();
+  tkmc_init_intctl();
 
   /* create tkmc_ini_tsk */
   {

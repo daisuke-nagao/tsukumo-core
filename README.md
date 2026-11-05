@@ -86,10 +86,35 @@ Wait calls (`tk_slp_tsk`, `tk_dly_tsk`, `tk_wai_sem`, `tk_wai_flg`, `tk_rcv_mbx`
 require a current task, interrupts enabled on entry, and execution outside an
 ISR. After argument checks, an invalid context returns `E_CTX` before changing
 task/object state or outputs, even for polling, immediate success or a zero delay.
-The RV32 timer and software-dispatch trap entries track ISR execution separately
-from MIE and clear it before a task resumes. Only a single hart and single-level
-ISRs that keep interrupts disabled are supported; enabling interrupts inside an
-ISR or nesting interrupts is not supported.
+The RV32 timer, external-interrupt and software-dispatch trap entries track ISR
+execution separately from MIE, with a depth counter, and clear it before a task
+resumes. The handler and `schedule()` run on a 2048-byte interrupt stack, so a
+task stack needs room only for the 128-byte trap frame. Only a single hart is
+supported. An external interrupt handler may turn interrupts on and is then
+interrupted by a source of a higher priority only; the timer and software
+interrupts are masked meanwhile, and a task switch is made once, at the exit of
+the outermost trap. The handler must turn interrupts off before it returns. See
+`docs/kernel/interrupts.md`.
+
+External interrupts (the PLIC) are handled through `tk_def_int`, `EnableInt` and
+`DisableInt`; see `docs/kernel/interrupts.md`.
+
+`tk_wup_tsk` uses the same ISR state, not MIE, to tell a task from an ISR. A
+task cannot wake itself, with interrupts enabled or disabled: the call returns
+`E_OBJ` and changes nothing. An ISR that interrupted a running task may queue a
+wake-up request for it (`E_QOVR` at 4095). Waking another task is allowed from
+any context.
+
+Mailbox calls keep interrupts disabled for a time that does not depend on how
+many messages are queued, which the kernel does not limit. Two calls would have
+depended on it and no longer do: `tk_del_mbx` does not visit the queued messages,
+and a `TA_MPRI` `tk_snd_mbx` of a message with the same or a lower priority than
+the last queued one appends it without a scan. The exception is a `TA_MPRI` message
+that goes between two queued ones: it is found by a scan from the head, so its
+time grows with the number of messages ahead of it. Bounding that would need a
+limit on `msgpri`, which the specification does not give. After `tk_del_mbx`,
+messages still queued belong to the application again; their links are undefined,
+and sending one again overwrites them. The `mailbox-cost` suite measures this.
 
 `tk_ext_tsk` and `tk_exd_tsk` have no error return. Invalid context calls stop
 before changing task state. `tkmc_last_context_failure` in `kernel/panic.h`
@@ -98,7 +123,8 @@ non-returning `tkmc_context_panic(api)` hook may be replaced for reporting, but
 must keep interrupts disabled and avoid task APIs. The default loops on `wfi`.
 The `task-context-*` suites test real interrupt entry/exit, deferred dispatch,
 prelaunch calls without a current task, and invalid termination. The masked-source
-MIE-enabled probes check defensive rejection, not nested-interrupt support.
+MIE-enabled probes check defensive rejection in the timer path. Nested external
+interrupts are tested in the `interrupt` suite.
 
 The suites should pass at every optimization level, with and without link-time
 optimization (LTO). The presets `debug` (-O0), `relwithdebinfo` (-O2) and
@@ -164,6 +190,12 @@ What is compiled and what is not:
 
 Feel free to fork the repository, make contributions, and submit pull requests. For any issues or suggestions, please create an issue in the issue tracker.
 
+By submitting a contribution, you agree that it is provided under the same MIT License as the project (see [LICENSE](LICENSE)).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up, test and submit a change.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+The tests download [Unity](https://github.com/ThrowTheSwitch/Unity) v2.6.1 (MIT License) when you configure the build. It is a test-only dependency and is not part of the kernel image.

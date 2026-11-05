@@ -13,6 +13,7 @@
 #include "asm/rv32/address.h"
 #include "context.h"
 #include "event_flag.h"
+#include "intctl.h"
 #include "mailbox.h"
 #include "semaphore.h"
 #include "task.h"
@@ -32,6 +33,12 @@ static UINT s_stacks_used;
 static UD s_msip;
 static UD s_mtimecmp_low;
 static UD s_mtimecmp_high;
+static UW s_plic_enable[(PLIC_SOURCE_COUNT + 31) / 32];
+static UW s_plic_claim;
+static UW s_plic_priority[PLIC_SOURCE_COUNT];
+static UW s_plic_threshold;
+static UW s_plic_threshold_highest;
+static UINT s_plic_ignored_completions;
 
 // The only addresses the kernel has a reason to touch. Anything else is a wild
 // access, and fails the running test.
@@ -41,6 +48,13 @@ enum {
   MTIMECMP_HIGH = MTIMECMP_LOW + 4,
   MTIME_LOW = CLINT_BASE_ADDRESS + CLINT_MTIME_OFFSET,
   MTIME_HIGH = MTIME_LOW + 4,
+  PLIC_PRIORITY_FIRST = PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET + 4,
+  PLIC_PRIORITY_LAST = PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET +
+      4 * (PLIC_SOURCE_COUNT - 1),
+  PLIC_ENABLE_FIRST = PLIC_BASE_ADDRESS + PLIC_ENABLE_OFFSET,
+  PLIC_ENABLE_LAST = PLIC_ENABLE_FIRST + 4 * ((PLIC_SOURCE_COUNT - 1) / 32),
+  PLIC_THRESHOLD = PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET,
+  PLIC_CLAIM = PLIC_BASE_ADDRESS + PLIC_CLAIM_OFFSET,
 };
 
 static void record(INT port, UINT width, UD value, BOOL is_write) {
@@ -62,7 +76,29 @@ void host_out(INT port, UINT width, UD data) {
   case MTIMECMP_HIGH:
     s_mtimecmp_high = data;
     break;
+  case PLIC_THRESHOLD:
+    s_plic_threshold = (UW)data;
+    if (s_plic_threshold > s_plic_threshold_highest) {
+      s_plic_threshold_highest = s_plic_threshold;
+    }
+    break;
+  case PLIC_CLAIM: // A completion. As the PLIC specification has it, one for a
+                   // source that is not enabled is ignored, and the source
+                   // would stay claimed.
+    if (data >= PLIC_SOURCE_COUNT ||
+        (s_plic_enable[data / 32] & (1u << (data % 32))) == 0) {
+      s_plic_ignored_completions += 1;
+    }
+    break;
   default:
+    if (port >= PLIC_PRIORITY_FIRST && port <= PLIC_PRIORITY_LAST) {
+      s_plic_priority[(port - PLIC_PRIORITY_FIRST) / 4 + 1] = (UW)data;
+      break;
+    }
+    if (port >= PLIC_ENABLE_FIRST && port <= PLIC_ENABLE_LAST) {
+      s_plic_enable[(port - PLIC_ENABLE_FIRST) / 4] = (UW)data;
+      break;
+    }
     TEST_FAIL_MESSAGE("the kernel wrote to an address the fake machine does "
                       "not have");
   }
@@ -88,7 +124,23 @@ UD host_in(INT port, UINT width) {
   case MTIME_HIGH:
     value = (UW)(host_mtime >> 32);
     break;
+  case PLIC_THRESHOLD:
+    value = s_plic_threshold;
+    break;
+  case PLIC_CLAIM: // A claim takes the pending source, as the real one does.
+    value = s_plic_claim;
+    s_plic_claim = 0;
+    s_plic_ignored_completions = 0;
+    break;
   default:
+    if (port >= PLIC_PRIORITY_FIRST && port <= PLIC_PRIORITY_LAST) {
+      value = s_plic_priority[(port - PLIC_PRIORITY_FIRST) / 4 + 1];
+      break;
+    }
+    if (port >= PLIC_ENABLE_FIRST && port <= PLIC_ENABLE_LAST) {
+      value = s_plic_enable[(port - PLIC_ENABLE_FIRST) / 4];
+      break;
+    }
     TEST_FAIL_MESSAGE("the kernel read from an address the fake machine does "
                       "not have");
   }
@@ -260,10 +312,16 @@ void host_assert_unchanged(const host_snapshot_t *s, const char *what) {
 }
 
 void host_reset(void) {
-  tkmc_isr_active = 0;
+  tkmc_isr_depth = 0;
   host_log_count = 0;
   s_interrupts_enabled = 1;
   s_msip = s_mtimecmp_low = s_mtimecmp_high = 0;
+  s_plic_claim = 0;
+  s_plic_threshold = 0;
+  s_plic_threshold_highest = 0;
+  for (UINT src = 0; src < PLIC_SOURCE_COUNT; ++src) {
+    s_plic_priority[src] = 0;
+  }
   host_mtime = 0;
   host_mtime_advance_after_low_read = 0;
   host_wait_armed = 0;
@@ -275,6 +333,7 @@ void host_reset(void) {
   tkmc_init_flgcb();
   tkmc_init_semcb();
   tkmc_init_mbxcb();
+  tkmc_init_intctl();
   tkmc_init_timer();
   tkmc_start_timer(); // Sets the first timer compare value, as the kernel does
                       // at boot.
@@ -341,3 +400,31 @@ UD host_last_write(INT port) {
   TEST_FAIL_MESSAGE("no write to the port in the log");
   return 0;
 }
+
+void host_plic_set_enabled(UINT src, BOOL on) {
+  UW bit = 1u << (src % 32);
+  s_plic_enable[src / 32] =
+      on ? s_plic_enable[src / 32] | bit : s_plic_enable[src / 32] & ~bit;
+}
+
+BOOL host_plic_is_enabled(UINT src) {
+  return (s_plic_enable[src / 32] & (1u << (src % 32))) != 0;
+}
+
+UINT host_plic_ignored_completions(void) { return s_plic_ignored_completions; }
+
+void host_plic_raise(UINT src) { s_plic_claim = src; }
+
+UW host_plic_threshold(void) { return s_plic_threshold; }
+
+void host_plic_set_threshold(UW value) { s_plic_threshold = value; }
+
+// The highest value the threshold register held since host_reset(), and so
+// whether the kernel ever raised it.
+UW host_plic_threshold_highest(void) { return s_plic_threshold_highest; }
+
+void host_plic_set_priority(UINT src, UW priority) {
+  s_plic_priority[src] = priority;
+}
+
+UINT host_plic_claim_port(void) { return PLIC_CLAIM; }

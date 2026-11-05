@@ -74,6 +74,17 @@ extern UW test_mtime(void);
 /// as long as the bound. From mid-tick the two differ by half a tick.
 extern UW test_mtime_mid_tick(void);
 
+/// The number of instructions the hart has retired, from the minstret counter.
+/// Under QEMU's -icount it counts guest instructions; without it QEMU counts
+/// host time instead, so a test that relies on it is registered with
+/// ICOUNT_ONLY (see add_test_suite() in CMakeLists.txt). It wraps after 2^32
+/// instructions, so compare differences only.
+static inline UW test_instret(void) {
+  UW count;
+  __asm__ volatile("csrr %0, minstret" : "=r"(count)::"memory");
+  return count;
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */

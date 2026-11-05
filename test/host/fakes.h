@@ -123,6 +123,21 @@ extern void host_tick(UINT ticks);
 extern UINT host_write_count(INT port);
 extern UD host_last_write(INT port);
 
+// The PLIC: the enable bit of a source, and the source the next claim returns
+// (0, which is what a claim returns when nothing is pending, once it has been
+// taken). The port of the claim and complete register, for host_last_write().
+extern void host_plic_set_enabled(UINT src, BOOL on);
+extern BOOL host_plic_is_enabled(UINT src);
+extern void host_plic_raise(UINT src);
+extern UW host_plic_threshold(void);
+extern void host_plic_set_threshold(UW value);
+extern UW host_plic_threshold_highest(void);
+extern void host_plic_set_priority(UINT src, UW priority);
+// How many completions were written for a source that was not enabled, which a
+// PLIC ignores.
+extern UINT host_plic_ignored_completions(void);
+extern UINT host_plic_claim_port(void);
+
 extern jmp_buf host_wait_jmp;
 extern volatile int host_wait_armed;
 extern volatile int host_waited;

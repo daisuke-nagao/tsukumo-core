@@ -14,6 +14,8 @@ void tearDown(void) {}
 
 extern void test_invalid_termination_context_stops_before_changing_tasks(void);
 extern void test_isr_and_absent_current_refuse_every_wait_without_changes(void);
+extern void
+test_a_trap_inside_a_trap_is_still_the_isr_state_for_every_wait(void);
 extern void test_isr_and_absent_current_preserve_argument_error_priority(void);
 
 extern void test_semaphore_departure_attributes_on_timeout(void);
@@ -27,7 +29,27 @@ extern void test_a_null_flag_output_is_checked_after_id_before_existence(void);
 extern void
 test_a_null_flag_output_is_checked_before_the_single_waiter_rule(void);
 
+extern void test_a_priority_mailbox_delivers_by_priority_then_arrival(void);
+extern void
+test_a_claim_of_no_source_calls_no_handler_and_completes_nothing(void);
+extern void test_a_source_beyond_the_table_is_switched_off_and_completed(void);
+extern void test_the_first_and_the_last_interrupt_number_have_a_handler(void);
+extern void test_enabling_and_disabling_a_source_keeps_the_others(void);
+extern void test_a_bad_number_or_level_touches_no_register(void);
+extern void test_a_refused_definition_leaves_the_old_one_in_place(void);
+extern void test_a_handler_cannot_be_defined_in_the_isr_state(void);
+extern void
+test_a_handler_runs_with_the_threshold_at_the_priority_of_its_source(void);
+extern void
+test_a_nested_trap_raises_the_threshold_and_gives_back_the_outer_one(void);
+extern void test_a_source_without_a_handler_does_not_raise_the_threshold(void);
+extern void test_enable_int_keeps_the_threshold_it_finds(void);
+extern void test_a_source_a_handler_switched_off_is_still_completed(void);
+extern void test_the_default_handler_completes_before_it_switches_off(void);
+extern void
+test_the_interrupt_calls_leave_interrupts_off_when_they_found_them_off(void);
 extern void test_list_matches_a_model_under_random_operations(void);
+extern void test_a_safe_traversal_survives_deleting_any_subset_of_nodes(void);
 extern void test_semaphore_waiter_blocks_and_a_signal_wakes_it(void);
 extern void test_semaphore_wait_ends_when_the_time_limit_runs_out(void);
 extern void test_release_wait_wakes_a_sleeping_task(void);
@@ -120,17 +142,14 @@ extern void test_the_maximum_counts_units_before_they_go_to_waiters(void);
 extern void test_a_signal_refused_with_interrupts_off_leaves_them_off(void);
 extern void
 test_a_new_request_takes_units_only_in_the_order_of_the_semaphore(void);
-extern void
-test_a_request_refused_by_the_order_waits_for_ever_without_a_timer(void);
-extern void
-test_a_request_that_outranks_only_a_later_waiter_takes_nothing(void);
+extern void test_a_request_is_weighed_against_the_head_not_a_later_waiter(void);
 extern void test_a_request_that_finds_no_waiter_takes_its_units_at_once(void);
 extern void
 test_wakeup_count_is_bounded_for_ready_and_non_sleep_waiting_tasks(void);
-extern void
-test_wakeup_count_is_bounded_for_a_running_task_with_interrupts_off(void);
+extern void test_wakeup_count_is_bounded_for_the_running_task_in_an_isr(void);
+extern void test_a_sleeper_is_woken_in_every_context(void);
 extern void test_consuming_a_wakeup_makes_room_for_one_more_request(void);
-extern void test_a_task_cannot_wake_itself_with_interrupts_on(void);
+extern void test_a_task_cannot_wake_itself_with_interrupts_on_or_off(void);
 extern void test_a_head_that_times_out_hands_its_units_to_the_next_waiter(void);
 extern void test_a_late_interrupt_expires_the_successor_before_the_head(void);
 extern void
@@ -164,6 +183,7 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_invalid_termination_context_stops_before_changing_tasks);
   RUN_TEST(test_isr_and_absent_current_refuse_every_wait_without_changes);
+  RUN_TEST(test_a_trap_inside_a_trap_is_still_the_isr_state_for_every_wait);
   RUN_TEST(test_isr_and_absent_current_preserve_argument_error_priority);
   RUN_TEST(test_task_start_rebuilds_a_damaged_frame);
   RUN_TEST(test_task_start_clears_previous_wakeup_and_wait_state);
@@ -202,17 +222,18 @@ int main(void) {
   RUN_TEST(test_the_maximum_counts_units_before_they_go_to_waiters);
   RUN_TEST(test_a_signal_refused_with_interrupts_off_leaves_them_off);
   RUN_TEST(test_a_new_request_takes_units_only_in_the_order_of_the_semaphore);
-  RUN_TEST(test_a_request_refused_by_the_order_waits_for_ever_without_a_timer);
-  RUN_TEST(test_a_request_that_outranks_only_a_later_waiter_takes_nothing);
+  RUN_TEST(test_a_request_is_weighed_against_the_head_not_a_later_waiter);
   RUN_TEST(test_a_request_that_finds_no_waiter_takes_its_units_at_once);
   RUN_TEST(test_wakeup_count_is_bounded_for_ready_and_non_sleep_waiting_tasks);
-  RUN_TEST(test_wakeup_count_is_bounded_for_a_running_task_with_interrupts_off);
+  RUN_TEST(test_wakeup_count_is_bounded_for_the_running_task_in_an_isr);
+  RUN_TEST(test_a_sleeper_is_woken_in_every_context);
   RUN_TEST(test_consuming_a_wakeup_makes_room_for_one_more_request);
-  RUN_TEST(test_a_task_cannot_wake_itself_with_interrupts_on);
+  RUN_TEST(test_a_task_cannot_wake_itself_with_interrupts_on_or_off);
   RUN_TEST(test_semaphore_departure_attributes_on_timeout);
   RUN_TEST(test_semaphore_departure_attributes_on_release);
   RUN_TEST(test_semaphore_departure_attributes_on_delete);
   RUN_TEST(test_list_matches_a_model_under_random_operations);
+  RUN_TEST(test_a_safe_traversal_survives_deleting_any_subset_of_nodes);
   RUN_TEST(test_semaphore_waiter_blocks_and_a_signal_wakes_it);
   RUN_TEST(test_semaphore_wait_ends_when_the_time_limit_runs_out);
   RUN_TEST(test_release_wait_wakes_a_sleeping_task);
@@ -275,11 +296,29 @@ int main(void) {
   RUN_TEST(test_waiters_of_a_priority_flag_queue_by_priority_then_arrival);
   RUN_TEST(test_a_mailbox_refuses_the_attributes_of_features_the_kernel_lacks);
   RUN_TEST(test_receivers_of_a_priority_mailbox_queue_by_priority_then_arrival);
+  RUN_TEST(test_a_priority_mailbox_delivers_by_priority_then_arrival);
   RUN_TEST(test_the_main_and_sub_error_codes_come_apart_as_they_were_joined);
   RUN_TEST(test_a_null_semaphore_packet_preserves_state_and_free_slots);
   RUN_TEST(test_a_null_flag_packet_preserves_state_and_free_slots);
   RUN_TEST(test_a_null_flag_output_neither_clears_nor_waits);
   RUN_TEST(test_a_null_flag_output_is_checked_after_id_before_existence);
   RUN_TEST(test_a_null_flag_output_is_checked_before_the_single_waiter_rule);
+  RUN_TEST(test_a_claim_of_no_source_calls_no_handler_and_completes_nothing);
+  RUN_TEST(test_a_source_beyond_the_table_is_switched_off_and_completed);
+  RUN_TEST(test_the_first_and_the_last_interrupt_number_have_a_handler);
+  RUN_TEST(test_enabling_and_disabling_a_source_keeps_the_others);
+  RUN_TEST(test_a_bad_number_or_level_touches_no_register);
+  RUN_TEST(test_a_refused_definition_leaves_the_old_one_in_place);
+  RUN_TEST(test_a_handler_cannot_be_defined_in_the_isr_state);
+  RUN_TEST(
+      test_a_handler_runs_with_the_threshold_at_the_priority_of_its_source);
+  RUN_TEST(
+      test_a_nested_trap_raises_the_threshold_and_gives_back_the_outer_one);
+  RUN_TEST(test_a_source_without_a_handler_does_not_raise_the_threshold);
+  RUN_TEST(test_enable_int_keeps_the_threshold_it_finds);
+  RUN_TEST(test_a_source_a_handler_switched_off_is_still_completed);
+  RUN_TEST(test_the_default_handler_completes_before_it_switches_off);
+  RUN_TEST(
+      test_the_interrupt_calls_leave_interrupts_off_when_they_found_them_off);
   return UNITY_END();
 }

@@ -16,7 +16,7 @@
 * [ ] `tk_cre_mtx` - Create mutex
 * [x] `tk_cre_sem` - Create semaphore
 * [x] `tk_cre_tsk` - Create task
-* [ ] `tk_def_int` - Define interrupt handler
+* [x] `tk_def_int` - Define interrupt handler
 * [ ] `tk_def_ssy` - Define subsystem
 * [ ] `tk_def_tex` - Define task exception handler
 * [ ] `tk_del_alm` - Delete alarm handler
@@ -180,9 +180,9 @@
 * [ ] `DeleteLock` - Delete fast lock
 * [ ] `DeleteMLock` - Delete fast multi-lock
 * [x] `DI` - Disable external interrupt
-* [ ] `DisableInt` - Disable interrupt
+* [x] `DisableInt` - Disable interrupt
 * [x] `EI` - Enable external interrupt
-* [ ] `EnableInt` - Enable interrupt
+* [x] `EnableInt` - Enable interrupt
 * [ ] `EndOfInt` - Issue EOI to interrupt controller
 * [ ] `eventfn` - Event function
 * [ ] `execfn` - Start processing function

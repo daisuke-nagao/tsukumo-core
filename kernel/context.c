@@ -6,4 +6,4 @@
 
 #include "context.h"
 
-volatile UINT tkmc_isr_active;
+volatile UINT tkmc_isr_depth;

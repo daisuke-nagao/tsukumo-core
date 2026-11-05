@@ -111,6 +111,15 @@ extern ER tk_slp_tsk(TMO tmout);
 extern ER tk_rel_wai(ID tskid);
 extern ER tk_wup_tsk(ID tskid);
 
+typedef struct T_DINT {
+  ATR intatr; /* Interrupt handler attribute */
+  FP inthdr;  /* Interrupt handler address */
+} T_DINT;
+
+extern ER tk_def_int(UINT intno, CONST T_DINT *pk_dint);
+extern void EnableInt(UINT intno, INT level);
+extern void DisableInt(UINT intno);
+
 typedef struct T_CFLG {
   void *exinf;  /* Extended Information */
   ATR flgatr;   /* EventFlag Attribute*/

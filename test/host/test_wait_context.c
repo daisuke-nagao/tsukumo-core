@@ -307,7 +307,7 @@ void test_invalid_termination_context_stops_before_changing_tasks(void) {
         if (mode == 1) {
           current = NULL;
         }
-        tkmc_isr_active = mode == 2;
+        tkmc_isr_depth = mode == 2;
         host_snapshot_t before;
         host_take_snapshot(&before);
         UINT saved;
@@ -351,7 +351,7 @@ void test_isr_and_absent_current_refuse_every_wait_without_changes(void) {
             if (mode == 0) {
               current = NULL;
             }
-            tkmc_isr_active = mode == 1;
+            tkmc_isr_depth = mode == 1;
             row_t row = valid_row(api, limits[limit]);
             UINT pattern = FLAG_SENTINEL;
             T_MSG *message = &s_sentinel;
@@ -376,9 +376,31 @@ void test_isr_and_absent_current_refuse_every_wait_without_changes(void) {
       }
     }
   }
-  tkmc_isr_active = 1;
+  tkmc_isr_depth = 1;
   host_reset();
   TEST_ASSERT_FALSE(tkmc_in_isr());
+}
+
+// The depth counts traps, and a trap taken inside a trap makes it 2: that is
+// still the ISR state, so every wait is refused as at depth 1. Kept apart from
+// the loop above, whose mode distinguishes the kinds of context, not depths.
+void test_a_trap_inside_a_trap_is_still_the_isr_state_for_every_wait(void) {
+  for (api_t api = API_DLY; api < API_COUNT; ++api) {
+    host_reset();
+    fresh(TRUE);
+    tkmc_isr_depth = 2;
+    row_t row = valid_row(api, TMO_FEVR);
+    UINT pattern = FLAG_SENTINEL;
+    T_MSG *message = &s_sentinel;
+    host_snapshot_t before;
+    host_take_snapshot(&before);
+    ER result = call_row(&row, &pattern, &message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(E_CTX, result, row.label);
+    TEST_ASSERT_TRUE(tkmc_in_isr());
+    host_assert_unchanged(&before, row.label);
+    host_check_kernel_queues();
+  }
+  tkmc_isr_depth = 0;
 }
 
 void test_isr_and_absent_current_preserve_argument_error_priority(void) {
@@ -390,7 +412,7 @@ void test_isr_and_absent_current_preserve_argument_error_priority(void) {
         if (!mode) {
           current = NULL;
         }
-        tkmc_isr_active = mode;
+        tkmc_isr_depth = mode;
         row_t row = valid_row(api, TMO_POL);
         row.expected = E_PAR;
         switch (bad) {

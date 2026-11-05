@@ -75,6 +75,8 @@ extern TCB *tkmc_get_highest_priority_task(void);
 // waiters behind it are served here (tkmc_sem_serve_waiters()), and they may
 // become ready too. Interrupts must be disabled.
 extern void tkmc_complete_wait(TCB *tcb, ER cause);
+// Called only by idle, with interrupts disabled until after the possible WFI.
+extern BOOL tkmc_idle_can_halt(void);
 extern void tkmc_yield(void);
 
 extern TCB *current;

@@ -10,10 +10,16 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
+#include "asm/rv32/address.h"
+#include "context.h"
 #include "fakes.h"
 #include "task.h"
 
-enum { FRAME_WORDS = 32, PRIORITY = 4 };
+enum {
+  FRAME_WORDS = 32,
+  PRIORITY = 4,
+  MSIP = CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET
+};
 static _Alignas(16) UINT s_stack[256];
 static UINT s_exinf;
 
@@ -412,15 +418,13 @@ static ID make_wakeup_target(UINT state) {
   return target;
 }
 
-// Only wupcnt may change on success; a refusal must leave the snapshot intact.
-static void check_wakeup_limit(UINT state, UINT count, BOOL interrupts_off) {
-  host_reset();
-  ID target = make_wakeup_target(state);
-  TCB *tcb = &tkmc_tcbs[target - 1];
-  tcb->wupcnt = count;
-  host_snapshot_t before;
-  host_take_snapshot(&before);
-
+// Calls tk_wup_tsk(target) in the given context and returns its result. The
+// host cannot take a trap, so an ISR is the state the RV32 trap entries set
+// (tkmc_isr_depth), whatever the interrupt flag says; the interrupt flag is
+// the task's own DI() or the MIE a handler left on or off. Neither the flag nor
+// the ISR state may be changed by the call.
+static ER wake_in_context(ID target, BOOL interrupts_off, BOOL in_isr) {
+  tkmc_isr_depth = in_isr;
   UINT saved = 0;
   if (interrupts_off) {
     DI(saved);
@@ -430,9 +434,25 @@ static void check_wakeup_limit(UINT state, UINT count, BOOL interrupts_off) {
   if (interrupts_off) {
     EI(saved);
   }
-
   TEST_ASSERT_EQUAL(!interrupts_off, enabled);
   TEST_ASSERT_TRUE(host_interrupts_enabled());
+  TEST_ASSERT_EQUAL(in_isr, tkmc_in_isr());
+  tkmc_isr_depth = 0;
+  return ercd;
+}
+
+// Only wupcnt may change on success; a refusal must leave the snapshot intact.
+static void check_wakeup_limit(UINT state, UINT count, BOOL interrupts_off,
+                               BOOL in_isr) {
+  host_reset();
+  ID target = make_wakeup_target(state);
+  TCB *tcb = &tkmc_tcbs[target - 1];
+  tcb->wupcnt = count;
+  host_snapshot_t before;
+  host_take_snapshot(&before);
+
+  ER ercd = wake_in_context(target, interrupts_off, in_isr);
+
   TEST_ASSERT_EQUAL(count < WAKEUP_LIMIT ? E_OK : E_QOVR, ercd);
   UINT expected = count < WAKEUP_LIMIT ? count + 1 : count;
   TEST_ASSERT_EQUAL_UINT(expected, tcb->wupcnt);
@@ -445,20 +465,53 @@ static void check_wakeup_limit(UINT state, UINT count, BOOL interrupts_off) {
 void test_wakeup_count_is_bounded_for_ready_and_non_sleep_waiting_tasks(void) {
   const UINT states[] = {TTS_RDY, TTS_WAI};
   const UINT counts[] = {0, WAKEUP_LIMIT - 1, WAKEUP_LIMIT};
+  // Another task may be woken from a task or an ISR, with interrupts on or off.
   for (UINT s = 0; s < sizeof(states) / sizeof(states[0]); ++s) {
     for (UINT c = 0; c < sizeof(counts) / sizeof(counts[0]); ++c) {
-      check_wakeup_limit(states[s], counts[c], FALSE);
-      check_wakeup_limit(states[s], counts[c], TRUE);
+      for (UINT off = 0; off < 2; ++off) {
+        for (UINT isr = 0; isr < 2; ++isr) {
+          check_wakeup_limit(states[s], counts[c], off, isr);
+        }
+      }
     }
   }
 }
 
-void test_wakeup_count_is_bounded_for_a_running_task_with_interrupts_off(void) {
-  // A handler-equivalent fixture, not an actual ISR: with interrupts off the
-  // running task may queue a request for itself.
+// The running task gets a request only from an ISR, which has interrupted it,
+// and the interrupt flag a handler left does not matter.
+void test_wakeup_count_is_bounded_for_the_running_task_in_an_isr(void) {
   const UINT counts[] = {0, WAKEUP_LIMIT - 1, WAKEUP_LIMIT};
-  for (UINT i = 0; i < sizeof(counts) / sizeof(counts[0]); ++i) {
-    check_wakeup_limit(TTS_RUN, counts[i], TRUE);
+  for (UINT c = 0; c < sizeof(counts) / sizeof(counts[0]); ++c) {
+    for (UINT off = 0; off < 2; ++off) {
+      check_wakeup_limit(TTS_RUN, counts[c], off, TRUE);
+    }
+  }
+}
+
+// A sleeper is woken, not given a request, whoever calls: the same from a task
+// and from an ISR, with interrupts on or off. It is the higher priority, so its
+// release asks for a task switch.
+void test_a_sleeper_is_woken_in_every_context(void) {
+  for (UINT off = 0; off < 2; ++off) {
+    for (UINT isr = 0; isr < 2; ++isr) {
+      host_reset();
+      ID sleeper = host_make_task(PRIORITY - 1);
+      ID caller = host_make_task(PRIORITY);
+      TCB *tcb = &tkmc_tcbs[sleeper - 1];
+      host_set_current(sleeper);
+      HOST_EXPECT_WAIT(tk_slp_tsk(TMO_FEVR));
+      host_set_current(caller);
+      UINT requests = host_write_count(MSIP);
+
+      TEST_ASSERT_EQUAL(E_OK, wake_in_context(sleeper, off, isr));
+
+      TEST_ASSERT_EQUAL_UINT(TTS_RDY, tcb->tskstat);
+      TEST_ASSERT_EQUAL_UINT(0, tcb->wupcnt);
+      TEST_ASSERT_EQUAL(E_OK, tcb->wupcause);
+      TEST_ASSERT_EQUAL_PTR(tcb, next);
+      TEST_ASSERT_EQUAL_UINT(requests + 1, host_write_count(MSIP));
+      host_check_kernel_queues();
+    }
   }
 }
 
@@ -485,20 +538,23 @@ void test_consuming_a_wakeup_makes_room_for_one_more_request(void) {
   host_check_kernel_queues();
 }
 
-// A task that wakes itself with interrupts on is refused before the limit is
-// checked, so a full count gives E_OBJ too, and nothing changes.
-void test_a_task_cannot_wake_itself_with_interrupts_on(void) {
-  const UINT counts[] = {0, WAKEUP_LIMIT};
-  for (UINT i = 0; i < sizeof(counts) / sizeof(counts[0]); ++i) {
-    host_reset();
-    ID self = make_wakeup_target(TTS_RUN);
-    tkmc_tcbs[self - 1].wupcnt = counts[i];
-    host_snapshot_t before;
-    host_take_snapshot(&before);
+// A task that wakes itself is refused before the limit is checked, so a full
+// count gives E_OBJ too, and nothing changes. DI() makes no difference: it does
+// not turn the task into an ISR.
+void test_a_task_cannot_wake_itself_with_interrupts_on_or_off(void) {
+  const UINT counts[] = {0, WAKEUP_LIMIT - 1, WAKEUP_LIMIT};
+  for (UINT c = 0; c < sizeof(counts) / sizeof(counts[0]); ++c) {
+    for (UINT off = 0; off < 2; ++off) {
+      host_reset();
+      ID self = make_wakeup_target(TTS_RUN);
+      tkmc_tcbs[self - 1].wupcnt = counts[c];
+      host_snapshot_t before;
+      host_take_snapshot(&before);
 
-    TEST_ASSERT_EQUAL(E_OBJ, tk_wup_tsk(self));
-    TEST_ASSERT_TRUE(host_interrupts_enabled());
-    host_assert_unchanged(&before, "a refused self-wakeup changes nothing");
-    host_check_kernel_queues();
+      TEST_ASSERT_EQUAL(E_OBJ, wake_in_context(self, off, FALSE));
+
+      host_assert_unchanged(&before, "a refused self-wakeup changes nothing");
+      host_check_kernel_queues();
+    }
   }
 }
