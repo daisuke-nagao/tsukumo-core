@@ -1,5 +1,10 @@
 # uT-Kernel API
 
+Checked entries identify APIs provided by the current implementation.
+The [implemented-contract review](spec-conformance-review.md) records
+specification references, checked behavior, reproduced differences and
+remaining evidence gaps for the implemented subset.
+
 ## uT-Kernel/OS API
 
 * [ ] `tk_can_wup` - Disable task wakeup request
