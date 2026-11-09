@@ -4,7 +4,7 @@
 
 ### Overview
 
-In uT-Kernel, the `DI()` and `EI()` macros are used to disable and enable interrupts, respectively. However, these macros require an `intsts` variable to store the previous interrupt status. The specification does not explicitly state whether the caller must declare `intsts` or if it is automatically managed by `DI()`.
+In uT-Kernel, the `DI()` macro disables interrupts and the `EI()` macro puts back the state `DI()` saved. However, these macros require an `intsts` variable to store the previous interrupt status. The specification does not explicitly state whether the caller must declare `intsts` or if it is automatically managed by `DI()`.
 
 From the `isDI()` usage example provided in the specification, it becomes evident that `intsts` must be declared by the caller before invoking `DI()` and `EI()`. This document clarifies this requirement to avoid ambiguity and ensure correct usage.
 
@@ -35,6 +35,43 @@ void foo() {
     EI(intsts);
 }
 ```
+
+### What `EI()` puts back
+
+`EI(intsts)` restores the MIE state recorded by `DI(intsts)`, regardless of the
+MIE state when `EI()` runs. Pass either the value returned by `DI()` or zero.
+`EI(0)` enables interrupts. The saved value keeps the existing DI token format
+and `isDI()` continues to test its saved MIE bit. EI changes only
+`mstatus.MIE`; other `mstatus` bits and the interrupt-source mask in `mie` are
+preserved. A section that turns interrupts on in the middle therefore still
+ends with them off if they were off before it:
+
+```c
+UINT intsts;
+DI(intsts); // Interrupts were off, and intsts records it.
+EI(0);      // On for a while.
+/* ... */
+EI(intsts); // Off again.
+```
+
+For nested critical sections, keep a separate token at each level. The inner
+`EI()` restores the disabled state saved by its `DI()`, and the outer `EI()`
+restores the state from before the outer `DI()`:
+
+```c
+UINT outer, inner;
+DI(outer);
+DI(inner);
+EI(inner); // Still disabled.
+EI(outer); // Restores the state from before the outer DI().
+```
+
+The `interrupt-state` QEMU suite (`test/suites/interrupt_state.c`) checks saved
+MIE enabled and disabled after either possible MIE state immediately before
+`EI()`, plus `EI(0)`. It checks that restoring a disabled state does not
+briefly take a pending software interrupt, and exercises nested `DI()`/`EI()`
+with interrupts initially on and off. The host regression is in
+`test/host/test_interrupt_state.c`.
 
 ### References
 
@@ -131,9 +168,9 @@ Nothing detects an overflow: RAM is flat and the kernel uses no PMP, so the
 stack runs into the boot stack below it. The `interrupt` QEMU suite measures
 the stack high-water across its normal paths, including a handler sending a
 message to a waiting higher-priority task, the end of a timed wait, and a task
-switch. Diagnostic-only copies of the QEMU suite recorded 212 bytes with
-`debug` and 56 bytes with `minsizerel`. These are observed counts and can depend
-on interrupt timing. The test fails above 768 bytes. The suite covers its tested
+switch. Rechecked on 2026-11-09, the high-water was 212 bytes with `debug` and
+56 bytes with `minsizerel`. These are observed counts and can depend on
+interrupt timing. The test fails above 768 bytes. The suite covers its tested
 paths, not the worst case of a handler you write.
 
 `tkmc_isr_depth` counts the traps that are running. The ISR state
@@ -142,10 +179,11 @@ paths, not the worst case of a handler you write.
 The stack is sized for nesting: a trap that starts inside a handler pushes a
 128-byte frame and its own handler's frames on the same stack. The PLIC has 7
 priorities, which is the deepest nesting there can be, so 2048 bytes leave about
-290 bytes for each level. Two levels (the UART interrupted by the RTC) use 468
-bytes with `debug` and 256 bytes with `minsizerel`; the test fails above 1024.
-Diagnostic-only copies of the QEMU suite recorded these high-water counts, and
-interrupt timing can affect them. Deeper nesting is not measured,
+290 bytes for each level. Rechecked on 2026-11-09, two levels (the UART
+interrupted by the RTC) used 468 bytes with `debug` and 256 bytes with
+`minsizerel`; the test fails above 1024. Diagnostic-only copies of the QEMU
+suite recorded these high-water counts, and interrupt timing can affect them.
+Deeper nesting is not measured,
 because the QEMU `virt` board has only two
 sources that software can raise.
 
@@ -160,7 +198,8 @@ returns. The depth is at most 7, the number of priorities.
 - A handler must turn interrupts off again with `DI()` before it returns. The
   kernel does not do it: the threshold, the completion and the trap frame are
   put back with interrupts as the handler left them, and an interrupt in the
-  middle would find them half done.
+  middle would find them half done. `EI()` with the value that a `DI()` saved
+  on entry, when interrupts were off, turns them off as well.
 - The timer and software interrupts do not nest. The kernel masks them (the
   `MTIE` and `MSIE` bits of `mie`) from the entry of the outermost external
   trap until its exit, whether the handler turns interrupts on or not. A tick

@@ -1,6 +1,9 @@
 # Interrupt-disabled time of a mailbox send into a long queue
 
-Measured on 2026-11-09 (JST).
+Measured on 2026-11-09 (JST), after the EI restore change, with QEMU
+`-icount shift=5` in Debug and MinSizeRel. The counts are the instructions
+retired by the call. The existing 31250-instruction budget holds in both
+presets.
 
 ## Purpose
 
@@ -54,7 +57,8 @@ below says how far past it the budget still holds.
 
 The suite is registered only when QEMU is found at configure time and
 `QEMU_ICOUNT_SHIFT` is a number of 8 or less. The counts do not depend on host
-timing. They were the same in two runs of each preset.
+timing. The pre-change results were the same in two runs of each preset; the
+post-change values shown here were rechecked on 2026-11-09.
 
 ## What is measured
 
@@ -97,9 +101,9 @@ share of the budget is in brackets.
 
 | Case | `debug` | `minsizerel` |
 |---|---|---|
-| before the last message, 1 queued | 279 (0.9%) | 67 (0.2%) |
-| into the middle, 256 queued | 3735 (12%) | 579 (1.9%) |
-| before the last message, 256 queued | 7164 (23%) | 1087 (3.5%) |
+| before the last message, 1 queued | 282 (0.9%) | 68 (0.2%) |
+| into the middle, 256 queued | 3738 (12%) | 580 (1.9%) |
+| before the last message, 256 queued | 7167 (23%) | 1088 (3.5%) |
 
 The sends that take a constant number of steps cost at most 41 instructions more
 than the same send into an empty mailbox in `debug` (the send ahead of every
@@ -108,16 +112,16 @@ message; 16 for the send behind the last) and at most 8 in `minsizerel` (3), wit
 
 The send that scans takes 27 instructions per visited message in `debug` and 4
 in `minsizerel`. The three counts of each preset lie on one line, so the cost of
-a send that visits `n` messages is 252 + 27 `n` instructions in `debug` and
-63 + 4 `n` in `minsizerel`. The middle send visits 129 messages and the formula
-gives 3735 and 579, the counts above.
+a send that visits `n` messages is 255 + 27 `n` instructions in `debug` and
+64 + 4 `n` in `minsizerel`. The middle send visits 129 messages and the formula
+gives 3738 and 580, the counts above.
 
 By calculation, not by measurement, the worst send stays inside the budget for
 a queue of up to:
 
 | | `debug` | `minsizerel` |
 |---|---|---|
-| messages | about 1148 | about 7796 |
+| messages | about 1147 | about 7796 |
 
 That is 4.5 times the 256 that the kernel promises in `debug`.
 

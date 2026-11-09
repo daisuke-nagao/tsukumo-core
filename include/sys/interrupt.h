@@ -28,12 +28,15 @@ extern "C" {
     intsts |= ~MSTATUS_MIE;                                                    \
   } while (0)
 
+// EI(intsts) accepts a DI() token or zero and restores the saved MIE regardless
+// of current MIE. EI(0) enables MIE. DI() fills the token's other bits with
+// ones, so EI updates only MIE. A saved disabled state uses csrci directly.
 #define EI(intsts)                                                             \
   do {                                                                         \
-    if (intsts == 0) {                                                         \
+    if ((intsts) == 0 || ((intsts) & MSTATUS_MIE) != 0) {                      \
       asm volatile("csrsi mstatus, %0" ::"i"(MSTATUS_MIE) : "memory");         \
     } else {                                                                   \
-      asm volatile("csrs mstatus, %0" ::"r"(intsts & MSTATUS_MIE) : "memory"); \
+      asm volatile("csrci mstatus, %0" ::"i"(MSTATUS_MIE) : "memory");         \
     }                                                                          \
   } while (0)
 

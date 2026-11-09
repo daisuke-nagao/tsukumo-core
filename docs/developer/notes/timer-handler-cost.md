@@ -1,6 +1,8 @@
 # Timer handler cost when many waits end in one tick
 
-Measured on 2026-11-05 (JST).
+Measured on 2026-11-09 (JST), after the EI restore change, with QEMU
+`-icount shift=5` in Debug and MinSizeRel. All nine handler counts match the
+pre-change measurements.
 
 ## Purpose
 
@@ -57,7 +59,8 @@ instructions only under `-icount`.
 ## Results
 
 Instructions in the timer handler, under QEMU `-icount shift=5`. The counts do
-not depend on host timing. They were the same in two runs of each preset.
+not depend on host timing. The pre-change results were the same in two runs of
+each preset; the post-change values shown here were rechecked on 2026-11-09.
 
 | Waits ended in one call | `debug` | `minsizerel` |
 |---|---|---|

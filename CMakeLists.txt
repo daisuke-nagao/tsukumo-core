@@ -475,6 +475,7 @@ add_test_suite(semaphore-wait-release SOURCES
                test/suites/semaphore_wait_release.c)
 add_test_suite(mailbox SOURCES test/suites/mailbox.c)
 add_test_suite(wait-context SOURCES test/suites/wait_context.c)
+add_test_suite(interrupt-state SOURCES test/suites/interrupt_state.c)
 # External interrupts through the PLIC, and the stack the traps run on. The
 # test-only link wraps of schedule() and tkmc_timer_handler() keep the mcause of
 # the trap that switches to a task the handler woke, and where the C part of

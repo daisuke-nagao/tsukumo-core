@@ -1,7 +1,7 @@
 # Implemented kernel contracts and specification review
 
-Reviewed on 2026-11-08 (JST), against the official Japanese
-[muT-Kernel 3.0 specification Ver.3.00.01](https://tron-forum.github.io/mtk3_spec_jp/index.html).
+Initial review on 2026-11-08 (JST), with EI follow-up on 2026-11-09, against
+the official Japanese [μT-Kernel 3.0 specification Ver.3.00.01](https://tron-forum.github.io/mtk3_spec_jp/index.html).
 The implementation under review is RV32 `rv32imac`/`ilp32`, single hart,
 with the service profiles in `include/sys/profile.h`.
 
@@ -21,18 +21,25 @@ The assessment labels are:
 - **Defined choice** means the specification permits the implementation choice.
 - **Evidence gap** means the listed requirement needs further verification.
 
-The baseline host build passed all 128 cases with AddressSanitizer and UBSan.
-The RV32 Debug build passed all 82 CTests, including 33 host-clock tests.
-Supplemental host probes passed three task cases and four synchronization
-cases. RV32 compile probes checked integer widths, packet member order and
-the interrupt-handler interface. Actual RV32 execution reproduced the EI
-restoration discrepancy on both clocks, also at `-O2` on the host clock.
+The pre-fix review baseline passed 128 host cases with AddressSanitizer and
+UBSan. Its RV32 Debug build passed all 82 CTests, including 33 host-clock
+tests. Supplemental host probes passed three task cases and four
+synchronization cases. RV32 compile probes checked integer widths, packet
+member order and the interrupt-handler interface. The actual RV32 probe
+reproduced the EI restoration discrepancy on both clocks, also at `-O2` on the
+host clock.
+
+The 2026-11-09 follow-up passed 135 host cases with AddressSanitizer and UBSan
+and all 84 RV32 Debug CTests. The `interrupt-state` suite passed on both QEMU
+clocks in Debug, `-O2` and MinSizeRel. The existing `interrupt` suite passed
+on both QEMU clocks in MinSizeRel. The `timer-cost` and `mailbox-cost` suites
+passed with the instruction-count clock in MinSizeRel. Their measurements are
+recorded in the developer notes.
 
 The host fake machine observes state and queues. Target suites provide the
 blocked-call return values, register restoration, trap entry and delayed
-dispatch evidence. Detailed observation logs and experimental sources are
-kept under `.cache/conformance-task`, `.cache/conformance-sync`,
-`.cache/conformance-lowlevel` and `.cache/rtos-project-sync`.
+dispatch evidence. The probe descriptions and commands needed to reproduce
+the reviewed findings appear below.
 
 ## API inventory
 
@@ -97,7 +104,7 @@ and [I/O access chapter](https://tron-forum.github.io/mtk3_spec_jp/io_port_manag
 | `EnableInt` | Difference / Defined choice | `kernel/intctl.c`, `test_intctl.c`, `interrupt`. Priority/source enabling and pending delivery checked. Profile-selected declaration fails the consumer probe below. |
 | `DisableInt` | Checked / Defined choice | `kernel/intctl.c`, `test_intctl.c`, `interrupt`. Source masking, own-source disable and completion handling. Controller-profile declaration discrepancy is shared. |
 | `DI` | Checked | `include/sys/interrupt.h`, `wait-context`, RV32 probe. Atomic MIE save/clear and caller-variable assignment. |
-| `EI` | Difference | `include/sys/interrupt.h`, RV32 semantic probe below. Saved-disabled restoration fails after an intervening enable. |
+| `EI` | Checked (previously Difference) | `include/sys/interrupt.h`, RV32 semantic probe below. The saved-disabled restoration error was reproduced and is now covered by `test/suites/interrupt_state.c` and `test/host/test_interrupt_state.c`. |
 | `isDI` | Checked | `include/sys/interrupt.h`, `wait-context`, RV32 probe. Tests the MIE bit of the saved token. |
 | `in_b` | Checked | `include/sys/ioport.h`, generated RV32 assembly. Volatile byte load. |
 | `in_h` | Checked | `include/sys/ioport.h`, generated RV32 assembly. Volatile halfword load. |
@@ -108,16 +115,17 @@ and [I/O access chapter](https://tron-forum.github.io/mtk3_spec_jp/io_port_manag
 | `out_w` | Checked | `include/sys/ioport.h`, generated RV32 assembly. Volatile word store. |
 | `out_d` | Checked / Defined choice | `include/sys/ioport.h`, generated RV32 assembly. Two 32-bit volatile writes, lower half first. |
 
-## Confirmed differences
+## Findings and follow-up
 
-### EI cannot restore a saved disabled state
+### Historical finding: EI did not restore a saved disabled state
 
-**Priority P1.** `include/sys/interrupt.h` restores a nonzero saved token with
-`csrs`. That instruction sets selected bits and leaves a currently set MIE
-unchanged when the saved MIE is zero. The EI contract requires restoration
-of the saved state. The sequence below ends with MIE enabled on both QEMU
-clocks, although the saved state is disabled. Other interrupt sources were
-masked so the observation concerns the CSR state itself.
+**Historical P1 finding, before the EI correction.** The pre-fix
+`include/sys/interrupt.h` restored a nonzero saved token with `csrs`. That
+instruction sets selected bits and leaves a currently set MIE unchanged when
+the saved MIE is zero. The EI contract requires restoration of the saved
+state. The sequence below ended with MIE enabled on both QEMU clocks, although
+the saved state was disabled. Other interrupt sources were masked so the
+observation concerns the CSR state itself.
 [EI contract](https://tron-forum.github.io/mtk3_spec_jp/interrupt_management_functions_sm.html)
 
 ```c
@@ -135,10 +143,23 @@ The recorded output was `saved_disabled=1` followed by
 host clock. This establishes the restoration error. Downstream task or queue
 damage was outside the probe.
 
-Future acceptance must cover saved-enabled and saved-disabled tokens after
-both current MIE states, ordinary nested DI/EI and `EI(0)`, preserving the
-other CSR bits. The regular nesting case already covered by existing tests
-keeps MIE disabled until restoration, so it passes with this implementation.
+At review time, acceptance required saved-enabled and saved-disabled tokens
+after both current MIE states, ordinary nested DI/EI and `EI(0)`, while
+preserving the other CSR bits. The regular nesting case then covered by
+existing tests kept MIE disabled until restoration, so it passed despite the
+reported defect.
+
+**Corrected on 2026-11-09.** EI restores the saved MIE bit or enables MIE
+for `EI(0)`, while preserving other CSR bits. The RV32 regression in
+`test/suites/interrupt_state.c` covers all saved/current MIE combinations,
+`EI(0)`, ordinary nested use, and a pending software interrupt while restoring
+disabled state. The host regression is in `test/host/test_interrupt_state.c`.
+The probe below records the earlier failure. The 2026-11-09 verification
+summary appears in [Coverage and evidence](#coverage-and-evidence). Updated
+timer, mailbox, and interrupt-stack measurements are recorded in the
+[timer delay budget](../developer/notes/timer-delay-budget.md),
+[mailbox budget](../developer/notes/mailbox-di-budget.md), and
+[interrupt notes](interrupts.md).
 
 ### Interrupt profiles disagree with the exported interface
 
@@ -333,8 +354,9 @@ qemu-system-riscv32 -machine virt -bios none -nographic -kernel ei-probe.elf
 qemu-system-riscv32 -machine virt -bios none -nographic -kernel ei-probe.elf -icount shift=5,sleep=off
 ```
 
-The expected restored MIE is zero. Both executions print `restored_mie=1`
-with the reviewed implementation. The observation ELF exits through the QEMU
+The expected restored MIE is zero. The original implementation printed
+`restored_mie=1`; the corrected regression checks that MIE is restored to zero.
+The observation ELF exits through the QEMU
 finisher with status zero, so the printed state supplies the discrepancy
 evidence. Its entry point and stack are defined by the shown linker script.
 
