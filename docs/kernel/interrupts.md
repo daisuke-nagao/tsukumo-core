@@ -100,32 +100,19 @@ the table to the others:
 | Call | In a handler |
 | --- | --- |
 | `tk_sta_tsk`, `tk_rel_wai`, `tk_wup_tsk`, `tk_sig_sem`, `tk_set_flg` | Required callable APIs; allowed by this kernel. |
-| `tk_cre_tsk`, `tk_cre_sem`, `tk_cre_flg`, `tk_cre_mbx`, `tk_del_sem`, `tk_del_mbx`, `tk_clr_flg`, `tk_snd_mbx` | This kernel's policy returns `E_CTX` and changes nothing. In particular, `tk_snd_mbx` from an ISR returns `E_CTX`; notify a task with `tk_sig_sem` or `tk_set_flg` and let it send the message. |
+| `tk_cre_tsk`, `tk_cre_sem`, `tk_cre_flg`, `tk_cre_mbx`, `tk_del_sem`, `tk_del_mbx`, `tk_clr_flg`, `tk_snd_mbx` | The specification makes availability implementation-dependent. This kernel allows these calls with valid arguments and their normal error returns. |
 | `tk_slp_tsk`, `tk_dly_tsk`, `tk_wai_sem`, `tk_wai_flg`, `tk_rcv_mbx`, `tk_def_int` | Return `E_CTX` and change nothing (see their own rules). |
 | `tk_ext_tsk`, `tk_exd_tsk` | Stop the kernel. |
 
-To pass a message to a task from a handler, signal a semaphore or set an event
-flag, and let the task send or receive the message.
-
-The test is `tkmc_in_isr()` alone, so interrupts off is not a reason to refuse:
-a task inside `DI()` and the startup code, which runs before the first task,
-still create objects and send messages. The check comes after the argument
-checks that need no object state and before every check that does:
-
-| Call | Order of errors |
-| --- | --- |
-| `tk_cre_*` | `E_PAR` or `E_RSATR`, `E_CTX`, `E_LIMIT` |
-| `tk_del_sem`, `tk_del_mbx`, `tk_clr_flg` | `E_ID`, `E_CTX`, `E_NOEXS` |
-| `tk_snd_mbx` | `E_ID`, `E_PAR` (NULL message), `E_CTX`, `E_NOEXS`, `E_PAR` (priority) |
-
-The specification says calls beyond its required list may be available
-depending on the implementation; its API notation also explains that `×`
-context cells can represent implementation-dependent availability. This
-kernel's `E_CTX` result for the eight calls above is therefore a policy choice,
-with a compatibility consequence for applications that sent mail from an
-ISR. See the specification's [System Calls](https://tron-forum.github.io/mtk3_spec_en/system_calls.html#apis-possible-from-task-independent-portion)
-and [API Notation](https://tron-forum.github.io/mtk3_spec_en/api_notation.html#valid-context).
-The kernel has no quasi-task portion, so the distinction does not arise.
+The μT-Kernel 3.0.01 specification requires the first group to be callable from
+the task-independent portion. Availability of the eight calls in the second
+group is implementation-dependent. Its [System
+Calls](https://tron-forum.github.io/mtk3_spec_jp/system_calls.html#system_call_possible_from_task_independent_portion)
+and [API Notation](https://tron-forum.github.io/mtk3_spec_jp/api_notation.html#api_notation_context)
+sections describe this distinction. The verified API availability contract
+covers calls from a single-level handler. Nested-handler support requires
+separate validation. The kernel has no quasi-task portion, so that distinction
+does not arise.
 
 ## Interrupt stack
 
@@ -142,11 +129,12 @@ launching the first task, and a trap in that window would overwrite its frame.
 
 Nothing detects an overflow: RAM is flat and the kernel uses no PMP, so the
 stack runs into the boot stack below it. The `interrupt` QEMU suite measures
-how much of the stack the deepest paths use (a handler that signals a semaphore
-that a higher-priority task waits for, the end of a timed wait, and a task
-switch): 196 bytes with `debug` and 64 bytes with `minsizerel`. The test fails
-above 768 bytes. It covers those paths, not the worst case of a handler you
-write.
+the stack high-water across its normal paths, including a handler sending a
+message to a waiting higher-priority task, the end of a timed wait, and a task
+switch. Diagnostic-only copies of the QEMU suite recorded 212 bytes with
+`debug` and 56 bytes with `minsizerel`. These are observed counts and can depend
+on interrupt timing. The test fails above 768 bytes. The suite covers its tested
+paths, not the worst case of a handler you write.
 
 `tkmc_isr_depth` counts the traps that are running. The ISR state
 (`tkmc_in_isr()`) holds while it is not 0.
@@ -155,8 +143,10 @@ The stack is sized for nesting: a trap that starts inside a handler pushes a
 128-byte frame and its own handler's frames on the same stack. The PLIC has 7
 priorities, which is the deepest nesting there can be, so 2048 bytes leave about
 290 bytes for each level. Two levels (the UART interrupted by the RTC) use 468
-bytes with `debug` and 240 bytes with `minsizerel`; the test fails above 1024.
-Deeper nesting is not measured, because the QEMU `virt` board has only two
+bytes with `debug` and 256 bytes with `minsizerel`; the test fails above 1024.
+Diagnostic-only copies of the QEMU suite recorded these high-water counts, and
+interrupt timing can affect them. Deeper nesting is not measured,
+because the QEMU `virt` board has only two
 sources that software can raise.
 
 ## Nested interrupts

@@ -19,14 +19,9 @@ test_a_trap_inside_a_trap_is_still_the_isr_state_for_every_wait(void);
 extern void test_isr_and_absent_current_preserve_argument_error_priority(void);
 
 extern void
-test_a_call_the_isr_state_may_not_make_is_refused_without_changes(void);
-extern void
-test_the_same_calls_work_in_a_task_with_interrupts_off_and_at_boot(void);
-extern void
-test_the_isr_check_comes_after_the_argument_checks_and_before_the_object(void);
-extern void test_the_isr_check_comes_before_running_out_of_objects(void);
-extern void
-test_the_calls_the_specification_allows_in_the_isr_state_succeed(void);
+test_optional_calls_succeed_in_an_isr_and_restore_interrupt_state(void);
+extern void test_isr_mailbox_sends_keep_fifo_and_priority_order(void);
+extern void test_isr_mailbox_send_wakes_waiter_and_defers_its_switch(void);
 
 extern void test_semaphore_departure_attributes_on_timeout(void);
 extern void test_semaphore_departure_attributes_on_release(void);
@@ -196,12 +191,9 @@ int main(void) {
   RUN_TEST(test_isr_and_absent_current_refuse_every_wait_without_changes);
   RUN_TEST(test_a_trap_inside_a_trap_is_still_the_isr_state_for_every_wait);
   RUN_TEST(test_isr_and_absent_current_preserve_argument_error_priority);
-  RUN_TEST(test_a_call_the_isr_state_may_not_make_is_refused_without_changes);
-  RUN_TEST(test_the_same_calls_work_in_a_task_with_interrupts_off_and_at_boot);
-  RUN_TEST(
-      test_the_isr_check_comes_after_the_argument_checks_and_before_the_object);
-  RUN_TEST(test_the_isr_check_comes_before_running_out_of_objects);
-  RUN_TEST(test_the_calls_the_specification_allows_in_the_isr_state_succeed);
+  RUN_TEST(test_optional_calls_succeed_in_an_isr_and_restore_interrupt_state);
+  RUN_TEST(test_isr_mailbox_sends_keep_fifo_and_priority_order);
+  RUN_TEST(test_isr_mailbox_send_wakes_waiter_and_defers_its_switch);
   RUN_TEST(test_task_start_rebuilds_a_damaged_frame);
   RUN_TEST(test_task_start_clears_previous_wakeup_and_wait_state);
   RUN_TEST(test_starting_a_non_dormant_task_leaves_it_unchanged);

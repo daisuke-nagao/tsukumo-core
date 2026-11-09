@@ -53,8 +53,12 @@ static struct {
 
 static ID semid, flgid, mbxid, gate;
 static T_MSG message, sentinel;
+static volatile ID probe_task, probe_sem, probe_flag, probe_mbx,
+    probe_deleted_mbx;
+static T_MSG probe_message;
 static volatile BOOL armed, observed, child_done, child_in_isr;
-static volatile ER child_result, notified, flagged;
+static volatile ER child_result, notified, flagged, probe_sem_deleted,
+    probe_mbx_deleted, probe_flag_cleared, probe_message_sent;
 static volatile UINT dispatches;
 static volatile BOOL quiet_armed, quiet_seen;
 static volatile UINT quiet_dispatches;
@@ -174,48 +178,54 @@ static void probe_waits(void) {
   __asm__ volatile("csrw mie, %0" ::"r"(saved_sources) : "memory");
 }
 
-// These eight calls are refused with E_CTX under this kernel's policy, and
-// change nothing. The arguments are valid, so context alone causes refusal.
-static void probe_refused_calls(void) {
-  static T_MSG probe_message;
+static void never_run(INT stacd, void *exinf) {
+  (void)stacd;
+  (void)exinf;
+}
+
+static void check_isr_call(ER result, BOOL returns_id, const char *reason) {
+  if ((returns_id ? result <= E_OK : result != E_OK) || irq_enabled()) {
+    fail(reason);
+  }
+}
+
+static void probe_compatible_calls(void) {
   static UW probe_stack[256] __attribute__((aligned(16)));
-  for (UINT api = 0; api < 8; ++api) {
-    capture();
-    ER result;
-    switch (api) {
-    case 0:
-      result = tk_cre_tsk(&(T_CTSK){.tskatr = TA_HLNG | TA_USERBUF,
-                                    .task = (FP)probe_stack,
+  probe_task = tk_cre_tsk(&(T_CTSK){.tskatr = TA_HLNG | TA_USERBUF,
+                                    .task = (FP)never_run,
                                     .itskpri = 3,
                                     .stksz = sizeof(probe_stack),
                                     .bufptr = probe_stack});
-      break;
-    case 1:
-      result = tk_cre_sem(&(T_CSEM){.maxsem = 1});
-      break;
-    case 2:
-      result = tk_cre_flg(&(T_CFLG){.flgatr = TA_WSGL});
-      break;
-    case 3:
-      result = tk_cre_mbx(&(T_CMBX){.mbxatr = TA_TFIFO});
-      break;
-    case 4:
-      result = tk_clr_flg(flgid, 0);
-      break;
-    case 5:
-      result = tk_del_sem(semid);
-      break;
-    case 6:
-      result = tk_del_mbx(mbxid);
-      break;
-    default:
-      result = tk_snd_mbx(mbxid, &probe_message);
-      break;
-    }
-    if (result != E_CTX || !unchanged()) {
-      fail("an ISR call that is not allowed was not refused, or changed state");
-    }
-  }
+  check_isr_call(probe_task, TRUE, "tk_cre_tsk failed or changed IRQ state");
+
+  probe_sem = tk_cre_sem(&(T_CSEM){.maxsem = 1});
+  check_isr_call(probe_sem, TRUE, "tk_cre_sem failed or changed IRQ state");
+
+  probe_flag = tk_cre_flg(&(T_CFLG){.flgatr = TA_WSGL, .iflgptn = 1});
+  check_isr_call(probe_flag, TRUE, "tk_cre_flg failed or changed IRQ state");
+
+  probe_mbx = tk_cre_mbx(&(T_CMBX){.mbxatr = TA_TFIFO});
+  check_isr_call(probe_mbx, TRUE, "tk_cre_mbx failed or changed IRQ state");
+
+  probe_deleted_mbx = tk_cre_mbx(&(T_CMBX){.mbxatr = TA_TFIFO});
+  check_isr_call(probe_deleted_mbx, TRUE,
+                 "second tk_cre_mbx failed or changed IRQ state");
+
+  probe_flag_cleared = tk_clr_flg(probe_flag, 0);
+  check_isr_call(probe_flag_cleared, FALSE,
+                 "tk_clr_flg failed or changed IRQ state");
+
+  probe_sem_deleted = tk_del_sem(probe_sem);
+  check_isr_call(probe_sem_deleted, FALSE,
+                 "tk_del_sem failed or changed IRQ state");
+
+  probe_mbx_deleted = tk_del_mbx(probe_deleted_mbx);
+  check_isr_call(probe_mbx_deleted, FALSE,
+                 "tk_del_mbx failed or changed IRQ state");
+
+  probe_message_sent = tk_snd_mbx(probe_mbx, &probe_message);
+  check_isr_call(probe_message_sent, FALSE,
+                 "tk_snd_mbx failed or changed IRQ state");
 }
 
 static __attribute__((noreturn)) void terminate_invalid(void) {
@@ -294,7 +304,7 @@ void __wrap_tkmc_timer_handler(void) {
     terminate_invalid();
   }
   probe_waits();
-  probe_refused_calls();
+  probe_compatible_calls();
   flagged = tk_set_flg(flgid, 2);
   notified = tk_sig_sem(gate, 1);
   if (child_done) {
@@ -311,7 +321,7 @@ static void child(void *arg) {
   test_checkpoint();
 }
 
-static void real_isr_refuses_waits_then_dispatches(void) {
+static void real_isr_compatible_calls_then_dispatches(void) {
   make_objects();
   gate = tk_cre_sem(&(T_CSEM){.maxsem = 1});
   TEST_ASSERT_GREATER_THAN(0, gate);
@@ -330,6 +340,24 @@ static void real_isr_refuses_waits_then_dispatches(void) {
   TEST_ASSERT_EQUAL(E_OK, notified);
   TEST_ASSERT_EQUAL(E_OK, flagged);
   TEST_ASSERT_EQUAL(E_OK, deleted);
+  TEST_ASSERT_GREATER_THAN(0, probe_task);
+  TEST_ASSERT_GREATER_THAN(0, probe_sem);
+  TEST_ASSERT_GREATER_THAN(0, probe_flag);
+  TEST_ASSERT_GREATER_THAN(0, probe_mbx);
+  TEST_ASSERT_GREATER_THAN(0, probe_deleted_mbx);
+  TEST_ASSERT_EQUAL(E_OK, probe_flag_cleared);
+  TEST_ASSERT_EQUAL(E_OK, probe_sem_deleted);
+  TEST_ASSERT_EQUAL(E_OK, probe_mbx_deleted);
+  TEST_ASSERT_EQUAL(E_OK, probe_message_sent);
+  TEST_ASSERT_EQUAL(E_NOEXS, tk_sig_sem(probe_sem, 1));
+  TEST_ASSERT_EQUAL(E_NOEXS, tk_snd_mbx(probe_deleted_mbx, &probe_message));
+  UINT pattern = 1;
+  TEST_ASSERT_EQUAL(E_TMOUT,
+                    tk_wai_flg(probe_flag, 1, TWF_ORW, &pattern, TMO_POL));
+  T_MSG *received = NULL;
+  TEST_ASSERT_EQUAL(E_OK, tk_rcv_mbx(probe_mbx, &received, TMO_POL));
+  TEST_ASSERT_EQUAL_PTR(&probe_message, received);
+  TEST_ASSERT_EQUAL(E_OK, tk_del_mbx(probe_mbx));
   TEST_ASSERT_TRUE(child_done);
   TEST_ASSERT_FALSE(child_in_isr);
   TEST_ASSERT_EQUAL(E_OK, child_result);
@@ -363,8 +391,8 @@ static void real_isr_refuses_waits_then_dispatches(void) {
 
 #if CONTEXT_TEST_MODE == 0
 static const test_case_t cases[] = {
-    {"real_isr_refuses_waits_then_dispatches",
-     real_isr_refuses_waits_then_dispatches},
+    {"real_isr_compatible_calls_then_dispatches",
+     real_isr_compatible_calls_then_dispatches},
 };
 TEST_SUITE_MAIN("task-context", cases, 4000)
 #else

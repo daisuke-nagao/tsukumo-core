@@ -147,11 +147,8 @@ void tkmc_init_tcb(void) {
  *   1..CFN_MAX_PRI, a stack of at most the 128 byte saved frame, a stack that
  *   runs past the end of the address space, or one that does not end on a 16
  *   byte boundary; E_RSATR for an attribute the kernel does not support, which
- *   is checked before the parameters; E_CTX from an interrupt handler by
- *   kernel policy (checked after the parameters and before the free list; a
- *   task with interrupts off and the boot code, which
- *   has no current task, are not refused); E_LIMIT when no TCB is free. A
- *   refused call changes nothing.
+ *   is checked before the parameters; E_LIMIT when no TCB is free. A refused
+ *   call changes nothing.
  *
  * The size check only tells that the frame fits. How deep the task can go
  * below it is up to the caller, who must also leave room for the kernel: an
@@ -201,10 +198,6 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
   if ((stack_begin + stack_size) % STACK_ALIGN != 0) {
     return E_PAR;
   }
-  if (tkmc_in_isr()) {
-    return E_CTX;
-  }
-
   /* Calculate stack boundaries */
   UB *stack_end = (UB *)(stack_begin + stack_size);
 

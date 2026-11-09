@@ -38,12 +38,10 @@ static void insert_msg_fifo(MBXCB *mbxcb, T_MSG *msg) {
 // Interrupts are disabled for the call. A message that goes at the head or at
 // the tail takes a constant number of steps. One that goes between two queued
 // messages takes a number of steps up to the number of messages ahead of it, so
-// that case is as long as the queue is. Neither the kernel nor the
-// specification bounds the queue, so the time is held to a budget instead: with
-// up to 256 messages queued, the send takes at most 31250 instructions. That is
-// a promise about the time, not a limit on the queue. qemu-mailbox-cost checks
-// it, and docs/developer/notes/mailbox-di-budget.md has the counts and how far
-// beyond 256 messages the budget still holds.
+// Task-context measurements in Debug and MinSizeRel under QEMU meet the
+// 31250-instruction reference budget for queues up to 256 messages. The queue
+// remains unbounded. qemu-mailbox-cost checks the bound. Counts are in
+// docs/developer/notes/mailbox-di-budget.md.
 //
 // Not done: one list per priority, which would make every insert constant but
 // needs a limit on msgpri, and the specification gives none (any positive value
@@ -175,9 +173,7 @@ void tkmc_init_mbxcb(void) {
  * @param[in] pk_cmbx Pointer to the mailbox creation parameter structure.
  * @return The ID of the created mailbox, or an error code: E_PAR for a NULL
  *         packet, E_RSATR for an attribute bit the kernel does not support,
- *         E_CTX from an interrupt handler by kernel policy (a task with
- *         interrupts off and the boot code are not refused), E_LIMIT when no
- *         mailbox is left. A refusal changes nothing.
+ *         E_LIMIT when no mailbox is left. A refusal changes nothing.
  *
  * @post If successful, a new mailbox is created and removed from the free list.
  * @invariant The free list must always contain unallocated MBXCBs.
@@ -195,10 +191,6 @@ ID tk_cre_mbx(CONST T_CMBX *pk_cmbx) {
 
   if ((mbxatr & ~VALID_MBXATR) != 0) {
     return E_RSATR; // Return error for invalid attributes.
-  }
-
-  if (tkmc_in_isr()) {
-    return E_CTX;
   }
 
   ID new_mbxid = 0; // Initialize mailbox ID to 0.
@@ -245,18 +237,11 @@ ID tk_cre_mbx(CONST T_CMBX *pk_cmbx) {
  * link is undefined afterwards and they may be sent again. Interrupts are
  * disabled for a time that does not depend on the number of queued messages
  * (it grows with the number of waiting tasks, at most CFN_MAX_TSKID).
- *
- * Returns E_ID for an ID out of range, then E_CTX from an interrupt handler,
- * by kernel policy (nothing is changed, the waiters stay), then E_NOEXS.
  */
 ER tk_del_mbx(ID mbxid) {
   if (!tkmc_id_in_range(mbxid, CFN_MAX_MBXID)) {
     return E_ID;
   }
-  if (tkmc_in_isr()) {
-    return E_CTX;
-  }
-
   MBXCB *mbxcb = &tkmc_mbxcbs[mbxid - 1];
   UINT intsts = 0;
 
@@ -297,19 +282,14 @@ ER tk_del_mbx(ID mbxid) {
  *
  * @param[in] mbxid Mailbox ID.
  * @param[in] pk_msg Pointer to the message to be sent.
- * @return E_OK on success, or an error code: E_ID, E_PAR for a NULL message,
- *         then E_CTX from an interrupt handler by kernel policy (nothing is
- *         changed: the message is not queued and no waiting task gets it; a
- *         task with interrupts off and the boot code are not refused), then
- *         E_NOEXS, then E_PAR for a message of a TA_MPRI mailbox whose msgpri
- *         is not positive.
+ * @return E_OK on success, or an error code such as E_ID, E_PAR, or E_NOEXS.
  *
  * Interrupts are disabled for a time that does not depend on the number of
  * queued messages, except for a TA_MPRI message that goes between two queued
  * ones (see insert_msg_pri()), whose time grows with the messages ahead of it.
- * In the measured QEMU `debug` and `minsizerel` configurations it stays within
- * 31250 instructions for up to 256 queued messages; this is not a hardware-wide
- * timing guarantee.
+ * The QEMU reference is for task-context sends. Hardware latency requires
+ * target-specific measurement.
+ *
  *
  * @pre mbxid > 0 && mbxid <= CFN_MAX_MBXID
  * @pre pk_msg != NULL
@@ -326,10 +306,6 @@ ER tk_snd_mbx(ID mbxid, T_MSG *pk_msg) {
   // Validate the message pointer.
   if (pk_msg == NULL) {
     return E_PAR; // Invalid parameter.
-  }
-
-  if (tkmc_in_isr()) {
-    return E_CTX;
   }
 
   // Retrieve the mailbox control block.

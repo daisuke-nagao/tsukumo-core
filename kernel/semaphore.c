@@ -66,9 +66,7 @@ void tkmc_init_semcb(void) {
  * @return Semaphore identifier on success, or an error code: E_PAR for a NULL
  * packet (before any access or allocation), then E_RSATR for an
  * attribute the kernel does not support, then E_PAR for a count out of range,
- * then E_CTX from an interrupt handler by kernel policy (a task with interrupts
- * off and the boot code are not refused), then E_LIMIT when no semaphore is
- * left. A refusal changes nothing.
+ * then E_LIMIT when no semaphore is left. A refusal changes nothing.
  */
 ID tk_cre_sem(CONST T_CSEM *pk_csem) {
   if (pk_csem == NULL) {
@@ -92,10 +90,6 @@ ID tk_cre_sem(CONST T_CSEM *pk_csem) {
   if (maxsem < 1 || maxsem > TK_SEMAPHORE_MAXCNT || isemcnt < 0 ||
       isemcnt > maxsem) {
     return E_PAR;
-  }
-
-  if (tkmc_in_isr()) {
-    return E_CTX;
   }
 
   UINT intsts = 0;
@@ -392,19 +386,12 @@ void tkmc_sem_serve_waiters(SEMCB *semcb) {
  * Tasks that wait for the semaphore are released with E_DLT, and a task switch
  * is requested if one of them should run before the caller.
  *
- * Returns E_ID for an ID out of range, then E_CTX from an interrupt handler,
- * by kernel policy (nothing is changed, the
- * waiters stay), then E_NOEXS.
  */
 ER tk_del_sem(ID semid) {
   // Validate the semaphore ID.
   if (!tkmc_id_in_range(semid, CFN_MAX_SEMID)) {
     return E_ID;
   }
-  if (tkmc_in_isr()) {
-    return E_CTX;
-  }
-
   SEMCB *semcb = &tkmc_semcbs[semid - 1];
   UINT intsts = 0;
   DI(intsts);

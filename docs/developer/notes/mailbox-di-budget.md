@@ -1,6 +1,6 @@
 # Interrupt-disabled time of a mailbox send into a long queue
 
-Measured on 2026-11-06 (JST).
+Measured on 2026-11-09 (JST).
 
 ## Purpose
 
@@ -33,11 +33,10 @@ the shift.
 The count is the instructions between two reads of `minstret` around the call.
 The call runs in the context of a task, so it has no trap entry to leave out.
 
-In the measured QEMU `debug` and `minsizerel` configurations, the budget holds
-for 256 messages in one mailbox. 256 is the number the kernel promises it for.
-These instruction counts are a measured reference, not a hardware-wide timing
-guarantee. It is not a
-limit. The μT-Kernel 3.0 Specification (December 2019, section 4.4.3, "Additional
+In the QEMU Debug and MinSizeRel configurations, the budget holds for 256
+messages in one mailbox. The kernel accepts queues longer than 256 messages.
+The documented budget covers 256 messages. Hardware latency requires target-specific
+measurement. The μT-Kernel 3.0 Specification (December 2019, section 4.4.3, "Additional
 Notes") says that, because the application allocates the message headers, the
 number of messages that can be queued has no limit, and `tk_snd_mbx()` has no
 error for a full queue. So the kernel refuses nothing, and a program that queues
@@ -98,27 +97,27 @@ share of the budget is in brackets.
 
 | Case | `debug` | `minsizerel` |
 |---|---|---|
-| before the last message, 1 queued | 293 (0.9%) | 76 (0.2%) |
-| into the middle, 256 queued | 3749 (12%) | 588 (1.9%) |
-| before the last message, 256 queued | 7178 (23%) | 1096 (3.5%) |
+| before the last message, 1 queued | 279 (0.9%) | 67 (0.2%) |
+| into the middle, 256 queued | 3735 (12%) | 579 (1.9%) |
+| before the last message, 256 queued | 7164 (23%) | 1087 (3.5%) |
 
 The sends that take a constant number of steps cost at most 41 instructions more
 than the same send into an empty mailbox in `debug` (the send ahead of every
-message; 16 for the send behind the last) and at most 9 in `minsizerel` (3), with
+message; 16 for the send behind the last) and at most 8 in `minsizerel` (3), with
 1 or with 256 queued messages. The limit is 100.
 
 The send that scans takes 27 instructions per visited message in `debug` and 4
 in `minsizerel`. The three counts of each preset lie on one line, so the cost of
-a send that visits `n` messages is 266 + 27 `n` instructions in `debug` and
-72 + 4 `n` in `minsizerel`. The middle send visits 129 messages and the formula
-gives 3749 and 588, the counts above.
+a send that visits `n` messages is 252 + 27 `n` instructions in `debug` and
+63 + 4 `n` in `minsizerel`. The middle send visits 129 messages and the formula
+gives 3735 and 579, the counts above.
 
 By calculation, not by measurement, the worst send stays inside the budget for
 a queue of up to:
 
 | | `debug` | `minsizerel` |
 |---|---|---|
-| messages | about 1147 | about 7794 |
+| messages | about 1148 | about 7796 |
 
 That is 4.5 times the 256 that the kernel promises in `debug`.
 
@@ -151,9 +150,7 @@ the budget allows, and this note and the suite change with it.
   has no messages. The wait queue of a `TA_TPRI` mailbox is scanned when a task
   waits (`tk_rcv_mbx()`), and holds at most the tasks the kernel allows
   (`CFN_MAX_TSKID`), so that scan is bounded. It was not measured.
-- The sends were made from a task. This kernel returns `E_CTX` from an interrupt
-  handler for `tk_snd_mbx()` by policy, so no handler sends a message and the
-  trap entry does not belong to this cost. A handler that wakes a task uses
-  `tk_sig_sem()` or `tk_set_flg()`.
+- These counts measure a send from a task and leave out interrupt entry. The
+  handler stack measurement is in [interrupts.md](../../kernel/interrupts.md).
 - The suite runs with one mailbox at a time. The scan touches only the queue of
   the mailbox that is sent to, so other mailboxes do not add to it.

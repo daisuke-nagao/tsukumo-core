@@ -555,9 +555,9 @@ static void a_trap_adds_one_to_the_depth_and_takes_it_off(void) {
 }
 
 // The deepest paths that the cases of this suite can start: a handler that
-// signals a semaphore that a task outranking the case waits for, the end of a
-// timed wait and a task switch of the software interrupt. The stack is painted
-// first, and the words that are still painted afterwards were never used.
+// sends a message to a task that outranks the case, the end of a timed wait
+// and a task switch of the software interrupt. The stack is painted first, and
+// the words that are still painted afterwards were never used.
 enum {
   PAINT = 0x5a5a5a5a,
   HIGH_WATER_MIN = 8,
@@ -581,19 +581,21 @@ static UINT interrupt_stack_high_water(void) {
   return (UINT)((UW)_isr_stack_end - (UW)word);
 }
 
-static ID s_wake;
+static ID s_mbx;
+static T_MSG s_message;
 static volatile BOOL s_timed_waiter_done;
 
-static void waking_semaphore_handler(UINT intno) {
+static void mailbox_handler(UINT intno) {
   out_b(UART_IER, 0);
   s_last_intno = intno;
   s_hits += 1;
-  tk_sig_sem(s_wake, 1);
+  tk_snd_mbx(s_mbx, &s_message);
 }
 
-static void semaphore_receiver(void *arg) {
+static void mailbox_receiver(void *arg) {
   (void)arg;
-  TEST_ASSERT_EQUAL(E_OK, tk_wai_sem(s_wake, 1, TMO_FEVR));
+  T_MSG *received;
+  TEST_ASSERT_EQUAL(E_OK, tk_rcv_mbx(s_mbx, &received, TMO_FEVR));
   test_checkpoint();
 }
 
@@ -607,29 +609,29 @@ static void timed_waiter(void *arg) {
 
 static void the_interrupt_stack_has_room_for_the_deepest_paths(void) {
   reset_counters();
-  s_wake = tk_cre_sem(&(T_CSEM){.exinf = 0, .isemcnt = 0, .maxsem = 1});
+  s_mbx = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = TA_TFIFO});
   s_sem = tk_cre_sem(
       &(T_CSEM){.exinf = 0, .sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
-  TEST_ASSERT_GREATER_THAN(E_OK, s_wake);
+  TEST_ASSERT_GREATER_THAN(E_OK, s_mbx);
   TEST_ASSERT_GREATER_THAN(E_OK, s_sem);
   paint_the_interrupt_stack();
   s_timed_waiter_done = FALSE;
-  test_spawn(semaphore_receiver, CHILD_PRIORITY, NULL);
+  test_spawn(mailbox_receiver, CHILD_PRIORITY, NULL);
   test_spawn(timed_waiter, CHILD_PRIORITY, NULL);
-  const T_DINT dint = {.intatr = TA_HLNG, .inthdr = waking_semaphore_handler};
+  const T_DINT dint = {.intatr = TA_HLNG, .inthdr = mailbox_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
   EnableInt(UART_IRQ, 1);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   clean_up();
   // Let the timed child exercise the timer path before recovery deletes its
-  // semaphore. The receiving child must be freed even when notification failed.
+  // semaphore. The mailbox child must be freed even when notification failed.
   BOOL timed_done = WAIT_UNTIL(s_timed_waiter_done);
   UINT used = interrupt_stack_high_water();
-  ER wake_deleted = tk_del_sem(s_wake);
+  ER mailbox_deleted = tk_del_mbx(s_mbx);
   ER semaphore_deleted = tk_del_sem(s_sem);
   test_join_expect(2);
-  TEST_ASSERT_EQUAL(E_OK, wake_deleted);
+  TEST_ASSERT_EQUAL(E_OK, mailbox_deleted);
   TEST_ASSERT_EQUAL(E_OK, semaphore_deleted);
   TEST_ASSERT_TRUE_MESSAGE(fired, "the handler did not run");
   TEST_ASSERT_TRUE_MESSAGE(timed_done, "the timed waiter did not finish");
