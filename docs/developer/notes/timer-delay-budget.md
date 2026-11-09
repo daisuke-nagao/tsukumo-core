@@ -1,6 +1,9 @@
 # Instruction budget of the timer handler, and its worst case
 
-Measured on 2026-11-06 (JST).
+Measured on 2026-11-09 (JST), after the EI restore change, with QEMU
+`-icount shift=5` in Debug and MinSizeRel. The handler counts match the
+pre-change measurements. Their budget shares and the derived per-edge and
+lateness calculations therefore remain the same.
 
 ## Purpose
 
@@ -44,7 +47,8 @@ case is over the budget. The budget has to hold in the `debug` and the
 
 The suite is registered only when QEMU is found at configure time and
 `QEMU_ICOUNT_SHIFT` is a number of 8 or less. The counts do not depend on host
-timing. They were the same in two runs of each preset.
+timing. The pre-change results were the same in two runs of each preset; the
+post-change values shown here were rechecked on 2026-11-09.
 
 ## What is measured
 

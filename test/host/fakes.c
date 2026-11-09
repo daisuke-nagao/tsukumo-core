@@ -149,7 +149,8 @@ UD host_in(INT port, UINT width) {
 }
 
 // Same contract as the DI()/EI() of the real header: DI returns a value that
-// EI uses to put the previous state back, and EI never disables interrupts.
+// EI uses to put the previous state back, whatever the state is when EI runs,
+// and EI(0) enables interrupts.
 UINT host_di(void) {
   UINT before = s_interrupts_enabled ? MSTATUS_MIE : 0;
   s_interrupts_enabled = 0;
@@ -157,9 +158,7 @@ UINT host_di(void) {
 }
 
 void host_ei(UINT intsts) {
-  if (intsts == 0 || (intsts & MSTATUS_MIE) != 0) {
-    s_interrupts_enabled = 1;
-  }
+  s_interrupts_enabled = intsts == 0 || (intsts & MSTATUS_MIE) != 0;
   // On the target, the task that has just put itself to sleep is switched out
   // right here: it asked for a switch (the software interrupt is pending) and
   // interrupts come back on. Abandon the call instead, and take the interrupt

@@ -53,6 +53,11 @@ extern void test_a_source_a_handler_switched_off_is_still_completed(void);
 extern void test_the_default_handler_completes_before_it_switches_off(void);
 extern void
 test_the_interrupt_calls_leave_interrupts_off_when_they_found_them_off(void);
+extern void
+test_ei_restores_the_state_di_saved_whatever_the_state_before_it(void);
+extern void test_nested_di_ei_restores_each_saved_state(void);
+extern void
+test_an_ei_that_turns_interrupts_off_keeps_the_switch_for_later(void);
 extern void test_list_matches_a_model_under_random_operations(void);
 extern void test_a_safe_traversal_survives_deleting_any_subset_of_nodes(void);
 extern void test_semaphore_waiter_blocks_and_a_signal_wakes_it(void);
@@ -330,5 +335,8 @@ int main(void) {
   RUN_TEST(test_the_default_handler_completes_before_it_switches_off);
   RUN_TEST(
       test_the_interrupt_calls_leave_interrupts_off_when_they_found_them_off);
+  RUN_TEST(test_ei_restores_the_state_di_saved_whatever_the_state_before_it);
+  RUN_TEST(test_nested_di_ei_restores_each_saved_state);
+  RUN_TEST(test_an_ei_that_turns_interrupts_off_keeps_the_switch_for_later);
   return UNITY_END();
 }
