@@ -105,13 +105,25 @@ task cannot wake itself, with interrupts enabled or disabled: the call returns
 wake-up request for it (`E_QOVR` at 4095). Waking another task is allowed from
 any context.
 
+For task, semaphore, event flag and mailbox calls, the specification lists
+`tk_sta_tsk`, `tk_rel_wai`, `tk_wup_tsk`, `tk_sig_sem` and `tk_set_flg` as
+callable from the task-independent portion; availability of other calls there
+is implementation-dependent. This kernel also returns `E_CTX` without changes
+for calls that create or delete an object, `tk_clr_flg` and `tk_snd_mbx`. This
+is a kernel policy: in particular, `tk_snd_mbx` from an ISR
+now returns `E_CTX`; use `tk_sig_sem` or `tk_set_flg` to notify a task, then let
+that task send the message. A task with interrupts off and startup code are not
+refused. See "Calls from a handler" in `docs/kernel/interrupts.md`.
+
 Mailbox calls keep interrupts disabled for a time that does not depend on how
 many messages are queued, which the kernel does not limit. Two calls would have
 depended on it and no longer do: `tk_del_mbx` does not visit the queued messages,
 and a `TA_MPRI` `tk_snd_mbx` of a message with the same or a lower priority than
 the last queued one appends it without a scan. The exception is a `TA_MPRI` message
 that goes between two queued ones: it is found by a scan from the head, so its
-time grows with the number of messages ahead of it. Bounding that would need a
+time grows with the number of messages ahead of it. The 31250-instruction budget
+is measured in the documented QEMU configurations, not a hardware-wide timing
+guarantee. Bounding that would need a
 limit on `msgpri`, which the specification does not give. After `tk_del_mbx`,
 messages still queued belong to the application again; their links are undefined,
 and sending one again overwrites them. The `mailbox-cost` suite measures this.

@@ -221,10 +221,20 @@ static void check_wait_queue(const tkmc_list_head *queue, UW kind) {
     // The kernel finds the semaphore of a departing waiter through this
     // pointer; a wrong one would walk another queue, or the free list.
     if (kind == TTW_SEM) {
+      const SEMCB *semcb =
+          tkmc_list_entry((tkmc_list_head *)queue, SEMCB, wait_queue);
       TEST_ASSERT_EQUAL_PTR_MESSAGE(
-          tkmc_list_entry((tkmc_list_head *)queue, SEMCB, wait_queue),
-          tcb->winfo.semaphore.semcb,
+          semcb, tcb->winfo.semaphore.semcb,
           "a semaphore waiter points at another semaphore");
+      // Under TA_CNT a request the units cover is served at once, by the call
+      // that asks or by the signal. A waiter that leaves therefore frees
+      // nobody, and tkmc_complete_wait() does not look for waiters to serve
+      // then.
+      if ((semcb->sematr & TA_CNT) != 0) {
+        TEST_ASSERT_GREATER_THAN_INT_MESSAGE(
+            semcb->semcnt, tcb->winfo.semaphore.semcnt,
+            "a TA_CNT waiter has a request that the units cover");
+      }
     }
   }
 }

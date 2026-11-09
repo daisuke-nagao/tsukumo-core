@@ -57,6 +57,7 @@ add_executable(
   test_event_flag.c
   test_fixture.c
   test_intctl.c
+  test_isr_context.c
   test_list.c
   test_mailbox.c
   test_memset.c

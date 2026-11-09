@@ -27,14 +27,16 @@ void tearDown(void) {}
 // kernel timer can stop the runner; ctest's TIMEOUT is then the only detector
 // and no FAIL line is printed.
 
-// Every task gets its own stack and none is handed out twice in one boot:
-// there is no way to end a hung task, so reusing its stack would corrupt the
-// next case. The suite is a fresh boot, so a fixed pool is enough.
+// Every task of a case gets its own stack, and none is handed out twice within
+// one case. A case is over only when its task and every child are gone, and a
+// hung task times the case out and aborts the suite, so the next case takes the
+// pool afresh (see run_case()). A task that no case registered would not be
+// covered, but none gets a pool stack.
 //
 // The ledger holds as many children as the kernel has tasks, so that a case can
 // fill the task table (the timer-cost suite does). The pool is not sized to
-// match: it stays at 48 stacks, since most suites use few, and a suite that
-// needs more of them, over all its cases, has to change POOL_STACKS.
+// match: it stays at 48 stacks, since most suites use few, and a case that
+// needs more of them has to change POOL_STACKS.
 enum { STACK_WORDS = 512, POOL_STACKS = 48, LEDGER_SIZE = CFN_MAX_TSKID };
 
 static UW s_runner_stack[STACK_WORDS] __attribute__((aligned(16)));
@@ -206,6 +208,8 @@ static void run_case(void) {
 
   s_ledger_count = 0;
   s_checkpoints = 0;
+  // The case before ended with every task gone, so all stacks are free.
+  s_pool_used = 0;
   UW *stack = take_stack();
   ID id = stack ? tk_cre_tsk(&(T_CTSK){.exinf = 0,
                                        .tskatr = TA_HLNG | TA_USERBUF,

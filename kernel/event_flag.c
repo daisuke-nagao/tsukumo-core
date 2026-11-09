@@ -52,8 +52,10 @@ void tkmc_init_flgcb(void) {
  *
  * @param pk_cflg Pointer to the creation parameter structure
  * @return ID of the created flag, or E_PAR for a NULL packet (before any
- * access or allocation), E_RSATR for unsupported attributes, E_LIMIT when no
- * flag is left. A refusal changes nothing.
+ * access or allocation), E_RSATR for unsupported attributes, E_CTX from an
+ * interrupt handler by kernel policy (a task with interrupts off and the boot
+ * code are not refused), E_LIMIT when no flag is left. A refusal changes
+ * nothing.
  */
 ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
   if (pk_cflg == NULL) {
@@ -65,6 +67,10 @@ ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
   // Check if attribute contains any invalid bits
   if ((flgatr & ~VALID_FLGATR) != 0) {
     return E_RSATR;
+  }
+
+  if (tkmc_in_isr()) {
+    return E_CTX;
   }
 
   UINT intsts = 0;
@@ -314,10 +320,16 @@ ER tk_set_flg(ID flgid, UINT setptn) {
  *
  * As μT-Kernel defines it, clrptn names the bits to keep; the bits that are 0
  * in clrptn are cleared. To clear bit 0, pass ~0x1.
+ *
+ * Returns E_ID for an ID out of range, then E_CTX from an interrupt handler by
+ * kernel policy (nothing is changed), then E_NOEXS.
  */
 ER tk_clr_flg(ID flgid, UINT clrptn) {
   if (!tkmc_id_in_range(flgid, CFN_MAX_FLGID)) {
     return E_ID;
+  }
+  if (tkmc_in_isr()) {
+    return E_CTX;
   }
 
   FLGCB *flgcb = &tkmc_flgcbs[flgid - 1];

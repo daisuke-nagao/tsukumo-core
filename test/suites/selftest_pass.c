@@ -58,10 +58,30 @@ static void join_long_child_last(void) {
   TEST_ASSERT_EQUAL(1, g_long_second.done);
 }
 
+// A case that has ended leaves no task behind, so the next case can take the
+// same stacks. Two cases of the most children the kernel allows need more
+// stacks than the runner's pool holds, unless the pool starts afresh for each
+// case.
+enum { MOST_CHILDREN = CFN_MAX_TSKID - 3 };
+
+static void checkpoint_child(void *arg) {
+  (void)arg;
+  test_checkpoint();
+}
+
+static void the_most_children(void) {
+  for (UINT i = 0; i < MOST_CHILDREN; ++i) {
+    test_spawn(checkpoint_child, 2, 0);
+  }
+  test_join_expect(MOST_CHILDREN);
+}
+
 static const test_case_t s_cases[] = {
     {"join_waits_for_child", join_waits_for_child},
     {"join_long_child_first", join_long_child_first},
     {"join_long_child_last", join_long_child_last},
+    {"the_most_children_in_a_case", the_most_children},
+    {"the_most_children_in_the_next_case", the_most_children},
 };
 
 TEST_SUITE_MAIN("selftest-pass", s_cases, 5000)

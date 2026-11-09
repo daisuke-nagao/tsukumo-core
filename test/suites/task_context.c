@@ -54,7 +54,7 @@ static struct {
 static ID semid, flgid, mbxid, gate;
 static T_MSG message, sentinel;
 static volatile BOOL armed, observed, child_done, child_in_isr;
-static volatile ER child_result, notified;
+static volatile ER child_result, notified, flagged;
 static volatile UINT dispatches;
 static volatile BOOL quiet_armed, quiet_seen;
 static volatile UINT quiet_dispatches;
@@ -174,6 +174,50 @@ static void probe_waits(void) {
   __asm__ volatile("csrw mie, %0" ::"r"(saved_sources) : "memory");
 }
 
+// These eight calls are refused with E_CTX under this kernel's policy, and
+// change nothing. The arguments are valid, so context alone causes refusal.
+static void probe_refused_calls(void) {
+  static T_MSG probe_message;
+  static UW probe_stack[256] __attribute__((aligned(16)));
+  for (UINT api = 0; api < 8; ++api) {
+    capture();
+    ER result;
+    switch (api) {
+    case 0:
+      result = tk_cre_tsk(&(T_CTSK){.tskatr = TA_HLNG | TA_USERBUF,
+                                    .task = (FP)probe_stack,
+                                    .itskpri = 3,
+                                    .stksz = sizeof(probe_stack),
+                                    .bufptr = probe_stack});
+      break;
+    case 1:
+      result = tk_cre_sem(&(T_CSEM){.maxsem = 1});
+      break;
+    case 2:
+      result = tk_cre_flg(&(T_CFLG){.flgatr = TA_WSGL});
+      break;
+    case 3:
+      result = tk_cre_mbx(&(T_CMBX){.mbxatr = TA_TFIFO});
+      break;
+    case 4:
+      result = tk_clr_flg(flgid, 0);
+      break;
+    case 5:
+      result = tk_del_sem(semid);
+      break;
+    case 6:
+      result = tk_del_mbx(mbxid);
+      break;
+    default:
+      result = tk_snd_mbx(mbxid, &probe_message);
+      break;
+    }
+    if (result != E_CTX || !unchanged()) {
+      fail("an ISR call that is not allowed was not refused, or changed state");
+    }
+  }
+}
+
 static __attribute__((noreturn)) void terminate_invalid(void) {
   capture();
   if (CONTEXT_TEST_MODE == DI_EXD || CONTEXT_TEST_MODE == ISR_EXD ||
@@ -250,6 +294,8 @@ void __wrap_tkmc_timer_handler(void) {
     terminate_invalid();
   }
   probe_waits();
+  probe_refused_calls();
+  flagged = tk_set_flg(flgid, 2);
   notified = tk_sig_sem(gate, 1);
   if (child_done) {
     fail("child ran before ISR return");
@@ -282,6 +328,7 @@ static void real_isr_refuses_waits_then_dispatches(void) {
   TEST_ASSERT_TRUE(observed);
   TEST_ASSERT_FALSE(tkmc_in_isr());
   TEST_ASSERT_EQUAL(E_OK, notified);
+  TEST_ASSERT_EQUAL(E_OK, flagged);
   TEST_ASSERT_EQUAL(E_OK, deleted);
   TEST_ASSERT_TRUE(child_done);
   TEST_ASSERT_FALSE(child_in_isr);
