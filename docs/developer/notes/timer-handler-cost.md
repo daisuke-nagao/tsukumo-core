@@ -14,6 +14,8 @@ to revisit the scans if the measured interrupt latency requires it.
 This note records how many instructions the handler takes when 1, 8 and 29
 waits end in the same tick, so that a decision about the scans rests on a
 number. It does not make that decision, and the kernel is not changed.
+[timer-delay-budget.md](timer-delay-budget.md) later set the budget and
+extended the measurement.
 
 ## How to repeat it
 
@@ -90,9 +92,9 @@ A tick is 10 ms and holds about 300000 instructions at shift 5 (see
 - The wrapper adds a few instructions of its own, the same for every case. The
   queue length and the state of the n tasks are read outside the instruction
   count.
-- Only waits with the same limit, started in one tick, were measured. Waits
-  that end together because an interrupt came late have different deadlines and
-  were not measured.
+- Only waits with the same limit, started in one tick, were measured here. Waits
+  that end together because an interrupt came late have different deadlines;
+  [timer-delay-budget.md](timer-delay-budget.md) measures them.
 - The extra wait is the runner's. Its tick parity is fixed by the schedule under
   `-icount`, so it was there in every run, but a change to the runner or to
   the suite can move it out of the call. The report line shows it.
@@ -101,5 +103,5 @@ A tick is 10 ms and holds about 300000 instructions at shift 5 (see
   waits did not start in one tick.
 - The check that the sleeps began in one tick compares the ticks they have left.
   It assumes the timer queue stores a count of ticks for each entry.
-- The repository has no budget for the handler. Whether these numbers are
-  acceptable is for the maintainer to decide.
+- This note sets no budget for the handler. The budget, and the worst cases
+  against it, are in [timer-delay-budget.md](timer-delay-budget.md).

@@ -198,7 +198,6 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
   if ((stack_begin + stack_size) % STACK_ALIGN != 0) {
     return E_PAR;
   }
-
   /* Calculate stack boundaries */
   UB *stack_end = (UB *)(stack_begin + stack_size);
 
@@ -290,9 +289,16 @@ void tkmc_complete_wait(TCB *tcb, ER cause) {
   // A semaphore waiter that leaves without its units may have held back the
   // waiters behind it (TA_FIRST); they get the units now. Not after E_OK: the
   // task took its units, and the signal that served it serves the rest. Not
-  // after E_DLT: the semaphore is being deleted with every waiter.
+  // after E_DLT: the semaphore is being deleted with every waiter. Not under
+  // TA_CNT either: no request there is one the units cover (tk_wai_sem() takes
+  // them at once, tk_sig_sem() serves every request they cover), so a waiter
+  // that leaves frees nobody, and the walk would only cost time in the timer
+  // interrupt, as long as the wait queue.
   if (tskwait == TTW_SEM && (cause == E_TMOUT || cause == E_RLWAI)) {
-    tkmc_sem_serve_waiters(tcb->winfo.semaphore.semcb);
+    SEMCB *semcb = tcb->winfo.semaphore.semcb;
+    if ((semcb->sematr & TA_CNT) == 0) {
+      tkmc_sem_serve_waiters(semcb);
+    }
   }
 }
 

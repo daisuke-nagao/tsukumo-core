@@ -137,7 +137,8 @@ static void tpri_first_delete(void) { check_delete(TA_TPRI | TA_FIRST); }
 static void fifo_cnt_delete(void) { check_delete(TA_TFIFO | TA_CNT); }
 static void tpri_cnt_delete(void) { check_delete(TA_TPRI | TA_CNT); }
 
-// Twelve cases plus 32 children use 44 of the runner's 48 stack slots.
+// A case and its children take at most 5 of the runner's 48 stacks
+// (check_delete starts four children); the pool starts afresh for each case.
 static const test_case_t s_cases[] = {
     {"fifo_first_timeout", fifo_first_timeout},
     {"tpri_first_timeout", tpri_first_timeout},

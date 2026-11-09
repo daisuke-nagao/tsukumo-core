@@ -319,7 +319,6 @@ ER tk_clr_flg(ID flgid, UINT clrptn) {
   if (!tkmc_id_in_range(flgid, CFN_MAX_FLGID)) {
     return E_ID;
   }
-
   FLGCB *flgcb = &tkmc_flgcbs[flgid - 1];
   UINT intsts = 0;
   DI(intsts);

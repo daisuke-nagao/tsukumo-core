@@ -340,8 +340,9 @@ ER tk_sig_sem(ID semid, INT cnt) {
 /*
  * See semaphore.h. Also called when a waiter leaves without its units (its
  * time limit, tk_rel_wai()): under TA_FIRST it may have held back the waiters
- * behind it. Under TA_CNT the walk then finds nothing, as every request the
- * units covered was served when they were signalled.
+ * behind it. Not under TA_CNT: the walk would find nothing, as every request
+ * the units covered was served when they were signalled (see
+ * tkmc_complete_wait()).
  */
 void tkmc_sem_serve_waiters(SEMCB *semcb) {
   TCB *pos, *n;
@@ -384,13 +385,13 @@ void tkmc_sem_serve_waiters(SEMCB *semcb) {
  *
  * Tasks that wait for the semaphore are released with E_DLT, and a task switch
  * is requested if one of them should run before the caller.
+ *
  */
 ER tk_del_sem(ID semid) {
   // Validate the semaphore ID.
   if (!tkmc_id_in_range(semid, CFN_MAX_SEMID)) {
     return E_ID;
   }
-
   SEMCB *semcb = &tkmc_semcbs[semid - 1];
   UINT intsts = 0;
   DI(intsts);

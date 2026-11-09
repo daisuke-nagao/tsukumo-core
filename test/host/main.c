@@ -18,6 +18,11 @@ extern void
 test_a_trap_inside_a_trap_is_still_the_isr_state_for_every_wait(void);
 extern void test_isr_and_absent_current_preserve_argument_error_priority(void);
 
+extern void
+test_optional_calls_succeed_in_an_isr_and_restore_interrupt_state(void);
+extern void test_isr_mailbox_sends_keep_fifo_and_priority_order(void);
+extern void test_isr_mailbox_send_wakes_waiter_and_defers_its_switch(void);
+
 extern void test_semaphore_departure_attributes_on_timeout(void);
 extern void test_semaphore_departure_attributes_on_release(void);
 extern void test_semaphore_departure_attributes_on_delete(void);
@@ -163,6 +168,7 @@ test_every_wake_call_requests_a_switch_only_to_a_higher_priority_task(void);
 extern void test_a_request_above_the_maximum_is_refused(void);
 extern void
 test_a_signal_serves_the_waiters_in_queue_order_as_far_as_it_goes(void);
+extern void test_a_cnt_signal_serves_every_request_the_units_cover(void);
 extern void test_a_delay_takes_the_whole_unsigned_range(void);
 extern void test_clearing_a_flag_keeps_the_bits_of_the_mask(void);
 extern void
@@ -185,6 +191,9 @@ int main(void) {
   RUN_TEST(test_isr_and_absent_current_refuse_every_wait_without_changes);
   RUN_TEST(test_a_trap_inside_a_trap_is_still_the_isr_state_for_every_wait);
   RUN_TEST(test_isr_and_absent_current_preserve_argument_error_priority);
+  RUN_TEST(test_optional_calls_succeed_in_an_isr_and_restore_interrupt_state);
+  RUN_TEST(test_isr_mailbox_sends_keep_fifo_and_priority_order);
+  RUN_TEST(test_isr_mailbox_send_wakes_waiter_and_defers_its_switch);
   RUN_TEST(test_task_start_rebuilds_a_damaged_frame);
   RUN_TEST(test_task_start_clears_previous_wakeup_and_wait_state);
   RUN_TEST(test_starting_a_non_dormant_task_leaves_it_unchanged);
@@ -287,6 +296,7 @@ int main(void) {
       test_every_wake_call_requests_a_switch_only_to_a_higher_priority_task);
   RUN_TEST(test_a_request_above_the_maximum_is_refused);
   RUN_TEST(test_a_signal_serves_the_waiters_in_queue_order_as_far_as_it_goes);
+  RUN_TEST(test_a_cnt_signal_serves_every_request_the_units_cover);
   RUN_TEST(test_a_delay_takes_the_whole_unsigned_range);
   RUN_TEST(test_clearing_a_flag_keeps_the_bits_of_the_mask);
   RUN_TEST(

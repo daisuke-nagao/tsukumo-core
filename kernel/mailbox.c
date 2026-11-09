@@ -38,13 +38,17 @@ static void insert_msg_fifo(MBXCB *mbxcb, T_MSG *msg) {
 // Interrupts are disabled for the call. A message that goes at the head or at
 // the tail takes a constant number of steps. One that goes between two queued
 // messages takes a number of steps up to the number of messages ahead of it, so
-// that case is as long as the queue is, which the kernel does not bound.
+// Task-context measurements in Debug and MinSizeRel under QEMU meet the
+// 31250-instruction reference budget for queues up to 256 messages. The queue
+// remains unbounded. qemu-mailbox-cost checks the bound. Counts are in
+// docs/developer/notes/mailbox-di-budget.md.
 //
 // Not done: one list per priority, which would make every insert constant but
 // needs a limit on msgpri, and the specification gives none (any positive value
-// is valid); and enabling interrupts during the scan, which no caller allows
-// (interrupt handlers use this call too) and which would let the queue, or the
-// mailbox itself, change under the cursor.
+// is valid); and enabling interrupts during the scan, which would end the
+// critical section of a caller that has interrupts off (a task inside DI(), the
+// boot code) and would let the queue, or the mailbox itself, change under the
+// cursor.
 static void insert_msg_pri(MBXCB *mbxcb, T_MSG_PRI *msg) {
   tkmc_list_head *new_link = msg_link(&msg->msgque);
   tkmc_list_head *pos = mbxcb->mbx_queue.next;
@@ -238,7 +242,6 @@ ER tk_del_mbx(ID mbxid) {
   if (!tkmc_id_in_range(mbxid, CFN_MAX_MBXID)) {
     return E_ID;
   }
-
   MBXCB *mbxcb = &tkmc_mbxcbs[mbxid - 1];
   UINT intsts = 0;
 
@@ -284,6 +287,9 @@ ER tk_del_mbx(ID mbxid) {
  * Interrupts are disabled for a time that does not depend on the number of
  * queued messages, except for a TA_MPRI message that goes between two queued
  * ones (see insert_msg_pri()), whose time grows with the messages ahead of it.
+ * The QEMU reference is for task-context sends. Hardware latency requires
+ * target-specific measurement.
+ *
  *
  * @pre mbxid > 0 && mbxid <= CFN_MAX_MBXID
  * @pre pk_msg != NULL

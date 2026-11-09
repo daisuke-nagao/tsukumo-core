@@ -72,18 +72,31 @@ ctest --test-dir <build dir> --output-on-failure --no-tests=error
   It also runs a lowest-priority child through repeated `tk_dly_tsk(0)` calls
   with only software interrupts enabled. Each yield must resume without a
   timer tick; an idle task that halts despite this ready child times out.
-- `qemu-mailbox-cost` reads `minstret` around one mailbox call on a mailbox that
-  holds 200 messages and on an empty one, and checks that the counts differ by
-  at most 100 instructions: that is how long the call keeps interrupts off.
-  Cases: `tk_del_mbx()`; a `TA_MPRI` send at or behind the last queued message;
-  a send ahead of every message. A send between two queued messages scans and
-  is not measured. Like `qemu-idle-halt` it needs `-icount` with a shift of 8 or
-  less, so it has no `-hostclock` run.
+- `qemu-mailbox-cost` reads `minstret` around one mailbox call: that is how long
+  the call keeps interrupts off. Three calls are checked on a mailbox that holds
+  256 messages and on an empty one, and the counts may differ by at most 100
+  instructions: `tk_del_mbx()`; a `TA_MPRI` send at or behind the last queued
+  message; a send ahead of every message (the two sends also with 1 message). A send between two queued messages
+  scans, so its time grows with the queue; it is held to a budget of 31250
+  instructions (a tenth of a tick at shift 5) with 256 queued messages, for a
+  send into the middle and one before the last message, which is the worst. After
+  each send the case receives every message and checks that the sent one came out
+  where the case means it to (see
+  [mailbox-di-budget.md](mailbox-di-budget.md)). Like `qemu-idle-halt` it needs
+  `-icount` with a shift of 8 or less, so it has no `-hostclock` run.
 - `qemu-timer-cost` wraps `tkmc_timer_handler()` at link time and reads
-  `minstret` around it, while 1, 8 and 29 timed waits end in the same tick. It
-  reports the instructions of the handler call that ended them (see
-  [timer-handler-cost.md](timer-handler-cost.md)) and has no budget: a case
-  fails only if the waits did not end together. Like `qemu-mailbox-cost` it
+  `minstret` around it. Cases: 1, 8 and 29 timed waits that end in the same
+  tick; 29 waits with limits one tick apart, on time, 1 tick late and 29 ticks
+  late (interrupts are held off, so that one call ends every wait it reaches);
+  29 `TA_CNT` semaphore waits that time out 29 ticks late; and no waits with an
+  interrupt 1 and 200 ticks late. A case reports the instructions of the most
+  expensive handler call and fails when it is over the budget of 31250
+  instructions (a tenth of a tick at shift 5), when the interrupt was not as
+  late as planned, when the waits did not end as planned or not in the order of
+  their deadlines, or when the semaphore waits cost much more than the same
+  delays (see
+  [timer-delay-budget.md](timer-delay-budget.md) and
+  [timer-handler-cost.md](timer-handler-cost.md)). Like `qemu-mailbox-cost` it
   needs `-icount` with a shift of 8 or less, so it has no `-hostclock` run.
 - `qemu-timer-switch` wraps `schedule()` at link time to record the `mcause` of
   the trap that runs it. A task that a timer interrupt wakes must be switched to

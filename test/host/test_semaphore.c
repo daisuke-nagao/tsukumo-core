@@ -611,6 +611,40 @@ void test_a_request_above_the_maximum_is_refused(void) {
   TEST_ASSERT_EQUAL(E_NOEXS, tk_wai_sem(semid + 1, 2, TMO_POL));
 }
 
+// Under TA_CNT a signal goes through the whole queue, so no request that the
+// units cover stays behind: with 2 units the waiters for 1, 3 and 1 units leave
+// the one for 3 waiting, and both of the others are served. A signal that
+// stopped after the first request it served would leave the last one waiting
+// for units that are there.
+void test_a_cnt_signal_serves_every_request_the_units_cover(void) {
+  static const ATR attributes[] = {TA_TFIFO | TA_CNT, TA_TPRI | TA_CNT};
+  for (UINT i = 0; i < sizeof(attributes) / sizeof(attributes[0]); ++i) {
+    const char *label = attribute_name(attributes[i]);
+    host_reset();
+    ID semid = tk_cre_sem(&(T_CSEM){
+        .exinf = 0, .sematr = attributes[i], .isemcnt = 0, .maxsem = 3});
+    TEST_ASSERT_GREATER_THAN(0, semid);
+    ID other;
+    ID first = make_waiter(semid, 1, &other);
+    ID middle = host_make_task(HIGH_PRIORITY);
+    host_set_current(middle);
+    HOST_EXPECT_WAIT(tk_wai_sem(semid, 3, TMO_FEVR));
+    ID last = host_make_task(HIGH_PRIORITY);
+    host_set_current(last);
+    HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, TMO_FEVR));
+    host_set_current(other);
+
+    TEST_ASSERT_EQUAL_MESSAGE(E_OK, tk_sig_sem(semid, 2), label);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(TTS_RDY, tkmc_tcbs[first - 1].tskstat,
+                                   label);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(TTS_WAI, tkmc_tcbs[middle - 1].tskstat,
+                                   label);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(TTS_RDY, tkmc_tcbs[last - 1].tskstat, label);
+    TEST_ASSERT_EQUAL_MESSAGE(0, tkmc_semcbs[semid - 1].semcnt, label);
+    host_check_kernel_queues();
+  }
+}
+
 // A signal serves the waiters from the head of the queue as far as its units
 // go: under TA_FIRST it stops at the first request it cannot cover, under
 // TA_CNT it skips that request and goes on. The head waits for two units and

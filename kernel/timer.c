@@ -110,8 +110,10 @@ void tkmc_timer_handler(void) {
   /* Advance only to the next deadline before completing a wait: an earlier
    * timeout can hand semaphore units to a waiter with a later deadline.
    * Re-scan after each completion, which can remove other timer entries too.
-   * shortcut: these scans are O(n^2), bounded by CFN_MAX_TSKID (32); revisit
-   * if the measured interrupt latency requires it. */
+   * shortcut: these scans are O(n^2) in the waits one call ends, bounded by
+   * CFN_MAX_TSKID (32), and not merged or replaced by a sorted queue: the
+   * qemu-timer-cost suite holds the handler to its instruction budget (see
+   * docs/developer/notes/timer-delay-budget.md), so revisit when that fails. */
   BOOL ended = FALSE;
   TCB *first;
   while ((first = first_deadline()) != NULL) {
