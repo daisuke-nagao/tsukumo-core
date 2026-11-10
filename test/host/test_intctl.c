@@ -103,6 +103,32 @@ void test_enabling_and_disabling_a_source_keeps_the_others(void) {
   TEST_ASSERT_TRUE(host_interrupts_enabled());
 }
 
+// A driver written to the service profile: it calls the controller functions
+// only when the profile says they are there, and gives EnableInt() a level only
+// when the profile says it takes one. The kernel exports EnableInt(intno,
+// level) and sets the PLIC priority from the level, so the profile must say
+// both, or such a driver loses the call or fails to compile.
+#if !TK_SUPPORT_INTCTRL
+#error "TK_SUPPORT_INTCTRL must say EnableInt() and DisableInt() exist"
+#endif
+
+static void enable_as_the_profile_says(UINT intno, INT level) {
+#if TK_HAS_ENAINTLEVEL
+  EnableInt(intno, level);
+#else
+  (void)level;
+  EnableInt(intno);
+#endif
+}
+
+void test_a_driver_written_to_the_profile_enables_a_source_at_its_level(void) {
+  enum { LEVEL = 3 };
+  enable_as_the_profile_says(SOME_SOURCE, LEVEL);
+  TEST_ASSERT_TRUE(host_plic_is_enabled(SOME_SOURCE));
+  TEST_ASSERT_EQUAL_UINT32(
+      LEVEL, in_w(PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET + 4 * SOME_SOURCE));
+}
+
 // A number outside the table, and a level that is no priority, are ignored
 // before any register is read or written (the fake fails on a wild address).
 void test_a_bad_number_or_level_touches_no_register(void) {

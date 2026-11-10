@@ -6,6 +6,7 @@
 
 #include "fakes.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include <unity.h>
@@ -172,6 +173,16 @@ void host_ei(UINT intsts) {
 }
 
 BOOL host_interrupts_enabled(void) { return s_interrupts_enabled != 0; }
+
+// The switch of a task that ends, which the PC cannot make (it would need the
+// task's stack). No test here ends a task in a valid context, so a call is a
+// test that went somewhere it did not mean to.
+void __launch_task(void **sp) {
+  (void)sp;
+  TEST_FAIL_MESSAGE("a task was switched to by __launch_task(), which the "
+                    "fake machine cannot do");
+  abort();
+}
 
 void host_arm_wait(void) {
   s_msip = 0;

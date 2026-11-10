@@ -26,8 +26,12 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
+#include "../finish.h"
+#include "../putstring.h"
 #include "asm/rv32/address.h"
+#include "panic.h"
 #include "runner.h"
+#include "task.h"
 
 extern void **__real_schedule(void *sp);
 extern volatile UINT tkmc_isr_depth;
@@ -508,6 +512,9 @@ static void a_task_keeps_its_registers_through_an_interrupt(void) {
                                   "a register changed (bit 31: no interrupt)");
 }
 
+// The child that the handler wakes ends after it has run, and its end resumes
+// the case from the frame of the external trap (__launch_task): the second
+// check of that path besides timer_switch.c. Keep it so.
 static void a_task_keeps_its_registers_through_a_switch_at_the_trap_exit(void) {
   UW changed = registers_after_an_interrupt((FP)waking_flag_handler, TRUE);
   TEST_ASSERT_EQUAL_HEX32_MESSAGE(0, changed,
@@ -1059,6 +1066,265 @@ static void the_interrupt_stack_holds_nested_handlers(void) {
       NESTED_HIGH_WATER_MAX, used, "two levels use too much of the stack");
 }
 
+// ---- A task that ends while an external interrupt is pending ----------------
+//
+// tk_ext_tsk() and tk_exd_tsk() make the task dormant (or free its TCB) and
+// then switch away. A handler that runs after the state change and before the
+// switch can start the task again (or create a task in the freed TCB and start
+// it), and the new run must begin at its entry with the new start code. The old
+// run must never go on.
+//
+// The window is made wide and certain without help from the kernel: the task
+// turns off the software, timer and external bits of mie, waits until the UART
+// interrupt is pending in mip, and only then ends. The exit must switch tasks
+// without taking an interrupt; the case it switches to turns the bits back on,
+// and the handler runs then. Code that returns from the exit instead turns on
+// only MEIE, so the external trap is the one trap that can come, whatever order
+// the machine gives to pending interrupts, and it comes with the software
+// interrupt that the exit raised still pending.
+//
+// The exiting run waits on a deep stack: the trap frame it leaves behind must
+// lie below the frame that tk_sta_tsk() builds at the top of the same stack, or
+// the old run would resume from a frame of 0xdeadbeef words and stop in a fatal
+// trap instead of failing an assert. After an exit that returned, the code
+// reads no local and never returns: what the frames above it held may be gone.
+//
+// The tasks here are not the runner's: the restarted task must see its start
+// code, which test_spawn() does not pass on. The case ends all of them itself,
+// before its asserts, so that a failure leaves no task behind.
+
+enum {
+  EXIT_TASK_PRIORITY = 2,
+  DUMMY_PRIORITY = 3,
+  EXIT_RESTART_CODE = 7,
+  EXIT_CLEANUP_CODE = -1,
+  EXIT_STACK_WORDS = 256,
+  DUMMY_STACK_WORDS = 128,
+  // What the exiting run reports instead of exiting.
+  EXIT_NO_PENDING_INTERRUPT = 1,
+  EXIT_SHALLOW_STACK,
+  MIE_SOFTWARE_TIMER_EXTERNAL = (1u << 3) | (1u << 7) | (1u << 11),
+  MIP_EXTERNAL = 1u << 11
+};
+_Static_assert(TEST_RUNNER_PRIORITY < EXIT_TASK_PRIORITY &&
+                   EXIT_TASK_PRIORITY < DUMMY_PRIORITY &&
+                   DUMMY_PRIORITY < TEST_CASE_PRIORITY,
+               "the exiting task must preempt the case and the dummies must "
+               "run as soon as they start, and the runner outranks them all");
+
+static _Alignas(16) UW s_exit_stack[EXIT_STACK_WORDS];
+static _Alignas(16) UW s_restarted_stack[EXIT_STACK_WORDS];
+static _Alignas(16) UW s_dummy_stack[DUMMY_STACK_WORDS];
+static ID s_dummies[CFN_MAX_TSKID];
+static ID s_exit_task;
+static volatile BOOL s_exit_deletes;
+static volatile UINT s_exit_entries;
+static volatile BOOL s_exit_went_on;
+static volatile UINT s_exit_failure;
+static volatile UINT s_exit_handler_runs;
+static volatile ER s_exit_handler_er;
+static volatile ID s_exit_handler_id;
+
+static UINT task_state(ID id) {
+  UINT intsts;
+  DI(intsts);
+  UINT state = tkmc_tcbs[id - 1].tskstat;
+  EI(intsts);
+  return state;
+}
+
+static __attribute__((noinline, noreturn)) void
+exit_with_an_external_interrupt_pending(void) {
+  // The pad's address escapes into the asm, so the whole of it is on the stack
+  // at every optimization level (a volatile array that is never read is not).
+  UW pad[64];
+  __asm__ volatile("" ::"r"(pad) : "memory");
+  UW sp;
+  __asm__ volatile("mv %0, sp" : "=r"(sp));
+  if (sp > (UW)&s_exit_stack[EXIT_STACK_WORDS] - 128) {
+    s_exit_failure = EXIT_SHALLOW_STACK;
+    tk_exd_tsk();
+  }
+  UW mie;
+  __asm__ volatile("csrrc %0, mie, %1"
+                   : "=r"(mie)
+                   : "r"(MIE_SOFTWARE_TIMER_EXTERNAL)
+                   : "memory");
+  out_b(UART_IER, IER_THRE);
+  UW start = test_mtime();
+  while ((read_mip() & MIP_EXTERNAL) == 0) {
+    if ((UW)(test_mtime() - start) > WAIT_MS * TEST_MTIME_PER_MS) {
+      out_b(UART_IER, 0);
+      __asm__ volatile("csrs mie, %0" ::"r"(mie) : "memory");
+      s_exit_failure = EXIT_NO_PENDING_INTERRUPT;
+      tk_exd_tsk();
+    }
+  }
+  if (s_exit_deletes) {
+    tk_exd_tsk();
+  } else {
+    tk_ext_tsk();
+  }
+  __asm__ volatile("csrs mie, %0" ::"r"(MIE_EXTERNAL) : "memory");
+  s_exit_went_on = TRUE;
+  __asm__ volatile("csrs mie, %0" ::"r"(MIE_TIMER_AND_SOFTWARE) : "memory");
+  tk_exd_tsk();
+  for (;;) {
+  }
+}
+
+static void exiting_task(INT stacd, void *exinf) {
+  (void)exinf;
+  if (stacd == EXIT_RESTART_CODE) {
+    s_exit_entries += 1;
+    tk_exd_tsk();
+  }
+  if (stacd == EXIT_CLEANUP_CODE) {
+    tk_exd_tsk();
+  }
+  exit_with_an_external_interrupt_pending();
+}
+
+static void dummy_task(INT stacd, void *exinf) {
+  (void)stacd;
+  (void)exinf;
+  tk_exd_tsk();
+}
+
+static const T_CTSK s_exiting_packet = {.exinf = NULL,
+                                        .tskatr = TA_HLNG | TA_USERBUF,
+                                        .task = (FP)exiting_task,
+                                        .itskpri = EXIT_TASK_PRIORITY,
+                                        .stksz = sizeof(s_exit_stack),
+                                        .bufptr = s_exit_stack};
+
+// tk_cre_tsk() is one of the calls a handler may make (docs/kernel/
+// interrupts.md, "Calls from a handler"). The new task gets another stack: the
+// old run's frames on the first one must stay as they are.
+static const T_CTSK s_restarted_packet = {.exinf = NULL,
+                                          .tskatr = TA_HLNG | TA_USERBUF,
+                                          .task = (FP)exiting_task,
+                                          .itskpri = EXIT_TASK_PRIORITY,
+                                          .stksz = sizeof(s_restarted_stack),
+                                          .bufptr = s_restarted_stack};
+
+static const T_CTSK s_dummy_packet = {.exinf = NULL,
+                                      .tskatr = TA_HLNG | TA_USERBUF,
+                                      .task = (FP)dummy_task,
+                                      .itskpri = DUMMY_PRIORITY,
+                                      .stksz = sizeof(s_dummy_stack),
+                                      .bufptr = s_dummy_stack};
+
+static void restarting_handler(UINT intno) {
+  (void)intno;
+  out_b(UART_IER, 0);
+  if (s_exit_handler_runs++ != 0) {
+    return;
+  }
+  if (s_exit_deletes) {
+    // Starts whatever ID it gets, so that no dormant task is left behind; the
+    // case checks that it was the freed one.
+    ID id = tk_cre_tsk(&s_restarted_packet);
+    s_exit_handler_id = id;
+    s_exit_handler_er = id > 0 ? tk_sta_tsk(id, EXIT_RESTART_CODE) : id;
+  } else {
+    s_exit_handler_er = tk_sta_tsk(s_exit_task, EXIT_RESTART_CODE);
+  }
+}
+
+static void restart_from_an_isr_right_after_the_exit(BOOL deletes) {
+  s_exit_deletes = deletes;
+  s_exit_entries = 0;
+  s_exit_went_on = FALSE;
+  s_exit_failure = 0;
+  s_exit_handler_runs = 0;
+  s_exit_handler_er = E_SYS;
+  s_exit_handler_id = 0;
+  s_exit_task = tk_cre_tsk(&s_exiting_packet);
+  TEST_ASSERT_GREATER_THAN(0, s_exit_task);
+  // With every other TCB taken, the one the exit frees is the one the handler
+  // gets. No assert from here until every task is ended.
+  UINT dummies = 0;
+  while (deletes && dummies < CFN_MAX_TSKID) {
+    ID id = tk_cre_tsk(&s_dummy_packet);
+    if (id <= 0) {
+      break;
+    }
+    s_dummies[dummies++] = id;
+  }
+  const T_DINT dint = {.intatr = TA_HLNG, .inthdr = restarting_handler};
+  ER defined = tk_def_int(UART_IRQ, &dint);
+  EnableInt(UART_IRQ, 1);
+  ER started = tk_sta_tsk(s_exit_task, 0);
+  // Here the task has ended: it outranks the case. An exit that switched
+  // without taking an interrupt left the three bits of mie off.
+  __asm__ volatile("csrs mie, %0" ::"r"(MIE_SOFTWARE_TIMER_EXTERNAL)
+                   : "memory");
+  BOOL settled =
+      WAIT_UNTIL(s_exit_entries >= 1 || s_exit_went_on || s_exit_failure != 0);
+  clean_up();
+  if (task_state(s_exit_task) == TTS_DMT) {
+    tk_sta_tsk(s_exit_task, EXIT_CLEANUP_CODE);
+  }
+  BOOL ended = WAIT_UNTIL(task_state(s_exit_task) == TTS_NOEXS);
+  for (UINT i = 0; i < dummies; ++i) {
+    tk_sta_tsk(s_dummies[i], 0);
+  }
+  BOOL dummies_ended = TRUE;
+  for (UINT i = 0; i < dummies; ++i) {
+    dummies_ended = dummies_ended && task_state(s_dummies[i]) == TTS_NOEXS;
+  }
+  TEST_ASSERT_EQUAL(E_OK, defined);
+  TEST_ASSERT_EQUAL(E_OK, started);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0, s_exit_failure,
+                                 "1: no interrupt was pending, 2: the exiting "
+                                 "run was not deep in its stack");
+  TEST_ASSERT_TRUE_MESSAGE(ended, "the task did not end");
+  TEST_ASSERT_TRUE_MESSAGE(dummies_ended, "a dummy task did not end");
+  TEST_ASSERT_TRUE_MESSAGE(settled, "the handler did not run");
+  TEST_ASSERT_EQUAL_UINT(1, s_exit_handler_runs);
+  TEST_ASSERT_EQUAL_MESSAGE(E_OK, s_exit_handler_er,
+                            "the handler could not start the task");
+  if (deletes) {
+    TEST_ASSERT_EQUAL_MESSAGE(s_exit_task, s_exit_handler_id,
+                              "the handler did not get the freed TCB");
+  }
+  TEST_ASSERT_FALSE_MESSAGE(s_exit_went_on, "the run that ended went on");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(1, s_exit_entries,
+                                 "the new run did not start at its entry");
+}
+
+static void
+a_task_restarted_by_an_isr_right_after_tk_ext_tsk_starts_anew(void) {
+  restart_from_an_isr_right_after_the_exit(FALSE);
+}
+
+static void
+a_task_created_by_an_isr_in_the_tcb_tk_exd_tsk_freed_starts_anew(void) {
+  restart_from_an_isr_right_after_the_exit(TRUE);
+}
+
+// The cases above turn interrupts off and leave the runner unable to time them
+// out, so a fault or a kernel stop must end the run with a message, not hang
+// it.
+void tkmc_panic(UW mcause, UW mepc, UW mtval) {
+  putstring(":FAIL: unexpected CPU exception mcause=");
+  puthex(mcause);
+  putstring(" mepc=");
+  puthex(mepc);
+  putstring(" mtval=");
+  puthex(mtval);
+  putstring("\n");
+  test_exit(1);
+}
+
+void tkmc_context_panic(tkmc_context_api api) {
+  putstring(":FAIL: a kernel call stopped the system, api=");
+  puthex((UW)api);
+  putstring("\n");
+  test_exit(1);
+}
+
 static const test_case_t s_cases[] = {
     {"handler_runs_with_its_interrupt_number",
      handler_runs_with_its_interrupt_number},
@@ -1101,6 +1367,12 @@ static const test_case_t s_cases[] = {
      a_task_keeps_its_registers_through_a_nested_interrupt},
     {"the_interrupt_stack_holds_nested_handlers",
      the_interrupt_stack_holds_nested_handlers},
+    // Last: they take every TCB for a while, and a failure that left them
+    // taken would fail every case after it.
+    {"a_task_restarted_by_an_isr_right_after_tk_ext_tsk_starts_anew",
+     a_task_restarted_by_an_isr_right_after_tk_ext_tsk_starts_anew},
+    {"a_task_created_by_an_isr_in_the_tcb_tk_exd_tsk_freed_starts_anew",
+     a_task_created_by_an_isr_in_the_tcb_tk_exd_tsk_freed_starts_anew},
 };
 
 TEST_SUITE_MAIN("interrupt", s_cases, 5000)

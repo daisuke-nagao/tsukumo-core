@@ -1,11 +1,31 @@
-# uT-Kernel API
+# μT-Kernel 3.0 API support status
 
-Checked entries identify APIs provided by the current implementation.
-The [implemented-contract review](spec-conformance-review.md) records
-specification references, checked behavior, reproduced differences and
-remaining evidence gaps for the implemented subset.
+This list shows which μT-Kernel 3.0 APIs tsukumo-core provides. Use it to see
+whether an API exists before you call it. A checked box (`[x]`) means the
+kernel provides the API through its public header `<tk/tkernel.h>`; an empty
+box (`[ ]`) means it does not.
 
-## uT-Kernel/OS API
+The list says nothing about how closely an API follows the specification. The
+[specification conformance review](spec-conformance-review.md) checks each of
+the 34 provided APIs against the official
+[μT-Kernel 3.0 specification Ver.3.00.01](https://tron-forum.github.io/mtk3_spec_jp/index.html)
+and records the differences, the implementation choices and the gaps in the
+evidence.
+
+The APIs are grouped by the three parts of the specification: μT-Kernel/OS
+(the kernel functions such as tasks, synchronization and time),
+μT-Kernel/DS (debugger support) and μT-Kernel/SM (system-level services such
+as interrupt control, I/O port access, memory allocation and device
+management).
+
+| Part | Provided | Listed |
+| --- | --- | --- |
+| μT-Kernel/OS | 21 | 113 |
+| μT-Kernel/DS | 0 | 48 |
+| μT-Kernel/SM | 13 | 75 |
+| Total | 34 | 236 |
+
+## μT-Kernel/OS API
 
 * [ ] `tk_can_wup` - Disable task wakeup request
 * [ ] `tk_chg_pri` - Change task priority
@@ -121,7 +141,7 @@ remaining evidence gaps for the implemented subset.
 * [ ] `tk_wai_tev_u` - Wait for task event (microsecond unit)
 * [x] `tk_wup_tsk` - Wake up other task
 
-## uT-Kernel/DS API
+## μT-Kernel/DS API
 
 * [ ] `td_flg_que` - Reference event flag wait queue
 * [ ] `td_get_otm` - Reference system operating time
@@ -172,7 +192,7 @@ remaining evidence gaps for the implemented subset.
 * [ ] `td_set_reg` - Set task register
 * [ ] `td_smbf_que` - Reference message buffer send wait queue
 
-## uT-Kernel/SM API
+## μT-Kernel/SM API
 
 * [ ] `abortfn` - Abort function
 * [ ] `CheckInt` - Check interrupt occurrence

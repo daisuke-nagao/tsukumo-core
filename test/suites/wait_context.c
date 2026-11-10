@@ -196,8 +196,8 @@ static void mailbox_refusal_keeps_the_message(void) {
   TEST_ASSERT_EQUAL(E_TMOUT, tk_rcv_mbx(s_mbx, &message, TMO_POL));
 }
 
-// tk_dly_tsk(0) is the wait that does not block. With interrupts on it still
-// works, and returns with them on.
+// tk_dly_tsk(0) is the wait that does not block. With interrupts on it returns
+// E_OK at once, and with them still on.
 static void zero_delay_with_interrupts_on_returns_with_them_on(void) {
   ER ercd = tk_dly_tsk(0);
   UINT probe;

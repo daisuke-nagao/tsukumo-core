@@ -30,7 +30,6 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "asm/rv32/address.h"
 #include "context.h"
 #include "event_flag.h"
 #include "fakes.h"
@@ -59,7 +58,6 @@ void tkmc_fatal_context(tkmc_context_api api) {
 
 enum {
   HIGH_PRIORITY = 4,
-  MSIP = CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET,
   UNUSED_ID = 2, // No object of any kind has this ID in the fixture.
   WAIT_MS = 100
 };
@@ -78,11 +76,11 @@ static T_MSG s_message;
 static T_MSG s_sentinel;
 
 // Two tasks of one priority (the first one runs) and one object of each kind.
-// The priorities must be equal: tk_dly_tsk(0) yields, and a yield that a
-// refusal wrongly makes changes nothing visible when the running task is alone
-// at its priority. With ready set every call that could succeed at once has
-// what it needs: a wake-up request is queued for the running task, the
-// semaphore has a unit, the flag is set and the mailbox holds a message.
+// The priorities must be equal: a refusal that wrongly yielded would change
+// nothing visible when the running task is alone at its priority.
+// With ready set every call that could succeed at once has what it needs: a
+// wake-up request is queued for the running task, the semaphore has a unit, the
+// flag is set and the mailbox holds a message.
 static void fresh(BOOL ready) {
   s_self = host_make_task(HIGH_PRIORITY);
   s_other = host_make_task(HIGH_PRIORITY);
@@ -194,7 +192,8 @@ static void check_every_wait(BOOL ready) {
 }
 
 // Every way to call a wait API is refused: for ever, with a time limit and as a
-// poll (tk_dly_tsk(0) is its poll: it yields), when the call would block.
+// poll (tk_dly_tsk(0) is its poll: it returns at once), when the call would
+// block.
 void test_every_wait_call_with_interrupts_off_is_refused_and_changes_nothing(
     void) {
   check_every_wait(FALSE);
@@ -277,21 +276,25 @@ void test_the_context_check_comes_before_the_one_waiter_check_of_a_flag(void) {
 }
 
 // tk_dly_tsk(0) is the one wait that does not block: with interrupts on it
-// yields to a task of the same priority and returns with interrupts still on.
-// The refusal for the context moved in front of it; this keeps it working.
-void test_a_delay_of_zero_with_interrupts_on_yields_and_leaves_them_on(void) {
+// returns E_OK at once and changes nothing, as the reference implementation
+// waits only for a positive delay. It does not give the processor to a task of
+// the same priority either, which the peer here would show: the order of the
+// ready queue, the next task and the switch requests stay as they were.
+void test_a_delay_of_zero_with_interrupts_on_changes_nothing_and_leaves_them_on(
+    void) {
   ID self = host_make_task(HIGH_PRIORITY);
   ID peer = host_make_task(HIGH_PRIORITY);
   host_set_current(self);
+  // The peer is ready behind the running task: a yield would show.
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, tkmc_tcbs[peer - 1].tskstat);
   TEST_ASSERT_EQUAL_PTR(&tkmc_tcbs[self - 1], next);
-  UINT requests = host_write_count(MSIP);
+  host_snapshot_t before;
+  host_take_snapshot(&before);
 
   TEST_ASSERT_EQUAL(E_OK, tk_dly_tsk(0));
 
   TEST_ASSERT_TRUE(host_interrupts_enabled());
-  TEST_ASSERT_EQUAL_PTR(&tkmc_tcbs[peer - 1], next);
-  TEST_ASSERT_EQUAL_UINT(requests + 1, host_write_count(MSIP));
-  host_check_kernel_queues();
+  host_assert_unchanged(&before, "a delay of zero changed the kernel");
 }
 
 void test_invalid_termination_context_stops_before_changing_tasks(void) {

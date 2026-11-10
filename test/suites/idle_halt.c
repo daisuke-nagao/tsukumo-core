@@ -14,6 +14,7 @@
 #include <unity.h>
 
 #include "runner.h"
+#include "task.h"
 
 enum {
   SLEEP_MS = 100,
@@ -56,16 +57,13 @@ static void lowest_priority_child(void *arg) {
                    : "=r"(saved_mie)
                    : "r"(1u << 3)
                    : "memory");
-  ER result = E_OK;
+  // There is no public yield (tk_rot_rdq() is not provided, and tk_dly_tsk(0)
+  // does not yield), so the child calls the kernel's own, which the idle task
+  // uses too.
   for (UINT i = 0; i < 8; ++i) {
-    ER ercd = tk_dly_tsk(0);
-    if (ercd != E_OK) {
-      result = ercd;
-      break;
-    }
+    tkmc_yield();
   }
   __asm__ volatile("csrw mie, %0" ::"r"(saved_mie) : "memory");
-  TEST_ASSERT_EQUAL(E_OK, result);
   test_checkpoint();
 }
 

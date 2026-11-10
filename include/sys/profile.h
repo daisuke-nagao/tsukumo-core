@@ -46,9 +46,10 @@
 #define TK_SUPPORT_SERCD TRUE /* Support of sub error code */
 
 /* Interrupt Management Functions */
-#define TK_SUPPORT_INTCTRL                                                     \
-  FALSE /* Support of interrupt controller management */
-#define TK_HAS_ENAINTLEVEL FALSE     /* Can specify interrupt priority level */
+/* EnableInt() (whose level is the PLIC priority) and DisableInt() are provided;
+ * ClearInt(), EndOfInt() and CheckInt() are not (docs/kernel/interrupts.md). */
+#define TK_SUPPORT_INTCTRL TRUE      /* Interrupt controller management */
+#define TK_HAS_ENAINTLEVEL TRUE      /* Can specify interrupt priority level */
 #define TK_SUPPORT_CPUINTLEVEL FALSE /* Support of CPU interrupt mask level */
 #define TK_SUPPORT_CTRLINTLEVEL                                                \
   FALSE /* Support of interrupt controller mask level */

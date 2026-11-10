@@ -19,6 +19,10 @@
 #include <sys/interrupt.h>
 #include <sys/ioport.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
 #ifdef TKERNEL_CHECK_CONST
 #define CONST const
 #else
@@ -101,7 +105,9 @@ typedef struct T_CTSK {
 } T_CTSK;
 
 // Termination requires a current task, interrupts enabled and execution outside
-// an ISR. Invalid calls stop the system before changing the TCB or queues.
+// an ISR. A valid call does not return: it switches to the next task without
+// enabling interrupts first. Invalid calls stop the system before changing the
+// TCB or queues.
 extern void tk_ext_tsk(void);
 extern void tk_exd_tsk(void);
 extern ID tk_cre_tsk(CONST T_CTSK *pk_ctsk);
@@ -171,5 +177,9 @@ extern ID tk_cre_mbx(CONST T_CMBX *pk_cmbx);
 extern ER tk_del_mbx(ID mbxid);
 extern ER tk_snd_mbx(ID mbxid, T_MSG *pk_msg);
 extern ER tk_rcv_mbx(ID mbxid, T_MSG **ppk_msg, TMO tmout);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif /* __cplusplus */
 
 #endif /* UUID_01946FAC_8E45_7658_B009_C10ED747A05C */

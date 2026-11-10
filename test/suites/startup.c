@@ -120,6 +120,12 @@ void __wrap_tkmc_start_timer(void) {
 
 void __wrap___launch_task(void **sp) {
   require_success();
+  // Interrupts stay off from reset until the first task runs: a trap before
+  // then finds no current task or, once tkmc_force_dispatch() has set it,
+  // replaces the first task's start frame with the boot context.
+  if (interrupt_status() & MSTATUS_MIE) {
+    fail("interrupts were on before the first task");
+  }
   ++launches;
   __real___launch_task(sp);
   fail("initial launch returned");
