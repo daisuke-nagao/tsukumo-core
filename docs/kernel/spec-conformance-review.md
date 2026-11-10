@@ -63,9 +63,9 @@ difference, the kernel was fixed on that date, and the entry now passes. The
   [`ClearInt`, `EndOfInt` and `CheckInt` are missing](#tk_support_intctrl-also-covers-calls-the-kernel-does-not-provide),
   [no time representation is enabled](#no-time-representation-is-enabled),
   and [common declarations are missing](#common-declarations-are-missing-from-the-public-headers).
-- The evidence gaps are `TA_ASM` task creation, interrupt nesting beyond two
-  levels with the interrupt-stack margin, and areas outside this setup: real
-  hardware and more than one hart.
+- The remaining evidence gaps are `TA_ASM` task creation, interrupt nesting
+  beyond two levels with the interrupt-stack margin, real hardware and more
+  than one hart.
 - The latest full validation passed 137 PC unit tests and all 85 RV32 CTests
   in each of the six presets.
   [Test runs by date](spec-conformance-history.md#test-runs-by-date) lists
@@ -183,8 +183,8 @@ one, see [compile the consumer snippets](#compile-the-consumer-snippets).
 
 ### TK_SUPPORT_INTCTRL also covers calls the kernel does not provide
 
-The specification's [EnableInt and service-profile section](https://tron-forum.github.io/mtk3_spec_jp/interrupt_management_functions_sm.html)
-lists `ClearInt`, `EndOfInt` and `CheckInt` under `TK_SUPPORT_INTCTRL`, alongside
+The specification lists `ClearInt`, `EndOfInt` and `CheckInt` under
+`TK_SUPPORT_INTCTRL`, alongside
 `EnableInt` and `DisableInt`. The kernel provides `EnableInt` with a level and
 `DisableInt`, but does not declare the first three calls. A consumer that
 calls them because `TK_SUPPORT_INTCTRL` is true therefore fails to compile.
@@ -193,6 +193,8 @@ status](API_Support_Status.md), and [interrupts](interrupts.md) explains why a
 handler does not need `EndOfInt` here. Implementing them was outside the
 2026-11-10 correction of the profile flags
 ([history](spec-conformance-history.md#the-interrupt-profile-flags-disagreed-with-the-exported-calls)).
+See the specification's
+[EnableInt and service-profile section](https://tron-forum.github.io/mtk3_spec_jp/interrupt_management_functions_sm.html).
 
 ### No time representation is enabled
 

@@ -35,6 +35,7 @@ explains how to configure without it.
 ## Build
 
 1. Clone the repository:
+
    ```shell
    git clone https://github.com/daisuke-nagao/tsukumo-core.git
    cd tsukumo-core
@@ -42,12 +43,14 @@ explains how to configure without it.
 
 2. Configure the build with a preset. The preset selects the RISC-V toolchain.
    A plain `cmake ..` has no toolchain and builds only the PC unit tests.
+
    ```shell
    cmake --preset debug
    ```
 
 3. Build the project. The build directory is `../build/debug`, beside the
    repository.
+
    ```shell
    cmake --build --preset debug
    ```
