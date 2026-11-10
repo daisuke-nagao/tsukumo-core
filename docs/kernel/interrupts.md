@@ -103,7 +103,8 @@ EI(outer); // Restores the state from before the outer DI().
 
 A trap is the CPU's jump into the kernel on an interrupt. The kernel has trap
 entries for the timer interrupt, the external interrupt, and the software
-interrupt that it raises to switch tasks (software dispatch). While the CPU is inside any of them, the kernel is in the ISR state
+interrupt that it raises to switch tasks (software dispatch). While the CPU is
+inside any of them, the kernel is in the ISR state
 (ISR: interrupt service routine). `tkmc_isr_depth` counts the traps that are
 running, and the ISR state, which `tkmc_in_isr()` reports, holds while that
 count is not 0.

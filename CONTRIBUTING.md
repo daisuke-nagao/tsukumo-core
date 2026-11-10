@@ -34,7 +34,8 @@ The hooks do the following:
   large files;
 - format C and C++ with clang-format, and CMake files with cmake-format;
 - run `reuse lint`, which fails when a file has no license and copyright
-  information.
+  information;
+- lint Markdown with markdownlint-cli2 (`.markdownlint-cli2.yaml`), which downloads Node.js on first use.
 
 After `pre-commit install`, the hooks run on every `git commit`. The first
 commit downloads the hooks, so it needs network access. If a hook changes a
@@ -58,10 +59,11 @@ file, the commit stops: stage the change and commit again.
 
    If CMake did not find QEMU when it configured the build, it registers no
    QEMU tests, and `--no-tests=error` makes the second command fail.
-6. If the change alters the kernel, the tests or the build, add one line under
-   `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md), below the heading that fits
-   (Added, Changed, Fixed or Removed). A change to documentation alone needs
-   none.
+6. If the change alters the kernel, the tests or the build, add a section for
+   the next version to [CHANGELOG.md](CHANGELOG.md), above the newest one, with
+   one line under each heading that fits (Added, Changed, Fixed or Removed).
+   Choose the version by Semantic Versioning. Add to that section if your pull
+   request already has one. A change to documentation alone needs none.
 
 ## License headers
 

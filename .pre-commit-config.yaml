@@ -25,3 +25,8 @@ repos:
     rev: v6.2.0
     hooks:
       - id: reuse
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.18.1
+    hooks:
+      - id: markdownlint-cli2
+        language_version: 22.14.0

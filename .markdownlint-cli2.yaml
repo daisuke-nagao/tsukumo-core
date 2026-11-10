@@ -1,0 +1,11 @@
+# Settings for markdownlint-cli2, run by pre-commit.
+config:
+  default: true
+  # Tables, code blocks and links keep their natural length.
+  MD013:
+    line_length: 120
+    code_blocks: false
+    tables: false
+  # Keep a Changelog repeats "Added", "Fixed" and so on under each version.
+  MD024:
+    siblings_only: true
