@@ -398,12 +398,24 @@ void tkmc_yield(void) {
   EI(intsts);
 }
 
+void tkmc_force_dispatch(void) {
+  next->tskstat = TTS_RUN;
+  current = next;
+  __launch_task(&current->sp);
+}
+
 /*
  * Terminate the current task.
  * - Moves the task to the TTS_DMT state.
- * - Triggers a context switch to the next ready task.
+ * - Switches to the next ready task with interrupts still disabled, and throws
+ *   the context of the ending task away.
  * - Requires a current task, interrupts enabled and execution outside an ISR.
  *   An invalid call stops with a context failure before changing task state.
+ *
+ * Not done: a switch request (dispatch()) and EI(), as a task that blocks
+ * makes. An interrupt that is pending then runs first, with the ended task
+ * still current: its handler can start the task again, and the switch that
+ * follows would save the old context over the new start.
  */
 void tk_ext_tsk(void) {
   UINT intsts = 0;
@@ -423,19 +435,16 @@ void tk_ext_tsk(void) {
   tmp->tskstat = TTS_DMT;
   tmp->tskwait = 0;
 
-  /* Schedule the next task to be executed */
   next = tkmc_get_highest_priority_task();
-  dispatch();
-
-  /* Re-enable interrupts */
-  EI(intsts);
+  tkmc_force_dispatch();
 }
 
 /*
  * Terminate and delete the current task.
  * - Moves the task to the TTS_NOEXS state.
  * - Returns the task to the free list for reuse.
- * - Triggers a context switch to the next ready task.
+ * - Switches to the next ready task as tk_ext_tsk() does, for the same reason:
+ *   a handler could otherwise create a task in the freed TCB before the switch.
  * - Requires the same context as tk_ext_tsk(). An invalid call stops before
  *   changing task state or returning the TCB to the free list.
  */
@@ -459,12 +468,8 @@ void tk_exd_tsk(void) {
   /* Return the task to the free list */
   tkmc_list_add_tail(&tmp->head, &tkmc_free_tcb);
 
-  /* Schedule the next task to be executed */
   next = tkmc_get_highest_priority_task();
-  dispatch();
-
-  /* Re-enable interrupts */
-  EI(intsts);
+  tkmc_force_dispatch();
 }
 
 /*
@@ -482,7 +487,10 @@ void tk_exd_tsk(void) {
  * - E_OK on success.
  * - E_ID if the task ID is invalid.
  * - E_NOEXS if the task does not exist.
- * - E_OBJ if the task is not in the TTS_WAI state.
+ * - E_OBJ if the task is not in the TTS_WAI state, or is the running task and
+ *   the caller is not an ISR. An ISR may release the task it interrupted: that
+ *   task can already be waiting, if the ISR came after its wait call asked for
+ *   the switch and before the switch was taken (see tk_wup_tsk()).
  */
 ER tk_rel_wai(ID tskid) {
   // Check if the task ID is out of range
@@ -501,8 +509,8 @@ ER tk_rel_wai(ID tskid) {
     // Validate the state of the task before proceeding
     if (tcb->tskstat == TTS_NOEXS) {
       ercd = E_NOEXS; // Task does not exist
-    } else if (tcb == current) {
-      ercd = E_OBJ; // Cannot release the current task
+    } else if (tcb == current && !tkmc_in_isr()) {
+      ercd = E_OBJ; // A task cannot release itself
     } else if (tcb->tskstat != TTS_WAI) {
       ercd = E_OBJ; // Task is not in a waiting state
     }

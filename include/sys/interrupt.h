@@ -18,7 +18,7 @@ extern "C" {
 // intsts is a UINT variable of the caller. The CSR is read straight into it:
 // a local of the macro's own would be shadowed by a caller's variable of the
 // same name, which would then never be assigned. The bits other than MIE are
-// set so that intsts is never 0, which EI() takes as the "enable" of boot.
+// set so that intsts is never 0, which EI() takes as "enable" (EI(0)).
 #define DI(intsts)                                                             \
   do {                                                                         \
     asm volatile("csrrci %0, mstatus, %1"                                      \

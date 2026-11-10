@@ -23,6 +23,7 @@
 #include <unity.h>
 
 #include "asm/rv32/address.h"
+#include "context.h"
 #include "event_flag.h"
 #include "fakes.h"
 #include "mailbox.h"
@@ -399,6 +400,60 @@ void test_release_wait_refuses_a_task_that_is_not_waiting(void) {
   TEST_ASSERT_EQUAL(E_ID, tk_rel_wai(CFN_MAX_TSKID + 1));
   TEST_ASSERT_EQUAL_UINT(TTS_RDY, tcb_of(ready)->tskstat);
   check_kernel_state();
+}
+
+// An ISR may release the task it interrupted right after that task began to
+// wait. On the target the wait call has made the task waiting and asked for a
+// switch, and an external interrupt, which outranks the switch, comes before
+// it: the task is still current, and it is waiting. The release must end the
+// wait and pick the next task again, so that the switch the trap exit makes
+// goes to the released task, which outranks the one the wait call picked. The
+// running task, though, is not waiting, and an ISR is refused for it as a task
+// is. A handler is an ISR whatever MIE is: the trap is taken with interrupts
+// off, and a handler may turn them on (docs/kernel/interrupts.md).
+static ER release_from_an_isr(ID tskid, BOOL interrupts_off) {
+  UINT intsts = 0;
+  if (interrupts_off) {
+    DI(intsts);
+  }
+  tkmc_isr_depth = 1;
+  ER ercd = tk_rel_wai(tskid);
+  tkmc_isr_depth = 0;
+  if (interrupts_off) {
+    EI(intsts);
+  }
+  return ercd;
+}
+
+void test_an_isr_releases_the_task_it_interrupted_right_after_it_began_to_wait(
+    void) {
+  for (UINT round = 0; round < 2; ++round) {
+    const BOOL interrupts_off = round == 0;
+    const char *what = interrupts_off ? "an ISR with interrupts off"
+                                      : "an ISR that turned interrupts on";
+    host_reset();
+    ID waiter = host_make_task(HIGH_PRIORITY);
+    ID other = host_make_task(LOW_PRIORITY);
+    host_set_current(waiter);
+    HOST_EXPECT_WAIT(tk_slp_tsk(TMO_FEVR));
+    TEST_ASSERT_EQUAL_PTR(tcb_of(waiter), current);
+    TEST_ASSERT_EQUAL_PTR(tcb_of(other), next);
+
+    ER released = release_from_an_isr(waiter, interrupts_off);
+
+    TEST_ASSERT_EQUAL_MESSAGE(E_OK, released, what);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(TTS_RDY, tcb_of(waiter)->tskstat, what);
+    TEST_ASSERT_EQUAL_MESSAGE(E_RLWAI, tcb_of(waiter)->wupcause, what);
+    TEST_ASSERT_EQUAL_PTR_MESSAGE(tcb_of(waiter), next, what);
+    check_kernel_state();
+
+    host_set_current(waiter);
+    host_snapshot_t before;
+    host_take_snapshot(&before);
+    TEST_ASSERT_EQUAL_MESSAGE(
+        E_OBJ, release_from_an_isr(waiter, interrupts_off), what);
+    host_assert_unchanged(&before, "an ISR released the running task");
+  }
 }
 
 // A signal that comes after a wait has timed out, and before the task has run

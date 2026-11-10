@@ -106,20 +106,15 @@ void tkmc_start(int a0, int a1) {
     }
   }
 
-  /* Retrieve the highest-priority task (should be the initial task). */
-  TCB *tcb = tkmc_get_highest_priority_task();
-  tcb->tskstat = TTS_RUN; // Mark the task as running
-  current = tcb;          // Set the current task pointer
+  /* The highest-priority task is the initial task. */
+  next = tkmc_get_highest_priority_task();
 
   /* Start the system timer for task scheduling. */
   tkmc_start_timer();
 
-  /* Enable interrupts globally. */
-  EI(0);
-  /* Launch the initial task by restoring its context. */
-  __launch_task(&tcb->sp);
-
-  return;
+  /* Interrupts are still off from reset: the initial task turns them on as it
+     starts, so no trap comes before a task is running. */
+  tkmc_force_dispatch();
 }
 
 /*

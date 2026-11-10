@@ -5,8 +5,9 @@
 # Unit tests of the kernel logic that run on the PC, with no QEMU. The kernel
 # sources are compiled unchanged. Everything that touches the machine goes
 # through include/sys/interrupt.h and include/sys/ioport.h, and shadow/ holds
-# stand-ins for both; it comes first on the include path. See fakes.h for what
-# the fake machine can and cannot do.
+# stand-ins for both; it comes first on the include path. The one assembly
+# routine task.c calls, __launch_task(), has a stand-in in fakes.c that fails
+# the test. See fakes.h for what the fake machine can and cannot do.
 
 FetchContent_MakeAvailable(Unity)
 

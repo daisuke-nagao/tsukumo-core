@@ -12,9 +12,11 @@
 //
 // schedule() is the one function that every task switch of the RV32 trap
 // entries goes through. It is wrapped at link time (--wrap=schedule), and the
-// wrapper keeps the mcause of the trap it runs in. A task that resumes reads
-// the value left by the switch that made it current, since no other switch can
-// come between that one and the task's first instruction.
+// wrapper keeps the mcause of the trap it runs in. A task that a trap switches
+// to reads the value left by that switch, since no other switch can come
+// between that one and the task's first instruction. A task that the end of
+// another resumes is switched to without schedule() and reads an older value;
+// none of the tasks that read it here is resumed that way.
 
 #include <tk/tkernel.h>
 #include <unity.h>
@@ -193,7 +195,10 @@ static void flag_setting_child(void *arg) {
 }
 
 // A timer trap that switches away must save the registers and the resume
-// address of the task it interrupts, as the software interrupt does.
+// address of the task it interrupts, as the software interrupt does. The case
+// is resumed by the end of the child (__launch_task, not a trap exit): the
+// child outranks it and the runner cannot be ready while the child runs, so
+// this is also the check of that path. Keep it so.
 static void a_task_preempted_by_the_timer_resumes_intact(void) {
   for (UINT i = 0; i < STATE_WORDS; ++i) {
     s_state[i] = 0;

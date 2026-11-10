@@ -12,7 +12,8 @@
 // longjmp at that point (HOST_EXPECT_WAIT), and the test then looks at the
 // kernel's queues. The code a blocking call runs after it wakes up (reading the
 // wake-up cause, copying out the result) never runs on the PC, so the
-// QEMU tests are what check the values a woken task sees.
+// QEMU tests are what check the values a woken task sees. For the same reason
+// a task cannot end here: its switch (__launch_task()) fails the test.
 //
 // The PC has 64 bit pointers, and the kernel keeps 32 bit addresses in plain
 // integers (for example the entry point and the argument in a new task's

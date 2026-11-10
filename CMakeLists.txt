@@ -39,7 +39,6 @@ set(COMMON_FLAGS -ffreestanding -nostdlib -nostdinc)
 add_library(
   tsukumo-core-kernel STATIC
   kernel/asm/rv32/start.S
-  kernel/asm/rv32/launch_task.S
   kernel/asm/rv32/idl_tsk.S
   kernel/start.c
   kernel/context.c
@@ -495,6 +494,13 @@ add_test_suite(mailbox-cost ICOUNT_ONLY SOURCES test/suites/mailbox_cost.c)
 # reads the counter around the handler on the trap path.
 add_test_suite(timer-cost ICOUNT_ONLY SOURCES test/suites/timer_cost.c)
 target_link_options(${PROJECT_NAME}-test-timer-cost.elf PRIVATE
+                    LINKER:--wrap=tkmc_timer_handler)
+
+# The same at the kernel's limit, every task but idle waiting, with no runner:
+# the suite prints the marker itself when every check held.
+add_test_suite(timer-cost-max ICOUNT_ONLY SOURCES test/suites/timer_cost_max.c
+               OUTPUT_REGEX "TIMER COST MAX OK")
+target_link_options(${PROJECT_NAME}-test-timer-cost-max.elf PRIVATE
                     LINKER:--wrap=tkmc_timer_handler)
 
 # tk_wup_tsk() from the actual timer trap: the test-only link wrap runs the call

@@ -112,7 +112,8 @@ void tkmc_timer_handler(void) {
    * Re-scan after each completion, which can remove other timer entries too.
    * shortcut: these scans are O(n^2) in the waits one call ends, bounded by
    * CFN_MAX_TSKID (32), and not merged or replaced by a sorted queue: the
-   * qemu-timer-cost suite holds the handler to its instruction budget (see
+   * qemu-timer-cost suites hold the handler to its instruction budget, up to
+   * the 31 waits the kernel allows (see
    * docs/developer/notes/timer-delay-budget.md), so revisit when that fails. */
   BOOL ended = FALSE;
   TCB *first;
@@ -168,7 +169,12 @@ void tkmc_schedule_timer(TCB *tcb, UINT delay_ticks, UINT tskwait) {
 /*
  * Delay the current task for a specified timeout.
  * - Moves the current task to the timer queue if the timeout is non-zero.
- * - Yields the CPU if the timeout is zero.
+ * - Returns at once and changes nothing if it is zero, as the reference
+ *   implementation does: it waits only for a positive delay.
+ *
+ * Not done: a yield to the tasks of the same priority for a zero delay. The
+ * reference implementation does not make one, and the kernel follows it in
+ * details the specification leaves open.
  *
  * Parameters:
  * - dlytm: 0, or a delay of 1 to UINT_MAX ms (about 49.7 days), counted as in
@@ -189,7 +195,6 @@ ER tk_dly_tsk(RELTIM dlytm) {
   }
   if (dlytm == 0) {
     EI(intsts);
-    tkmc_yield();
     return E_OK;
   }
 

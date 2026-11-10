@@ -63,7 +63,13 @@ extern TCB *current;
 
 extern void tkmc_init_tcb(void);
 
-extern void __launch_task(void **sp_end);
+// Resumes the task whose saved frame *sp points to, with interrupts on, and
+// saves nothing of the running context. Interrupts must be disabled.
+extern __attribute__((__noreturn__)) void __launch_task(void **sp);
+// Makes next the running task and switches to it without saving the running
+// context, which is thrown away: the start of the first task, and a task that
+// ends. The caller chooses next. Interrupts must be disabled.
+extern __attribute__((__noreturn__)) void tkmc_force_dispatch(void);
 extern TCB *tkmc_get_highest_priority_task(void);
 
 // Ends the wait of a task and makes it ready, with the given wake-up cause. It

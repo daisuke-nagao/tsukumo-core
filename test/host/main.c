@@ -40,6 +40,8 @@ test_a_claim_of_no_source_calls_no_handler_and_completes_nothing(void);
 extern void test_a_source_beyond_the_table_is_switched_off_and_completed(void);
 extern void test_the_first_and_the_last_interrupt_number_have_a_handler(void);
 extern void test_enabling_and_disabling_a_source_keeps_the_others(void);
+extern void
+test_a_driver_written_to_the_profile_enables_a_source_at_its_level(void);
 extern void test_a_bad_number_or_level_touches_no_register(void);
 extern void test_a_refused_definition_leaves_the_old_one_in_place(void);
 extern void test_a_handler_cannot_be_defined_in_the_isr_state(void);
@@ -93,6 +95,8 @@ test_a_time_out_requests_a_switch_only_to_a_higher_priority_task(void);
 extern void test_a_time_out_of_a_lower_priority_task_requests_no_switch(void);
 extern void test_timed_waits_record_what_the_task_waits_for(void);
 extern void test_release_wait_refuses_a_task_that_is_not_waiting(void);
+extern void
+test_an_isr_releases_the_task_it_interrupted_right_after_it_began_to_wait(void);
 extern void test_memset_fills_exactly_the_requested_range(void);
 extern void test_a_reset_gives_back_every_kernel_object(void);
 extern void test_the_kernel_arms_the_timer_one_tick_ahead_at_boot(void);
@@ -137,7 +141,8 @@ extern void test_the_context_check_comes_before_the_object_checks(void);
 extern void
 test_the_context_check_comes_before_the_one_waiter_check_of_a_flag(void);
 extern void
-test_a_delay_of_zero_with_interrupts_on_yields_and_leaves_them_on(void);
+test_a_delay_of_zero_with_interrupts_on_changes_nothing_and_leaves_them_on(
+    void);
 extern void test_an_id_out_of_range_is_refused_and_changes_nothing(void);
 extern void test_the_ids_at_both_ends_of_the_range_get_past_the_id_check(void);
 extern void test_every_wait_rounds_its_time_limit_up_to_ticks_plus_one(void);
@@ -222,7 +227,8 @@ int main(void) {
   RUN_TEST(test_argument_errors_come_before_the_context_check);
   RUN_TEST(test_the_context_check_comes_before_the_object_checks);
   RUN_TEST(test_the_context_check_comes_before_the_one_waiter_check_of_a_flag);
-  RUN_TEST(test_a_delay_of_zero_with_interrupts_on_yields_and_leaves_them_on);
+  RUN_TEST(
+      test_a_delay_of_zero_with_interrupts_on_changes_nothing_and_leaves_them_on);
   RUN_TEST(test_an_id_out_of_range_is_refused_and_changes_nothing);
   RUN_TEST(test_the_ids_at_both_ends_of_the_range_get_past_the_id_check);
   RUN_TEST(test_every_wait_rounds_its_time_limit_up_to_ticks_plus_one);
@@ -278,6 +284,8 @@ int main(void) {
   RUN_TEST(test_a_time_out_of_a_lower_priority_task_requests_no_switch);
   RUN_TEST(test_timed_waits_record_what_the_task_waits_for);
   RUN_TEST(test_release_wait_refuses_a_task_that_is_not_waiting);
+  RUN_TEST(
+      test_an_isr_releases_the_task_it_interrupted_right_after_it_began_to_wait);
   RUN_TEST(test_memset_fills_exactly_the_requested_range);
   RUN_TEST(test_a_reset_gives_back_every_kernel_object);
   RUN_TEST(test_the_kernel_arms_the_timer_one_tick_ahead_at_boot);
@@ -322,6 +330,7 @@ int main(void) {
   RUN_TEST(test_a_source_beyond_the_table_is_switched_off_and_completed);
   RUN_TEST(test_the_first_and_the_last_interrupt_number_have_a_handler);
   RUN_TEST(test_enabling_and_disabling_a_source_keeps_the_others);
+  RUN_TEST(test_a_driver_written_to_the_profile_enables_a_source_at_its_level);
   RUN_TEST(test_a_bad_number_or_level_touches_no_register);
   RUN_TEST(test_a_refused_definition_leaves_the_old_one_in_place);
   RUN_TEST(test_a_handler_cannot_be_defined_in_the_isr_state);

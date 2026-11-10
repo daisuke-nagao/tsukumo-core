@@ -1,18 +1,49 @@
 # Interrupts
 
-## Interrupt status (`intsts`) declaration in `DI/EI` usage
+This document explains how interrupts work in tsukumo-core: the `DI()` and
+`EI()` macros, external interrupt handlers, the stack that handlers run on,
+and nested interrupts. Read it before you write a device driver or an
+interrupt handler, or before you change the kernel's trap code. The rules for
+which kernel calls are valid in which calling context are in
+[behavior.md](behavior.md).
 
-### Overview
+The specification cited here is the official Japanese
+[μT-Kernel 3.0 specification Ver.3.00.01](https://tron-forum.github.io/mtk3_spec_jp/index.html).
 
-In uT-Kernel, the `DI()` macro disables interrupts and the `EI()` macro puts back the state `DI()` saved. However, these macros require an `intsts` variable to store the previous interrupt status. The specification does not explicitly state whether the caller must declare `intsts` or if it is automatically managed by `DI()`.
+## Rules at a glance
 
-From the `isDI()` usage example provided in the specification, it becomes evident that `intsts` must be declared by the caller before invoking `DI()` and `EI()`. This document clarifies this requirement to avoid ambiguity and ensure correct usage.
+- Declare a `UINT intsts` variable before you call `DI(intsts)`, and pass the
+  same variable to `EI(intsts)`.
+- Define a handler with `tk_def_int()` as a C function
+  `void inthdr(UINT intno)` with the attribute `TA_HLNG`, then enable its
+  source with `EnableInt(intno, level)`.
+- In the handler, make the device stop asserting the interrupt. Do not
+  complete the source: the kernel does that after the handler returns.
+- Keep the handler short. Every handler shares one 2048-byte interrupt stack,
+  and nothing detects an overflow.
+- If the handler turns interrupts on, it must turn them off again before it
+  returns.
+- `ClearInt()`, `EndOfInt()`, `CheckInt()` and `SetIntMode()` are not
+  provided.
 
-### Requirement for `intsts` Declaration
+## Disabling and restoring interrupts with DI and EI
 
-The caller is responsible for declaring `intsts` before calling `DI()` or `EI()`. Failing to do so may result in undefined behavior or compilation errors.
+`DI(intsts)` disables interrupts and saves the previous interrupt state in the
+variable `intsts`. `EI(intsts)` puts back the state that `DI()` saved. On this
+RV32 kernel the interrupt state is `mstatus.MIE`, the machine-mode
+interrupt-enable bit of the `mstatus` register. `isDI(intsts)` tells whether
+interrupts were already disabled when `DI()` saved `intsts`. The
+specification describes these macros in its
+[μT-Kernel/SM interrupt management chapter](https://tron-forum.github.io/mtk3_spec_jp/interrupt_management_functions_sm.html).
 
-#### Correct Usage Example
+### Declare intsts before calling DI
+
+The caller must declare `intsts` before it calls `DI()` or `EI()`. The
+specification does not say whether the caller declares it or `DI()` manages
+it, but its usage example of `isDI()` declares it in the caller. Code that
+does not declare it can fail to compile or behave in an undefined way.
+
+This function declares `intsts` first:
 
 ```c
 void foo() {
@@ -27,7 +58,7 @@ void foo() {
 }
 ```
 
-#### Incorrect Usage Example
+This function does not declare it:
 
 ```c
 void foo() {
@@ -36,15 +67,17 @@ void foo() {
 }
 ```
 
-### What `EI()` puts back
+### What EI restores
 
-`EI(intsts)` restores the MIE state recorded by `DI(intsts)`, regardless of the
-MIE state when `EI()` runs. Pass either the value returned by `DI()` or zero.
-`EI(0)` enables interrupts. The saved value keeps the existing DI token format
-and `isDI()` continues to test its saved MIE bit. EI changes only
-`mstatus.MIE`; other `mstatus` bits and the interrupt-source mask in `mie` are
-preserved. A section that turns interrupts on in the middle therefore still
-ends with them off if they were off before it:
+`EI(intsts)` restores the MIE state that `DI(intsts)` recorded, whatever the
+MIE state is when `EI()` runs. Pass it either the value that `DI()` saved or
+zero. `EI(0)` enables interrupts. The saved value is the token that `DI()`
+writes, and `isDI()` tests the saved MIE bit in it. `EI()` changes only
+`mstatus.MIE`. The other `mstatus` bits keep their values, and so does `mie`,
+the register that enables each kind of interrupt source.
+
+A section that turns interrupts on in the middle therefore still ends with
+them off if they were off before it:
 
 ```c
 UINT intsts;
@@ -66,27 +99,32 @@ EI(inner); // Still disabled.
 EI(outer); // Restores the state from before the outer DI().
 ```
 
-The `interrupt-state` QEMU suite (`test/suites/interrupt_state.c`) checks saved
-MIE enabled and disabled after either possible MIE state immediately before
-`EI()`, plus `EI(0)`. It checks that restoring a disabled state does not
-briefly take a pending software interrupt, and exercises nested `DI()`/`EI()`
-with interrupts initially on and off. The host regression is in
-`test/host/test_interrupt_state.c`.
+## Traps and the ISR state
 
-### References
-
-- uT-Kernel 3.0 Specification
-- Example usage in existing uT-Kernel documentation
-
-By explicitly stating this requirement in the documentation, developers can avoid confusion and ensure proper interrupt management in their applications.
+A trap is the CPU's jump into the kernel on an interrupt. The kernel has trap
+entries for the timer interrupt, the external interrupt, and the software
+interrupt that it raises to switch tasks (software dispatch). While the CPU is inside any of them, the kernel is in the ISR state
+(ISR: interrupt service routine). `tkmc_isr_depth` counts the traps that are
+running, and the ISR state, which `tkmc_in_isr()` reports, holds while that
+count is not 0.
 
 ## External interrupts
 
-External interrupts come through the PLIC of the QEMU `virt` machine. The
-interrupt number of a source is its PLIC source ID: the UART is 10, the
-goldfish RTC is 11 and the virtio devices are 1 to 8. The kernel keeps a handler
-for each number from 1 to `CFN_MAX_INTNO - 1` (`include/sys/config.h`); number 0
+External interrupts come through the PLIC (platform-level interrupt
+controller) of the QEMU `virt` machine. The interrupt number of a source is
+its PLIC source ID:
+
+| Source | Interrupt number |
+| --- | --- |
+| virtio devices | 1 to 8 |
+| UART | 10 |
+| goldfish RTC (real-time clock) | 11 |
+
+The kernel keeps a handler for each number from 1 to `CFN_MAX_INTNO - 1`.
+`CFN_MAX_INTNO` is set in `include/sys/config.h` (32 at present). Number 0
 does not exist.
+
+### Defining a handler and enabling its source
 
 | Call | Behavior |
 | --- | --- |
@@ -94,130 +132,186 @@ does not exist.
 | `EnableInt(intno, level)` | Sets the PLIC priority of the source to `level` (1 to 7) and enables it. |
 | `DisableInt(intno)` | Disables the source. |
 
-`tk_def_int` returns `E_PAR` for an `intno` that is 0 or beyond the table, and
-for a `pk_dint` with a NULL `inthdr`. It returns `E_RSATR` unless `intatr` is
-exactly `TA_HLNG`: the handler is a C function `void inthdr(UINT intno)`.
-`E_NOMEM` is never returned, because the table is static. It returns `E_CTX`
-from an ISR, as the specification says, and also with interrupts disabled,
-which the specification does not say. That check comes first:
-`tk_def_int(0, p)` with interrupts disabled returns `E_CTX`, not `E_PAR`. `EnableInt` and `DisableInt` have no error
-return, and the specification does not define a bad argument. Here a bad
-`intno` or a `level` outside 1 to 7 changes nothing.
+A handler is a C function `void inthdr(UINT intno)`, which the attribute
+`TA_HLNG` selects. `tk_def_int` returns these errors:
 
-A handler runs in the ISR state, with interrupts disabled unless it turns them
-on (see "Nested interrupts"), on the interrupt stack (see below). The kernel
-claims the source before the call and completes it after the call, so a handler
-does not complete it and `EndOfInt` is not provided. A handler may call
-`DisableInt` on its own source to mask it until deferred work is done; the
-kernel still completes the source, which the PLIC would otherwise ignore, and
-the source stays disabled. A task that a handler wakes runs after the outermost
-handler returns, at the exit of the same trap.
+| Error | When |
+| --- | --- |
+| `E_CTX` | The call comes from an ISR, as the specification says, or runs with interrupts disabled, which the specification does not say. This check comes first: `tk_def_int(0, p)` with interrupts disabled returns `E_CTX`, not `E_PAR`. |
+| `E_PAR` | `intno` is 0 or beyond the table, or `pk_dint` has a NULL `inthdr`. |
+| `E_RSATR` | `intatr` is anything other than exactly `TA_HLNG`. |
 
-A handler should be short and use little stack: the interrupt stack is 2048
-bytes, shared by every function the trap calls, and nothing checks its depth. A
-handler must also silence its device: the kernel completes the source when the
-handler returns, and a source that is still asserted is taken again at once.
+`E_NOMEM` is never returned, because the handler table is static.
 
-A source with no handler is switched off by the default handler: the kernel
+`EnableInt` and `DisableInt` have no error return, and the specification does
+not define a bad argument. In this kernel a bad `intno`, or a `level` outside
+1 to 7, changes nothing.
+
+### How the kernel runs a handler
+
+A handler runs in the ISR state, on the interrupt stack (see
+[Interrupt stack](#interrupt-stack)), with interrupts disabled unless it turns
+them on (see [Nested interrupts](#nested-interrupts)).
+
+The kernel claims the source before it calls the handler and completes the
+source after the handler returns. Claiming tells the PLIC that the interrupt
+is being served, and completing lets the PLIC raise that source again. A
+handler does not complete its source, so `EndOfInt` is not provided.
+
+- A handler must silence its device. The kernel completes the source when the
+  handler returns, and a source that is still asserted is taken again at once.
+- A handler should be short and use little stack. The interrupt stack is 2048
+  bytes, shared by every function the trap calls, and nothing checks its depth.
+- A handler may call `DisableInt` on its own source to mask it until deferred
+  work is done. The kernel still completes the source, which the PLIC would
+  otherwise ignore because the source is disabled, and the source stays
+  disabled.
+- A task that a handler wakes runs after the outermost handler returns, at the
+  exit of the same trap.
+
+### Sources without a handler
+
+The default handler switches off a source that has no handler: the kernel
 completes it, clears its enable bit and does nothing else. Leaving it enabled
 would raise it again at once for as long as the device asserts it.
 
-`EnableInt` also writes the PLIC threshold, with the value it already has. QEMU
-11.1.0 does not raise a source that was already pending when its enable bit was
-set, until the PLIC looks for a source again, which a threshold write makes it
-do. The specification says `EnableInt` generates the interrupt of such a source.
+### EnableInt and a source that is already pending
+
+The specification says `EnableInt` generates the interrupt of a source that is
+already pending. QEMU 11.1.0 does not raise a source that was already pending
+when its enable bit was set until the PLIC looks for a source again. Writing
+the PLIC threshold makes it look, so `EnableInt` also writes the threshold,
+with the value it already has.
 
 ## Calls from a handler
 
-The specification requires a set of calls from the task-independent portion
-(a handler) and makes availability of other calls implementation-dependent.
-This kernel accepts the required calls it implements and applies the policy in
-the table to the others:
+An interrupt handler runs in what the specification calls the
+task-independent portion: code that runs outside any task. The specification
+lists a set of calls that must be callable there and makes the availability of
+other calls implementation-dependent. Its
+[System Calls](https://tron-forum.github.io/mtk3_spec_jp/system_calls.html#system_call_possible_from_task_independent_portion)
+and [API Notation](https://tron-forum.github.io/mtk3_spec_jp/api_notation.html#api_notation_context)
+sections describe this distinction. This kernel accepts the required calls it
+implements and applies the policy in the table to the others:
 
 | Call | In a handler |
 | --- | --- |
 | `tk_sta_tsk`, `tk_rel_wai`, `tk_wup_tsk`, `tk_sig_sem`, `tk_set_flg` | Required callable APIs; allowed by this kernel. |
 | `tk_cre_tsk`, `tk_cre_sem`, `tk_cre_flg`, `tk_cre_mbx`, `tk_del_sem`, `tk_del_mbx`, `tk_clr_flg`, `tk_snd_mbx` | The specification makes availability implementation-dependent. This kernel allows these calls with valid arguments and their normal error returns. |
-| `tk_slp_tsk`, `tk_dly_tsk`, `tk_wai_sem`, `tk_wai_flg`, `tk_rcv_mbx`, `tk_def_int` | Return `E_CTX` and change nothing (see their own rules). |
+| `tk_slp_tsk`, `tk_dly_tsk`, `tk_wai_sem`, `tk_wai_flg`, `tk_rcv_mbx`, `tk_def_int` | Return `E_CTX` and change nothing (see the rules of each call in [behavior.md](behavior.md)). |
 | `tk_ext_tsk`, `tk_exd_tsk` | Stop the kernel. |
 
-The μT-Kernel 3.0.01 specification requires the first group to be callable from
-the task-independent portion. Availability of the eight calls in the second
-group is implementation-dependent. Its [System
-Calls](https://tron-forum.github.io/mtk3_spec_jp/system_calls.html#system_call_possible_from_task_independent_portion)
-and [API Notation](https://tron-forum.github.io/mtk3_spec_jp/api_notation.html#api_notation_context)
-sections describe this distinction. The verified API availability contract
-covers calls from a single-level handler. Nested-handler support requires
-separate validation. The kernel has no quasi-task portion, so that distinction
-does not arise.
+The rules in this table are verified for calls from a single-level handler,
+one that does not run nested inside another handler. Calls from a nested
+handler need separate validation. This kernel has no quasi-task portion,
+another context that the API Notation section defines, so the specification's
+rules for that context do not apply.
 
 ## Interrupt stack
 
-Each trap (software dispatch, timer and external interrupt) pushes its 128-byte
-frame on the stack of the task it interrupted, then moves to the interrupt
-stack for the C code: the handler and `schedule()`. A nested external interrupt
-is already on the interrupt stack, so it pushes its frame there and stays. A
-task stack therefore needs
-room for that frame and nothing more, however deep a handler calls. The
-interrupt stack is the `.isr_stack` section of `linker.ld`, 2048 bytes, placed
-after the boot stack (`.stack`). It is separate from the boot stack because
-`tkmc_start` still runs on the boot stack between enabling interrupts and
-launching the first task, and a trap in that window would overwrite its frame.
+Each trap (software dispatch, timer and external interrupt) pushes its
+128-byte frame of saved registers on the stack of the task it interrupted,
+then moves to the interrupt stack for its C code: the handler and
+`schedule()`. A nested external interrupt is already on the interrupt stack,
+so it pushes its frame there and stays. A task stack therefore needs room for
+that frame and nothing more, however deep a handler calls.
 
-Nothing detects an overflow: RAM is flat and the kernel uses no PMP, so the
-stack runs into the boot stack below it. The `interrupt` QEMU suite measures
-the stack high-water across its normal paths, including a handler sending a
-message to a waiting higher-priority task, the end of a timed wait, and a task
-switch. Rechecked on 2026-11-09, the high-water was 212 bytes with `debug` and
-56 bytes with `minsizerel`. These are observed counts and can depend on
-interrupt timing. The test fails above 768 bytes. The suite covers its tested
-paths, not the worst case of a handler you write.
+The interrupt stack is the `.isr_stack` section of `linker.ld`, 2048 bytes,
+placed after the boot stack (`.stack`, the stack the kernel starts on). Stacks
+grow down, so an overflow runs into the boot stack, which nothing uses after
+boot, and not into the kernel's tables. The two stacks are also separate
+because the fatal exception entry takes the boot stack anew. `tkmc_start`
+runs on the boot stack with interrupts still off from reset. They come on only
+as the first task starts, so no trap is taken there.
 
-`tkmc_isr_depth` counts the traps that are running. The ISR state
-(`tkmc_in_isr()`) holds while it is not 0.
+Nothing detects an overflow. RAM is flat and the kernel uses no PMP (the
+RISC-V physical memory protection unit), so the interrupt stack runs into the
+boot stack below it.
 
-The stack is sized for nesting: a trap that starts inside a handler pushes a
+### Stack size and nesting
+
+The stack is sized for nesting. A trap that starts inside a handler pushes a
 128-byte frame and its own handler's frames on the same stack. The PLIC has 7
-priorities, which is the deepest nesting there can be, so 2048 bytes leave about
-290 bytes for each level. Rechecked on 2026-11-09, two levels (the UART
-interrupted by the RTC) used 468 bytes with `debug` and 256 bytes with
-`minsizerel`; the test fails above 1024. Diagnostic-only copies of the QEMU
-suite recorded these high-water counts, and interrupt timing can affect them.
-Deeper nesting is not measured,
-because the QEMU `virt` board has only two
-sources that software can raise.
+priorities, which is the deepest nesting there can be, so 2048 bytes leave
+about 290 bytes for each level.
+
+### Measured stack use
+
+The `interrupt` QEMU suite (`test/suites/interrupt.c`; QEMU suites are
+described in [run_qemu.md](../developer/notes/run_qemu.md)) measures the most
+of the interrupt stack that its paths use, its high-water mark, and fails
+above a limit. The counts below were rechecked on 2026-11-09 in the `debug`
+and `minsizerel` build presets (`CMakePresets.json`):
+
+| Paths | `debug` | `minsizerel` | Test fails above |
+| --- | --- | --- | --- |
+| One level: a handler that sends a message to a waiting higher-priority task, the end of a timed wait, and a task switch | 212 bytes | 56 bytes | 768 bytes |
+| Two levels: the UART handler interrupted by the RTC | 468 bytes | 256 bytes | 1024 bytes |
+
+The suite checks the limits but does not print the counts. Diagnostic-only
+copies of the suite recorded them. They are observed counts, and interrupt
+timing can affect them. The suite covers its tested paths, not the worst case
+of a handler you write. Deeper nesting is not measured, because the QEMU
+`virt` board has only two sources that software can raise.
 
 ## Nested interrupts
 
-A handler may turn interrupts on with `EI()`. It is then interrupted by a source
-of a higher priority, and by no other. The kernel raises the PLIC threshold to
-the priority of the source it serves before it calls the handler and puts it
-back after, so a source of the same or a lower priority waits until the handler
-returns. The depth is at most 7, the number of priorities.
+A handler may turn interrupts on with `EI()`. Only a source of a higher
+priority can then interrupt it. Before the kernel calls a handler, it raises
+the PLIC threshold to the priority of the source it serves, and it puts the
+threshold back after the handler returns. The PLIC raises only a source whose
+priority is above the threshold, so a source of the same or a lower priority
+waits until the handler returns. Nesting is at most 7 deep, the number of
+priorities.
 
 - A handler must turn interrupts off again with `DI()` before it returns. The
-  kernel does not do it: the threshold, the completion and the trap frame are
-  put back with interrupts as the handler left them, and an interrupt in the
-  middle would find them half done. `EI()` with the value that a `DI()` saved
-  on entry, when interrupts were off, turns them off as well.
-- The timer and software interrupts do not nest. The kernel masks them (the
-  `MTIE` and `MSIE` bits of `mie`) from the entry of the outermost external
-  trap until its exit, whether the handler turns interrupts on or not. A tick
-  that falls due meanwhile is served once the handler has returned, and the
-  software interrupt that a task switch asks for never happens inside a
-  handler.
-- The task switch is made only at the exit of the outermost trap. A task that a
-  nested handler wakes runs after the outermost handler returns, once: a nested
-  trap leaves the request to the outer one.
-- The calls of a handler that turn interrupts on and off themselves
-  (`EnableInt`, `DisableInt`, and every kernel call that disables interrupts for
-  a moment) put the interrupt flag back as they found it, so they are safe in a
-  handler that has interrupts on.
+  kernel does not do it: it puts back the threshold, completes the source and
+  restores the trap frame with interrupts as the handler left them, and an
+  interrupt in the middle would find that work half done. `EI()` with the value that a `DI()`
+  saved on entry, when interrupts were off, turns them off as well (see
+  [What EI restores](#what-ei-restores)).
+- The timer and software interrupts do not nest. The kernel masks them (it
+  clears `MTIE` and `MSIE`, their enable bits in `mie`) from the entry of the
+  outermost external
+  interrupt trap until its exit, whether the handler turns interrupts on or
+  not. A tick that falls due meanwhile is served once the handler has
+  returned, and the software interrupt that a task switch asks for never
+  happens inside a handler.
+- The kernel switches tasks only at the exit of the outermost trap. A task
+  that a nested handler wakes runs once, after the outermost handler returns:
+  a nested trap leaves the switch to the outer one.
+- The calls that turn interrupts off and on themselves (`EnableInt`,
+  `DisableInt`, and every kernel call that disables interrupts for a moment)
+  put the interrupt flag back as they found it, so they are safe in a handler
+  that has interrupts on.
 
-Not supported: the calls `ClearInt`, `EndOfInt`, `CheckInt` and `SetIntMode`.
-The `interrupt` QEMU suite tests the calls with the UART transmit-empty
-interrupt and the nesting with the UART and the RTC alarm; both are raised by
-software, the RTC by an alarm at a time that has already passed, which does not
-depend on the clock the machine runs on. The claims that QEMU cannot be made to
-give (no source, a source beyond the table) and the threshold are tested on the
-PC.
+## Interrupt calls that are not provided
+
+The kernel does not provide `ClearInt`, `EndOfInt`, `CheckInt` or
+`SetIntMode`. In `include/sys/profile.h`, `TK_SUPPORT_INTCTRL` and
+`TK_HAS_ENAINTLEVEL` are true for `EnableInt` with a level and for
+`DisableInt`. `TK_SUPPORT_INTCTRL` also covers `ClearInt`, `EndOfInt` and
+`CheckInt`, which are missing; the
+[specification review](spec-conformance-review.md) records this difference.
+
+## How the interrupt behavior is tested
+
+Two kinds of test cover this document. QEMU suites run on the emulated RV32
+machine (see [run_qemu.md](../developer/notes/run_qemu.md)). PC unit tests
+compile the kernel sources for the development PC and run them on a fake
+machine, without QEMU (see [testing.md](../developer/testing.md)).
+
+- `DI()` and `EI()`: the `interrupt-state` QEMU suite
+  (`test/suites/interrupt_state.c`) restores a saved MIE state, enabled and
+  disabled, after each of the two MIE states just before `EI()`, and checks
+  `EI(0)`. It checks that restoring a disabled state does not briefly take a
+  pending software interrupt, and it runs nested `DI()`/`EI()` with interrupts
+  initially on and off. The PC regression test is
+  `test/host/test_interrupt_state.c`.
+- External interrupts: the `interrupt` QEMU suite tests the calls with the
+  UART transmitter-empty interrupt, and nesting with the UART and the RTC
+  alarm. Software raises both. It raises the RTC by an alarm at a time that
+  has already passed, which does not depend on the clock the machine runs on.
+- What QEMU cannot be made to produce (a claim with no source, a source beyond
+  the table) and the PLIC threshold are tested by the PC unit tests in
+  `test/host/test_intctl.c`.

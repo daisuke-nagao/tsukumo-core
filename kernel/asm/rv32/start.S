@@ -13,7 +13,7 @@
  * resumed from it, so every trap entry that can switch must build and unwind
  * the same one.
  * It is the layout of StashedRegisters in kernel/task.c, which also builds the
- * first frame of a task, and of __launch_task in launch_task.S.
+ * first frame of a task; __launch_task, below, resumes one without a trap.
  *
  * SAVE_FRAME changes sp and t0 only: t0 is saved first, then carries mepc.
  * ENTER_ISR, below, changes s0 and sp after it.
@@ -130,6 +130,34 @@
   addi t1, t1, -1
   sw t1, 0(t0)
   .endm
+
+/*
+ * void __launch_task(void **sp): resumes the task whose frame is at *sp, as a
+ * trap exit would, and saves nothing of the context that calls it. It starts
+ * the first task, and switches away from a task that ends
+ * (tkmc_force_dispatch() in task.c), whose context is thrown away.
+ *
+ * Interrupts must be off, and stay off until mret, which turns them on: every
+ * frame there is to resume had them on (a trap saves a frame only when it is
+ * taken, and a new task starts with them on). MPP is set to machine mode for
+ * the reason given at external_interrupt below.
+ *
+ * Not done: a jump to the saved mepc instead of mret. The jump needs a register
+ * to hold the address, which then cannot be given back to the task, and it
+ * leaves interrupts as the caller had them.
+ *
+ * In .text, not in .reset: the machine starts at the first byte of .reset.
+ */
+  .text
+  .global __launch_task, @function
+  .balign 4
+__launch_task:
+  lw sp, 0(a0)
+  li t0, (3<<11) | (1<<7)
+  csrs mstatus, t0
+  RESTORE_FRAME
+  mret
+
   .section .reset, "ax", @progbits
   .global _start, @function
   .balign 4
