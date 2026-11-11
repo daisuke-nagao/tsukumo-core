@@ -174,6 +174,7 @@ test, `qemu-<suite>`, and also has a `qemu-<suite>-hostclock` run.
 | Suite | What it checks | Notes |
 | --- | --- | --- |
 | `timer-wrap` | Moves the machine timer to 100 ms before the wrap of its low 32-bit word, with a nonzero high word, before it starts the runner. A 300 ms delay must finish after the wrap. | A separate ELF keeps this clock jump out of the other suites. |
+| `system-time` | Sets and reads the UTC system time with `tk_set_utc()` and `tk_get_utc()`: values across the low word, the clock after a delay, timed waits of each kind while the clock is set forward or back, and refusal of the calls in a real timer interrupt (through a link-time wrapper of the timer handler). | A separate ELF keeps the wrapper out of the other suites. Exact tick counting is checked by the PC unit tests. |
 | `timer-switch` | Which trap switches tasks, through a link-time wrap of `schedule()` that records the `mcause` of the trap it runs in. A task that a timer interrupt wakes must be switched to inside that timer trap; this is checked over four sleeps, because the runner can wake in the same trap and run first. A task woken by `tk_wup_tsk()` is switched to in the software interrupt. A task that a timer trap preempts keeps the registers `t0` to `t6`, `a2` to `a7` and `s1` to `s11` that it held. | |
 
 ### Instruction-count suites

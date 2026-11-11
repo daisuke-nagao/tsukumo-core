@@ -195,6 +195,45 @@ test_receivers_of_a_priority_mailbox_queue_by_priority_then_arrival(void);
 extern void
 test_the_main_and_sub_error_codes_come_apart_as_they_were_joined(void);
 
+extern void test_the_utc_clock_reads_zero_after_boot(void);
+extern void
+test_restarting_the_timer_resets_the_utc_clock_whatever_the_machine_time(void);
+extern void test_repeated_utc_reads_within_one_tick_return_the_same_value(void);
+extern void
+test_each_tick_advances_the_utc_clock_by_exactly_ten_milliseconds(void);
+extern void
+test_a_late_timer_interrupt_advances_the_utc_clock_by_every_tick_it_missed(
+    void);
+extern void test_the_millisecond_remainder_of_a_set_utc_value_is_kept(void);
+extern void test_utc_can_be_set_forward_and_backward(void);
+extern void test_the_ends_of_the_utc_range_round_trip(void);
+extern void test_the_low_word_carries_into_the_high_word_on_a_tick(void);
+extern void test_a_negative_high_word_is_refused_and_keeps_the_utc_clock(void);
+extern void test_the_utc_clock_saturates_at_the_maximum_and_stays_there(void);
+extern void test_a_set_after_saturation_restarts_the_utc_clock(void);
+extern void test_utc_get_counts_ticks_whose_interrupt_is_still_pending(void);
+extern void test_ticks_pending_before_a_set_are_not_added_after_it(void);
+extern void
+test_utc_get_leaves_a_waiter_due_at_a_pending_tick_to_the_handler(void);
+extern void
+test_utc_get_retries_a_machine_time_read_that_carries_into_the_high_word(void);
+extern void
+test_the_handler_advances_the_utc_clock_with_an_empty_timer_queue(void);
+extern void
+test_a_handler_that_releases_several_waits_advances_the_utc_clock_by_all_its_ticks(
+    void);
+extern void test_a_utc_set_in_the_middle_of_a_tick_keeps_the_tick_edge(void);
+extern void test_utc_set_and_get_write_no_timer_compare_register(void);
+extern void test_a_null_pointer_is_refused_with_e_par_in_every_context(void);
+extern void
+test_a_negative_high_word_is_refused_with_e_par_in_every_context(void);
+extern void
+test_a_valid_utc_call_in_an_isr_or_without_a_task_is_refused_with_e_ctx(void);
+extern void
+test_a_valid_utc_call_from_a_task_succeeds_with_interrupts_on_or_off(void);
+extern void
+test_relative_waits_end_at_the_same_tick_whatever_is_set_to_utc(void);
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_invalid_termination_context_stops_before_changing_tasks);
@@ -347,5 +386,37 @@ int main(void) {
   RUN_TEST(test_ei_restores_the_state_di_saved_whatever_the_state_before_it);
   RUN_TEST(test_nested_di_ei_restores_each_saved_state);
   RUN_TEST(test_an_ei_that_turns_interrupts_off_keeps_the_switch_for_later);
+
+  RUN_TEST(test_the_utc_clock_reads_zero_after_boot);
+  RUN_TEST(
+      test_restarting_the_timer_resets_the_utc_clock_whatever_the_machine_time);
+  RUN_TEST(test_repeated_utc_reads_within_one_tick_return_the_same_value);
+  RUN_TEST(test_each_tick_advances_the_utc_clock_by_exactly_ten_milliseconds);
+  RUN_TEST(
+      test_a_late_timer_interrupt_advances_the_utc_clock_by_every_tick_it_missed);
+  RUN_TEST(test_the_millisecond_remainder_of_a_set_utc_value_is_kept);
+  RUN_TEST(test_utc_can_be_set_forward_and_backward);
+  RUN_TEST(test_the_ends_of_the_utc_range_round_trip);
+  RUN_TEST(test_the_low_word_carries_into_the_high_word_on_a_tick);
+  RUN_TEST(test_a_negative_high_word_is_refused_and_keeps_the_utc_clock);
+  RUN_TEST(test_the_utc_clock_saturates_at_the_maximum_and_stays_there);
+  RUN_TEST(test_a_set_after_saturation_restarts_the_utc_clock);
+  RUN_TEST(test_utc_get_counts_ticks_whose_interrupt_is_still_pending);
+  RUN_TEST(test_ticks_pending_before_a_set_are_not_added_after_it);
+  RUN_TEST(test_utc_get_leaves_a_waiter_due_at_a_pending_tick_to_the_handler);
+  RUN_TEST(
+      test_utc_get_retries_a_machine_time_read_that_carries_into_the_high_word);
+  RUN_TEST(test_the_handler_advances_the_utc_clock_with_an_empty_timer_queue);
+  RUN_TEST(
+      test_a_handler_that_releases_several_waits_advances_the_utc_clock_by_all_its_ticks);
+  RUN_TEST(test_a_utc_set_in_the_middle_of_a_tick_keeps_the_tick_edge);
+  RUN_TEST(test_utc_set_and_get_write_no_timer_compare_register);
+  RUN_TEST(test_a_null_pointer_is_refused_with_e_par_in_every_context);
+  RUN_TEST(test_a_negative_high_word_is_refused_with_e_par_in_every_context);
+  RUN_TEST(
+      test_a_valid_utc_call_in_an_isr_or_without_a_task_is_refused_with_e_ctx);
+  RUN_TEST(
+      test_a_valid_utc_call_from_a_task_succeeds_with_interrupts_on_or_off);
+  RUN_TEST(test_relative_waits_end_at_the_same_tick_whatever_is_set_to_utc);
   return UNITY_END();
 }

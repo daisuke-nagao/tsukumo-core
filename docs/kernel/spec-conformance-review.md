@@ -1,6 +1,6 @@
 # Specification conformance review of the implemented API
 
-This review compares the 34 APIs that tsukumo-core implements with the
+This review compares the 36 APIs that tsukumo-core implements with the
 official Japanese
 [μT-Kernel 3.0 specification Ver.3.00.01](https://tron-forum.github.io/mtk3_spec_jp/index.html).
 Read it to learn what the kernel conforms to today, where it still differs,
@@ -15,7 +15,7 @@ The review covers this configuration:
 
 - RV32 `rv32imac`/`ilp32` on a single hart (one RISC-V hardware thread).
 - The service profile in `include/sys/profile.h`.
-- The 34 entries checked in [API support status](API_Support_Status.md),
+- The 36 entries checked in [API support status](API_Support_Status.md),
   cross-checked against their public declarations and their definitions.
   Findings about the shared declarations and the service profile apply to all
   of them.
@@ -29,9 +29,9 @@ shares
 
 The initial review was made on 2026-11-08 (JST). Follow-ups on 2026-11-09
 covered `EI`, and follow-ups on 2026-11-10 covered task exit, wait release,
-the zero delay and the interrupt profile. A follow-up on 2026-11-11 covered
-the common public declarations. The findings rest on source
-inspection, compile probes and target observations recorded here; the
+the zero delay and the interrupt profile. Follow-ups on 2026-11-11 covered
+the common public declarations and the time representation. The findings rest
+on source inspection, compile probes and target observations recorded here; the
 [evidence gaps](#evidence-gaps) list what still needs evidence.
 
 ## Assessment labels
@@ -52,26 +52,25 @@ difference, the kernel was fixed on that date, and the entry now passes. The
 
 ## Current state
 
-- All 34 implemented entries are Checked. Some also carry a Defined choice or
+- All 36 implemented entries are Checked. Some also carry a Defined choice or
   an Evidence gap.
-- Six differences that the review found are corrected. `EI` did not restore a
+- Seven differences that the review found are corrected. `EI` did not restore a
   saved disabled state (fixed 2026-11-09). On 2026-11-10 the kernel was fixed
   so that an ended task can no longer resume its old run, an ISR can release
   the task it interrupted, `tk_dly_tsk(0)` no longer yields, and the interrupt
   profile flags match `EnableInt` and `DisableInt`. On 2026-11-11 the generated
-  public header gained `SYSTIM`, `LOCAL`, `EXPORT` and `IMPORT`.
-- Two differences remain open. They concern the service profile and apply
-  across the inventory. They are the
-  [missing `ClearInt`, `EndOfInt` and `CheckInt` calls](#tk_support_intctrl-also-covers-calls-the-kernel-does-not-provide)
-  and the [time-representation profile](#no-time-representation-is-enabled).
+  public header gained `SYSTIM`, `LOCAL`, `EXPORT` and `IMPORT`, and the kernel
+  gained `tk_set_utc` and `tk_get_utc` with `TK_SUPPORT_UTC` true.
+- One difference remains open. It concerns the service profile and applies
+  across the inventory: the
+  [missing `ClearInt`, `EndOfInt` and `CheckInt` calls](#tk_support_intctrl-also-covers-calls-the-kernel-does-not-provide).
 - The remaining evidence gaps are `TA_ASM` task creation, interrupt nesting
   beyond two levels with the interrupt-stack margin, real hardware and more
   than one hart.
-- The common-declaration update passed 137 PC unit tests, three host consumer
-  checks and all 88 Debug CTests, including three RV32 compile/link checks.
-  The earlier six-preset validation passed 137 PC unit tests and 85 RV32
-  CTests per preset. The [test history](spec-conformance-history.md#test-runs-by-date)
-  records both sets of results.
+- The time-representation update passed 162 PC unit tests, three host
+  consumer checks and all 90 RV32 CTests in each of the six presets. The
+  [test history](spec-conformance-history.md#test-runs-by-date) records this
+  and the earlier results.
 
 ## Terms used in this review
 
@@ -149,6 +148,22 @@ Supplemental probes passed for a semaphore count of 32767, mailbox priority
 returned before clearing. RV32 size and member-order assertions passed for the
 packets `T_CSEM`, `T_CFLG`, `T_CMBX`, `T_MSG` and `T_MSG_PRI`.
 
+### Time management
+
+The references are the
+[time-management chapter](https://tron-forum.github.io/mtk3_spec_jp/time_management_functions.html)
+and the
+[service-profile definitions](https://tron-forum.github.io/mtk3_spec_jp/service_profile_definitions.html).
+
+| Entry | Assessment | Source and checked evidence |
+| --- | --- | --- |
+| `tk_set_utc` | Checked (Difference corrected 2026-11-11) / Defined choice | `kernel/timer.c`, `test/host/test_system_time.c`, `system-time`. Millisecond UTC values kept with their remainder, both words and the range 0 to 2^63 − 1, `E_PAR` for a NULL pointer or a negative `hi` before `E_CTX`, refusal in an ISR or without a current task with nothing changed, and timed waits unaffected by a set ([history](spec-conformance-history.md#no-time-representation-was-enabled)). |
+| `tk_get_utc` | Checked (Difference corrected 2026-11-11) / Defined choice | `kernel/timer.c`, `test/host/test_system_time.c`, `system-time`. The clock starts at 0 with the timer and advances 10 ms per tick, counts ticks whose interrupt is still pending exactly once, saturates at 2^63 − 1, and refuses an ISR or a missing current task without writing the output ([history](spec-conformance-history.md#no-time-representation-was-enabled)). |
+
+The refusal in an ISR, the refusal of negative times and the saturation at
+2^63 − 1 ms are listed under
+[defined choices](#defined-choices).
+
 ### Interrupts and I/O
 
 The references are the
@@ -198,22 +213,6 @@ handler does not need `EndOfInt` here. Implementing them was outside the
 See the specification's
 [EnableInt and service-profile section](https://tron-forum.github.io/mtk3_spec_jp/interrupt_management_functions_sm.html).
 
-### No time representation is enabled
-
-`TK_SUPPORT_UTC` and `TK_SUPPORT_TRONTIME` are both false. The
-[service-profile definitions](https://tron-forum.github.io/mtk3_spec_jp/service_profile_definitions.html)
-require at least one of the two. This consumer assertion fails with `0 || 0`:
-
-```c
-#include <tk/tkernel.h>
-_Static_assert(TK_SUPPORT_UTC || TK_SUPPORT_TRONTIME,
-               "one time representation must be enabled");
-```
-
-To resolve it, choose a time representation, implement its interfaces and
-semantics, and update the profile declaration together with that
-implementation.
-
 ## Common public declarations
 
 The generated `<tk/typedef.h>` publishes `SYSTIM` as a millisecond system-time
@@ -235,8 +234,8 @@ compiled and linked with the C kernel in both `CONST` modes. The
 [history](spec-conformance-history.md#common-public-declarations-were-unavailable)
 records the original failures, the correction and its verification.
 
-The [time-representation profile](#no-time-representation-is-enabled) tracks
-the separate availability of time-setting and time-reference interfaces.
+The [time-management entries](#time-management) cover the interfaces that use
+`SYSTIM`.
 
 ## Defined choices
 
@@ -252,6 +251,7 @@ the review found the kernel's choice permitted.
 | `tk_ext_tsk`, `tk_exd_tsk` | A call from an invalid context does not return. | [Task-management chapter](https://tron-forum.github.io/mtk3_spec_jp/utk_os_functions.html) |
 | `tk_def_int`, `EnableInt`, `DisableInt` | [Interrupts](interrupts.md) describes how these calls behave where the specification leaves the behavior open, for example for a bad interrupt number or level. | [SM interrupt chapter](https://tron-forum.github.io/mtk3_spec_jp/interrupt_management_functions_sm.html) |
 | `in_d`, `out_d` | A 64-bit access is split into two 32-bit volatile accesses, lower half first. | [I/O access chapter](https://tron-forum.github.io/mtk3_spec_jp/io_port_management_functions.html) |
+| `tk_set_utc`, `tk_get_utc` | A call from an ISR, or before the first task starts, returns `E_CTX` after the argument checks and changes nothing. `tk_set_utc` returns `E_PAR` for a negative time, and the clock stops at 2^63 − 1 ms (see [kernel behavior](behavior.md#system-time-utc)). | The [time-management chapter](https://tron-forum.github.io/mtk3_spec_jp/time_management_functions.html) marks both calls as not available in the task-independent portion, and the specification's notes on the API description format make detecting `E_CTX` implementation-dependent. `SYSTIM` is a signed 64-bit millisecond count; the `E_PAR` of `tk_set_utc` covers an invalid time without defining which times are invalid, and the specification does not say what follows the largest value. |
 
 ## Evidence gaps
 
@@ -321,7 +321,8 @@ presets and test commands in more detail.
 
 3. For focused target checks, run only the suites the inventory names:
    `task-create`, `task-restart`, `task-timer`, `wakeup-context`, `semaphore`,
-   `event-flag`, `mailbox`, `interrupt`, `task-context` and `wait-context`.
+   `event-flag`, `mailbox`, `interrupt`, `task-context`, `wait-context` and
+   `system-time`.
    Pass `ctest -R` a regular expression that matches their CTest names
    (`qemu-<name>`). With the default instruction-count clock, each suite also
    has a `qemu-<name>-hostclock` test, which the same expression matches.

@@ -79,7 +79,7 @@
 #define TK_TRAP_SVC FALSE /* Use CPU Trap instruction for system call entry */
 #define TK_HAS_SYSSTACK FALSE     /* Task has a separate system stack */
 #define TK_SUPPORT_PTIMER FALSE   /* Support of physical timer function */
-#define TK_SUPPORT_UTC FALSE      /* Support of UNIX time */
+#define TK_SUPPORT_UTC TRUE       /* Support of UNIX time */
 #define TK_SUPPORT_TRONTIME FALSE /* Support of TRON time */
 
 /* Debugger Support Functions */

@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add the millisecond `SYSTIM` type and `LOCAL`, `EXPORT` and `IMPORT` linkage macros to the public headers
+- Add `tk_set_utc` and `tk_get_utc` for millisecond UTC system time and declare `TK_SUPPORT_UTC` true
+  (see [docs/kernel/behavior.md](docs/kernel/behavior.md#system-time-utc))
 
 ### Fixed
 

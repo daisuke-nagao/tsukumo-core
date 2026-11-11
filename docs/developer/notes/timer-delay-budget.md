@@ -30,6 +30,11 @@ suites count instructions, for this note and the other measurement notes.
   [How late the timer interrupt can be](#how-late-the-timer-interrupt-can-be)).
   The kernel does not bound how long interrupts stay disabled, so this holds
   only while no code keeps them off for longer.
+- The original counts in this note predate the UTC clock (2026-11-11).
+  Accounting for elapsed UTC ticks adds 10 instructions in `debug` and 7 in
+  `minsizerel` to each measured timer-handler invocation. The worst Debug case
+  took 29233 (94%), with 2017 instructions to spare. The
+  [measurement record](#measurement-record) includes fresh results for all six presets.
 
 ## The budget
 
@@ -291,6 +296,20 @@ long as no section keeps them off for longer than the table says.
 - The 31-wait rows were measured on 2026-11-10 in all six presets.
 - The first three rows of the results are the counts of
   [timer-handler-cost.md](timer-handler-cost.md), and they did not change.
+- On 2026-11-11 the timer handler gained one 64-bit addition when it accounts
+  for elapsed ticks for the UTC clock. In `debug` and `minsizerel`, each
+  measured handler invocation took 10 and 7 more instructions, respectively,
+  with the per-edge cost unchanged. All three cost suites were rerun in all
+  six presets and passed their existing budgets. The 31-wait results are below.
+
+| Preset | 31 delays | 31 semaphore waits | Instructions below the 31250 budget |
+| --- | ---: | ---: | ---: |
+| `debug` | 27373 | 29233 | 2017 |
+| `debug-lto` | 27113 | 28973 | 2277 |
+| `relwithdebinfo` | 7917 | 8196 | 23054 |
+| `relwithdebinfo-lto` | 7883 | 8162 | 23088 |
+| `minsizerel` | 7887 | 8166 | 23084 |
+| `minsizerel-lto` | 7854 | 8133 | 23117 |
 
 ## Appendix: why semaphore time-outs skip the wait-queue walk
 

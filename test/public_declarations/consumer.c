@@ -9,13 +9,21 @@
 #include <tk/tkernel.h>
 
 _Static_assert(TK_SUPPORT_USEC == FALSE, "microsecond profile changed");
+_Static_assert(TK_SUPPORT_UTC == TRUE, "UNIX time profile changed");
+_Static_assert(TK_SUPPORT_TRONTIME == FALSE, "TRON time profile changed");
 #if defined(TKERNEL_CHECK_CONST)
 _Static_assert(_Generic(&tk_cre_tsk, ID (*)(const T_CTSK *): 1, default: 0),
                "CONST must make the public task definition parameter const");
+_Static_assert(_Generic(&tk_set_utc, ER (*)(const SYSTIM *): 1, default: 0),
+               "CONST must make the tk_set_utc() parameter const");
 #else
 _Static_assert(_Generic(&tk_cre_tsk, ID (*)(T_CTSK *): 1, default: 0),
                "disabled CONST must leave the public parameter mutable");
+_Static_assert(_Generic(&tk_set_utc, ER (*)(SYSTIM *): 1, default: 0),
+               "disabled CONST must leave the tk_set_utc() parameter mutable");
 #endif
+_Static_assert(_Generic(&tk_get_utc, ER (*)(SYSTIM *): 1, default: 0),
+               "tk_get_utc() must take a mutable SYSTIM pointer");
 #else
 #include <tk/typedef.h>
 #endif

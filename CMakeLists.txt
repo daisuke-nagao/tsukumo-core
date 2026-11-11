@@ -469,6 +469,11 @@ add_test_suite(task-timer SOURCES test/suites/task_timer.c)
 add_test_suite(task-restart SOURCES test/suites/task_restart.c)
 add_test_suite(task-create SOURCES test/suites/task_create.c)
 add_test_suite(timer-wrap SOURCES test/suites/timer_wrap.c)
+# tk_set_utc()/tk_get_utc(); the wrap of tkmc_timer_handler() runs the calls in
+# a real interrupt handler.
+add_test_suite(system-time SOURCES test/suites/system_time.c)
+target_link_options(${PROJECT_NAME}-test-system-time.elf PRIVATE
+                    LINKER:--wrap=tkmc_timer_handler)
 add_test_suite(event-flag SOURCES test/suites/event_flag.c)
 add_test_suite(semaphore SOURCES test/suites/semaphore.c)
 add_test_suite(semaphore-wait-release SOURCES

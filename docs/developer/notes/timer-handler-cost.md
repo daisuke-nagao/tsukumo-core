@@ -19,6 +19,9 @@ budget and measures the worst cases that this note leaves out.
   queue scans per wait described below.
 - The worst cases, at the kernel's limit of 31 waits and with a late
   interrupt, are in [timer-delay-budget.md](timer-delay-budget.md).
+- The counts below predate UTC tick accounting (2026-11-11), which adds 10
+  instructions in `debug` and 7 in `minsizerel` to each measured timer-handler
+  invocation. See the [measurement record](#measurement-record).
 
 ## Why the cost grows with the number of waits
 
@@ -148,3 +151,11 @@ state that `DI()` saved (see
 of all nine cases of `qemu-timer-cost` matched those measured before that
 change. The counts do not depend on host timing, and before the change two
 runs of each preset gave the same counts.
+
+On 2026-11-11 the timer handler gained one 64-bit addition when it accounts
+for elapsed ticks for the UTC clock. Fresh measurements of the three rows
+above gave 883, 3599 and 21449 instructions in `debug` and 204, 1009 and 6658
+in `minsizerel`. That is 10 and 7 more instructions per measured handler
+invocation, respectively, for each of these wait counts. The
+[delay-budget record](timer-delay-budget.md#measurement-record) includes the
+new 31-wait measurements for all six presets.
