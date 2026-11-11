@@ -29,7 +29,8 @@ shares
 
 The initial review was made on 2026-11-08 (JST). Follow-ups on 2026-11-09
 covered `EI`, and follow-ups on 2026-11-10 covered task exit, wait release,
-the zero delay and the interrupt profile. The findings rest on source
+the zero delay and the interrupt profile. A follow-up on 2026-11-11 covered
+the common public declarations. The findings rest on source
 inspection, compile probes and target observations recorded here; the
 [evidence gaps](#evidence-gaps) list what still needs evidence.
 
@@ -53,23 +54,24 @@ difference, the kernel was fixed on that date, and the entry now passes. The
 
 - All 34 implemented entries are Checked. Some also carry a Defined choice or
   an Evidence gap.
-- Five differences that the review found are corrected. `EI` did not restore a
+- Six differences that the review found are corrected. `EI` did not restore a
   saved disabled state (fixed 2026-11-09). On 2026-11-10 the kernel was fixed
   so that an ended task can no longer resume its old run, an ISR can release
   the task it interrupted, `tk_dly_tsk(0)` no longer yields, and the interrupt
-  profile flags match `EnableInt` and `DisableInt`.
-- Three differences remain open. They concern the service profile and the
-  shared declarations, so they apply across the inventory:
-  [`ClearInt`, `EndOfInt` and `CheckInt` are missing](#tk_support_intctrl-also-covers-calls-the-kernel-does-not-provide),
-  [no time representation is enabled](#no-time-representation-is-enabled),
-  and [common declarations are missing](#common-declarations-are-missing-from-the-public-headers).
+  profile flags match `EnableInt` and `DisableInt`. On 2026-11-11 the generated
+  public header gained `SYSTIM`, `LOCAL`, `EXPORT` and `IMPORT`.
+- Two differences remain open. They concern the service profile and apply
+  across the inventory. They are the
+  [missing `ClearInt`, `EndOfInt` and `CheckInt` calls](#tk_support_intctrl-also-covers-calls-the-kernel-does-not-provide)
+  and the [time-representation profile](#no-time-representation-is-enabled).
 - The remaining evidence gaps are `TA_ASM` task creation, interrupt nesting
   beyond two levels with the interrupt-stack margin, real hardware and more
   than one hart.
-- The latest full validation passed 137 PC unit tests and all 85 RV32 CTests
-  in each of the six presets.
-  [Test runs by date](spec-conformance-history.md#test-runs-by-date) lists
-  every run.
+- The common-declaration update passed 137 PC unit tests, three host consumer
+  checks and all 88 Debug CTests, including three RV32 compile/link checks.
+  The earlier six-preset validation passed 137 PC unit tests and 85 RV32
+  CTests per preset. The [test history](spec-conformance-history.md#test-runs-by-date)
+  records both sets of results.
 
 ## Terms used in this review
 
@@ -212,36 +214,29 @@ To resolve it, choose a time representation, implement its interfaces and
 semantics, and update the profile declaration together with that
 implementation.
 
-### Common declarations are missing from the public headers
+## Common public declarations
 
-`typedef.h.in`, the template for the generated `tk/typedef.h`, places the
-millisecond `SYSTIM` declaration inside `#if 0`, nested in
-`#if TK_SUPPORT_USEC`. In the specification, microsecond support qualifies
-`SYSTIM_U` only; the millisecond `SYSTIM` has its own common definition. The
-public headers also omit `LOCAL`, `EXPORT` and `IMPORT`. Consumers that use
-these common declarations fail to compile. `TA_NULL` is present, and its
-zero-value compile check passes. The specification defines these declarations
-in [common data types and declarations](https://tron-forum.github.io/mtk3_spec_jp/common_utk.html).
+The generated `<tk/typedef.h>` publishes `SYSTIM` as a millisecond system-time
+structure with signed 32-bit `W hi` at offset 0 and unsigned 32-bit `UW lo` at
+offset 4. Its RV32 size is 8 bytes. It is available when `TK_SUPPORT_USEC` is
+false and through the public umbrella header `<tk/tkernel.h>`.
 
-Compile these two snippets separately. The first shows the missing type, the
-second the missing linkage macros.
+The same header defines `LOCAL` as `static`, `EXPORT` as an empty replacement,
+and `IMPORT` as `extern`. C consumers use these macros for internal definitions,
+external definitions and external references. The declarations follow the
+[common specification](https://tron-forum.github.io/mtk3_spec_jp/common_utk.html).
 
-```c
-#include <tk/tkernel.h>
-SYSTIM now;
-```
+The checks in `test/public_declarations/` compile the field layout and
+signedness and link two translation units to check local and external symbols.
+They cover direct and umbrella includes, with `CONST` enabled and disabled.
+The host executables run the value checks. RV32 CTests build the executables
+to verify target compilation and final linking. Clang C++17 consumers also
+compiled and linked with the C kernel in both `CONST` modes. The
+[history](spec-conformance-history.md#common-public-declarations-were-unavailable)
+records the original failures, the correction and its verification.
 
-```c
-#include <tk/tkernel.h>
-LOCAL INT local_value;
-EXPORT INT exported_value;
-IMPORT INT imported_value;
-```
-
-A fix is complete when both consumers compile through the public umbrella
-header `<tk/tkernel.h>`, the intended linkage is verified, and RV32 `SYSTIM`
-has size 8 with signed `W hi` at offset 0 and unsigned `UW lo` at offset 4,
-also in configurations with `TK_SUPPORT_USEC` false.
+The [time-representation profile](#no-time-representation-is-enabled) tracks
+the separate availability of time-setting and time-reference interfaces.
 
 ## Defined choices
 
