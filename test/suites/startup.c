@@ -34,7 +34,7 @@ static ID created[2];
 static INT boot_argument;
 static BOOL injected, injected_with_mie;
 
-static __attribute__((noreturn)) void fail(const char *what) {
+static __attribute__((__noreturn__)) void fail(const char *what) {
   putstring("STARTUP :FAIL: ");
   putstring(what);
   putstring("\n");
@@ -131,7 +131,8 @@ void __wrap___launch_task(void **sp) {
   fail("initial launch returned");
 }
 
-void tkmc_startup_panic(tkmc_startup_stage stage, ER error) {
+__attribute__((__noreturn__)) void tkmc_startup_panic(tkmc_startup_stage stage,
+                                                      ER error) {
   ER expected =
       stage == TKMC_STARTUP_INITIAL_CREATE || stage == TKMC_STARTUP_IDLE_CREATE
           ? E_LIMIT
@@ -153,7 +154,7 @@ void tkmc_startup_panic(tkmc_startup_stage stage, ER error) {
   test_exit(0);
 }
 
-void tkmc_panic(UW mcause, UW mepc, UW mtval) {
+__attribute__((__noreturn__)) void tkmc_panic(UW mcause, UW mepc, UW mtval) {
   (void)mcause;
   (void)mepc;
   (void)mtval;

@@ -30,7 +30,7 @@ static void put_field(const char *name, UW got, UW want) {
   }
 }
 
-void tkmc_panic(UW mcause, UW mepc, UW mtval) {
+__attribute__((__noreturn__)) void tkmc_panic(UW mcause, UW mepc, UW mtval) {
   UW want_cause = panic_expect.mcause;
   UW want_epc = panic_expect.mepc;
   UW want_tval = panic_expect.mtval;

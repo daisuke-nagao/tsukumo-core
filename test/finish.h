@@ -24,7 +24,7 @@ static const UW FINISHER_EXIT_CODE_SHIFT = 16;
 
 /// Ends the QEMU run for the test runner: status 0 if no case failed, 1 if any
 /// did. Never returns.
-static inline __attribute__((noreturn)) void test_exit(UW failures) {
+static inline __attribute__((__noreturn__)) void test_exit(UW failures) {
   // One write only. QEMU may process the shutdown request after the guest has
   // run on, and a second finisher write might replace the exit code; a single
   // write avoids having to find out.

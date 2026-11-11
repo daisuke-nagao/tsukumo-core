@@ -178,7 +178,7 @@ static void child(INT index, void *exinf) {
   tk_exd_tsk();
 }
 
-static __attribute__((noreturn)) void fail(const char *what) {
+static __attribute__((__noreturn__)) void fail(const char *what) {
   putstring(":FAIL: timer-cost-max: ");
   putstring(what);
   putstring("\n");

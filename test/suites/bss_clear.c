@@ -51,8 +51,8 @@ enum { BOOT_A0 = 0x5a5a }; // What bss_dirty_entry.S leaves in a0.
 // would remove the check.
 static volatile unsigned char g_zero_probe[PROBE_SIZE];
 
-static __attribute__((noreturn)) void fail(const char *what,
-                                           const unsigned char *at) {
+static __attribute__((__noreturn__)) void fail(const char *what,
+                                               const unsigned char *at) {
   putstring("BSS NOT CLEARED: ");
   putstring(what);
   putstring(" at ");

@@ -82,7 +82,7 @@ static struct {
   TCB *scheduled;
 } s_before;
 
-static __attribute__((noreturn)) void fail(const char *reason) {
+static __attribute__((__noreturn__)) void fail(const char *reason) {
   putstring("WAKEUP CONTEXT :FAIL: ");
   putstring(reason);
   putstring("\n");
@@ -145,7 +145,7 @@ static BOOL unchanged_but_for_the_count_of(ID target) {
          s_before.running == current && s_before.scheduled == next;
 }
 
-void tkmc_panic(UW cause, UW epc, UW value) {
+__attribute__((__noreturn__)) void tkmc_panic(UW cause, UW epc, UW value) {
   (void)cause;
   (void)epc;
   (void)value;
