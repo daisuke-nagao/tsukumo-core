@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add the millisecond `SYSTIM` type and `LOCAL`, `EXPORT` and `IMPORT` linkage macros to the public headers
+
 ### Fixed
 
 - Keep the never-return attribute of the panic APIs when `<stdnoreturn.h>` is included before the kernel headers

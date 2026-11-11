@@ -262,6 +262,7 @@ find_program(
   QEMU_EXECUTABLE
   NAMES qemu-system-riscv32.exe qemu-system-riscv32
   HINTS "C:/Program Files/qemu" ENV ProgramFiles)
+add_subdirectory(test/public_declarations)
 
 # How ctest runs an ELF on QEMU. test_exit() in test/finish.h makes QEMU exit,
 # so the exit status carries the verdict and TIMEOUT catches a hang.

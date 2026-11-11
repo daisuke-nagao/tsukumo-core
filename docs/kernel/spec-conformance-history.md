@@ -18,6 +18,7 @@ both clocks).
 | 2026-11-10 | [An ISR could not release the task it interrupted](#an-isr-could-not-release-the-task-it-interrupted) | `tk_rel_wai` | PC unit test in `test/host/test_wait.c` |
 | 2026-11-10 | [A zero delay yielded the processor](#a-zero-delay-yielded-the-processor) | `tk_dly_tsk` | PC unit test in `test/host/test_wait_context.c` |
 | 2026-11-10, in part | [The interrupt profile flags disagreed with the exported calls](#the-interrupt-profile-flags-disagreed-with-the-exported-calls) | `EnableInt`, `DisableInt` | PC unit test in `test/host/test_intctl.c` |
+| 2026-11-11 | [Common public declarations were unavailable](#common-public-declarations-were-unavailable) | `SYSTIM`, `LOCAL`, `EXPORT`, `IMPORT` | Public consumer compile and link checks |
 
 The initial review on 2026-11-08 (JST) found the `EI` and interrupt-profile
 problems. After the `EI` fix, a second review of the kernel found the task-exit
@@ -246,6 +247,40 @@ The PC unit test `test_a_driver_written_to_the_profile_enables_a_source_at_its_l
 in `test/host/test_intctl.c` follows the same pattern and checks the priority it
 sets. With the previous flags it did not compile.
 
+### Common public declarations were unavailable
+
+The original public-header consumers failed to compile because the generated
+`tk/typedef.h` hid `SYSTIM` inside `#if 0` and a microsecond-support condition,
+and omitted `LOCAL`, `EXPORT` and `IMPORT`. Separate RV32 snippets reproduced
+the unknown type and all three unknown declaration macros before the fix.
+
+On 2026-11-11, the millisecond `SYSTIM` structure moved into the unconditional
+common declarations. The header also gained the specified linkage macros.
+The field types and the availability conditions follow the
+[common specification](https://tron-forum.github.io/mtk3_spec_jp/common_utk.html).
+
+The checks in `test/public_declarations/` use the generated header through
+both public include forms. They assert the type and tag identity, field
+widths, signedness, offsets and total size, and link two translation units.
+The host runs the linked programs. RV32 performs final executable links.
+The umbrella variants check `CONST` both enabled and disabled.
+The RV32 link checks register with the other RV32 tests after QEMU discovery.
+Their executables still build when QEMU is unavailable. A configuration with
+QEMU disabled built all three executables, and the documented CTest command
+with `--no-tests=error` reported no tests instead of passing only link checks.
+
+The new fixtures failed against the original header. Isolated wrong headers
+also failed for swapped fields, either field's wrong signedness, an external
+`LOCAL`, an internal `EXPORT`, and a defining `IMPORT`. The corrected header
+passed on the host and RV32. The fixtures use `-fno-common` so an unintended
+external variable definition causes a duplicate-symbol link failure.
+
+Existing RV32 packet layouts matched the baseline in both `CONST` modes.
+Clang C++17 consumers compiled and linked against the actual C kernel in both
+modes. The correction uses the existing type-generation path. The remaining
+[time-representation difference](spec-conformance-review.md#no-time-representation-is-enabled)
+covers the time interfaces and their profile.
+
 ## Test runs by date
 
 Each row is the recorded result of one run. PC unit tests ran with
@@ -260,7 +295,10 @@ AddressSanitizer and UBSan. The six presets are `debug`, `relwithdebinfo`,
 | 2026-11-10 | After the `tk_rel_wai` fix | 136 passed | Not recorded | |
 | 2026-11-10 | After the zero-delay fix | 136 passed | All 84 passed in each of the six presets | |
 | 2026-11-10 | After the profile fix | 137 passed | `debug`: all 84 passed | |
+| 2026-11-11 | After the common-declaration fix | 137 passed, plus three host consumer checks | All 88 passed in Debug, including three compile/link checks | Original-header and six wrong-header cases detected on both targets. Existing RV32 packet layouts matched the baseline. Clang C++17 consumers linked against the C kernel in both `CONST` modes. |
 
-The `timer-cost-max` suite was added after these runs, so the `debug` preset
-now registers 85 CTests. A later full validation passed all 137 PC unit tests
-and all 85 RV32 CTests in each of the six presets.
+The `timer-cost-max` suite raised the Debug count to 85 after the earlier
+2026-11-10 runs. A full validation then passed all 137 PC unit tests and all
+85 RV32 CTests in each of the six presets. The common-declaration checks add
+three compile/link CTests to Debug, giving the 88 tests in the new row.
+The new declaration checks were validated with the host and Debug presets.

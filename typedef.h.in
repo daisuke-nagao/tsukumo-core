@@ -18,6 +18,11 @@ _Static_assert(__CHAR_BIT__ == 8, "__CHAR_BIT__ is not 8. The implementation req
 extern "C" {
 #endif /* __cplusplus */
 
+/* Linkage definitions */
+#define LOCAL  static
+#define EXPORT
+#define IMPORT extern
+
 /* Basic data types */
 typedef @TYPE_8BIT_SIGNED@    B;   /* Signed 8-bit integer */
 typedef @TYPE_16BIT_SIGNED@   H;   /* Signed 16-bit integer */
@@ -69,14 +74,14 @@ typedef INT PRI;  /* Priority */
 /* Time-related types */
 typedef W                    TMO;    /* Timeout in milliseconds */
 typedef UW                   RELTIM; /* Relative time in milliseconds */
-#if 0
-#if TK_SUPPORT_USEC
-typedef D                    TMO_U;  /* Timeout in microseconds */
-typedef UW                   RELTIM_U; /* Relative time in microseconds */
 typedef struct systim {
     W       hi;                    /* Higher 32 bits */
     UW      lo;                    /* Lower 32 bits */
 } SYSTIM;
+#if 0
+#if TK_SUPPORT_USEC
+typedef D                    TMO_U;  /* Timeout in microseconds */
+typedef UW                   RELTIM_U; /* Relative time in microseconds */
 typedef D                    SYSTIM_U; /* System time in microseconds */
 #endif
 #endif

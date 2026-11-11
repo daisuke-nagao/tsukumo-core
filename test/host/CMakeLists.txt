@@ -89,6 +89,9 @@ add_test(NAME host-tests COMMAND host-tests)
 # time limit of its own.
 set_tests_properties(host-tests PROPERTIES TIMEOUT 60)
 
+add_subdirectory(${PROJECT_SOURCE_DIR}/test/public_declarations
+                 ${CMAKE_CURRENT_BINARY_DIR}/public-declarations)
+
 # On Windows the AddressSanitizer runtime is a DLL next to the compiler's
 # libraries, which is not on PATH.
 if(WIN32)
