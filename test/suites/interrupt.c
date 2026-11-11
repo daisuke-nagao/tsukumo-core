@@ -1133,7 +1133,7 @@ static UINT task_state(ID id) {
   return state;
 }
 
-static __attribute__((noinline, noreturn)) void
+static __attribute__((noinline, __noreturn__)) void
 exit_with_an_external_interrupt_pending(void) {
   // The pad's address escapes into the asm, so the whole of it is on the stack
   // at every optimization level (a volatile array that is never read is not).
@@ -1307,7 +1307,7 @@ a_task_created_by_an_isr_in_the_tcb_tk_exd_tsk_freed_starts_anew(void) {
 // The cases above turn interrupts off and leave the runner unable to time them
 // out, so a fault or a kernel stop must end the run with a message, not hang
 // it.
-void tkmc_panic(UW mcause, UW mepc, UW mtval) {
+__attribute__((__noreturn__)) void tkmc_panic(UW mcause, UW mepc, UW mtval) {
   putstring(":FAIL: unexpected CPU exception mcause=");
   puthex(mcause);
   putstring(" mepc=");
@@ -1318,7 +1318,7 @@ void tkmc_panic(UW mcause, UW mepc, UW mtval) {
   test_exit(1);
 }
 
-void tkmc_context_panic(tkmc_context_api api) {
+__attribute__((__noreturn__)) void tkmc_context_panic(tkmc_context_api api) {
   putstring(":FAIL: a kernel call stopped the system, api=");
   puthex((UW)api);
   putstring("\n");

@@ -54,6 +54,7 @@ add_executable(
   main.c
   fakes.c
   memset_under_test.c
+  noreturn_order.c
   test_errno.c
   test_event_flag.c
   test_fixture.c
@@ -78,6 +79,10 @@ target_compile_options(host-tests PRIVATE -Wno-macro-redefined
 # calls to the C library's memset, and the test would then check the library.
 set_source_files_properties(memset_under_test.c PROPERTIES COMPILE_OPTIONS
                                                            -fno-builtin)
+# Warnings would let a dropped noreturn attribute through; see noreturn_order.c.
+set_source_files_properties(
+  noreturn_order.c PROPERTIES COMPILE_OPTIONS
+                              "-Werror=unknown-attributes;-Werror=return-type")
 
 add_test(NAME host-tests COMMAND host-tests)
 # A kernel bug that corrupts a queue can make a test loop forever; ctest has no

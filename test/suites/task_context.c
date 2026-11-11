@@ -65,7 +65,7 @@ static volatile UINT quiet_dispatches;
 static TCB *expected_current;
 static BOOL startup_probed;
 
-static __attribute__((noreturn)) void fail(const char *reason) {
+static __attribute__((__noreturn__)) void fail(const char *reason) {
   putstring("TASK CONTEXT :FAIL: ");
   putstring(reason);
   putstring("\n");
@@ -228,7 +228,7 @@ static void probe_compatible_calls(void) {
                  "tk_snd_mbx failed or changed IRQ state");
 }
 
-static __attribute__((noreturn)) void terminate_invalid(void) {
+static __attribute__((__noreturn__)) void terminate_invalid(void) {
   capture();
   if (CONTEXT_TEST_MODE == DI_EXD || CONTEXT_TEST_MODE == ISR_EXD ||
       CONTEXT_TEST_MODE == NO_CURRENT_EXD) {
@@ -239,7 +239,7 @@ static __attribute__((noreturn)) void terminate_invalid(void) {
   fail("invalid termination returned");
 }
 
-void tkmc_context_panic(tkmc_context_api api) {
+__attribute__((__noreturn__)) void tkmc_context_panic(tkmc_context_api api) {
   tkmc_context_api expected =
       CONTEXT_TEST_MODE % 2 ? TKMC_CONTEXT_EXD_TSK : TKMC_CONTEXT_EXT_TSK;
   if (CONTEXT_TEST_MODE < DI_EXT || api != expected ||
@@ -252,7 +252,7 @@ void tkmc_context_panic(tkmc_context_api api) {
   test_exit(0);
 }
 
-void tkmc_panic(UW cause, UW epc, UW value) {
+__attribute__((__noreturn__)) void tkmc_panic(UW cause, UW epc, UW value) {
   (void)cause;
   (void)epc;
   (void)value;

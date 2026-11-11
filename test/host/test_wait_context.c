@@ -47,7 +47,7 @@ static volatile tkmc_context_api s_failed_api;
 // The host does not compile the RV32 panic implementation. QEMU tests the
 // real record/hook; this trap checks guard placement and unchanged kernel
 // state.
-void tkmc_fatal_context(tkmc_context_api api) {
+__attribute__((__noreturn__)) void tkmc_fatal_context(tkmc_context_api api) {
   if (!s_catch_context) {
     abort();
   }
