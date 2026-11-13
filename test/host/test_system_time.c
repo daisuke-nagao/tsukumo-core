@@ -106,6 +106,7 @@ void test_restarting_the_timer_resets_the_utc_clock_whatever_the_machine_time(
   for (UINT i = 0; i < sizeof(machine_times) / sizeof(machine_times[0]); ++i) {
     host_reset();
     run_a_task();
+    tick(1); // The set is not at tick 0, so a stale set tick shows too.
     set_utc(7, 123456);
     tick(3);
     EXPECT_UTC(7, 123486);
@@ -219,18 +220,20 @@ void test_the_low_word_carries_into_the_high_word_on_a_tick(void) {
 }
 
 // The value is signed in its high word and must not be negative; the refusal
-// leaves the clock alone, so it is checked with a clock that is not zero.
+// leaves the clock alone, so it is checked with a clock that is not zero and
+// has ticked since the set.
 void test_a_negative_high_word_is_refused_and_keeps_the_utc_clock(void) {
   const SYSTIM refused[] = {
       {-1, 0}, {-1, LOW_WORD_MAX}, {-2147483647 - 1, 0}, {-2147483647 - 1, 7}};
   run_a_task();
   set_utc(3, 1000);
+  tick(2);
   for (UINT i = 0; i < sizeof(refused) / sizeof(refused[0]); ++i) {
     TEST_ASSERT_EQUAL_INT(E_PAR, tk_set_utc(&refused[i]));
-    EXPECT_UTC(3, 1000);
+    EXPECT_UTC(3, 1020);
   }
   tick(1);
-  EXPECT_UTC(3, 1010);
+  EXPECT_UTC(3, 1030);
 }
 
 // 2^63 - 1 ms is the end of the range. Past it the clock stays at the end,
@@ -441,9 +444,12 @@ static const char *const s_input_name[] = {"NULL", "negative", "valid"};
 static const char *const s_context_name[] = {
     "a task", "an ISR", "no current task", "an ISR with no current task"};
 
-// What the clock held, and a value that is far from it, so that a set that
-// took effect cannot be mistaken for a tick or for the old value.
+// What the clock was set to, what it holds at the call (two ticks counted and
+// one pending since the set, so a refused call that moved the tick of the set
+// loses them), and a value that is far from it, so that a set that took effect
+// cannot be mistaken for a tick or for the old value.
 static const SYSTIM s_base = {.hi = 3, .lo = 1000};
+static const SYSTIM s_base_now = {.hi = 3, .lo = 1030};
 static const SYSTIM s_far = {.hi = 0x12345678, .lo = 0x9abcdef0u};
 static const SYSTIM s_negative = {.hi = -5, .lo = 77};
 
@@ -458,6 +464,8 @@ static void check_call(api_t api, input_t input, context_t context, BOOL mie,
   ID self = host_make_task(TASK_PRIORITY);
   host_set_current(self);
   set_utc(s_base.hi, s_base.lo);
+  tick(2);
+  host_mtime += HOST_TICK;
 
   const SYSTIM request = input == INPUT_NEGATIVE ? s_negative : s_far;
   SYSTIM output = s_sentinel;
@@ -497,13 +505,13 @@ static void check_call(api_t api, input_t input, context_t context, BOOL mie,
   TEST_ASSERT_EQUAL_INT_MESSAGE(mie, interrupts_on, label);
   TEST_ASSERT_EQUAL_INT_MESSAGE(TRUE, host_interrupts_enabled(), label);
   if (api == API_GET && ercd == E_OK) {
-    TEST_ASSERT_EQUAL_HEX32_MESSAGE(s_base.hi, output.hi, label);
-    TEST_ASSERT_EQUAL_HEX32_MESSAGE(s_base.lo, output.lo, label);
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(s_base_now.hi, output.hi, label);
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(s_base_now.lo, output.lo, label);
   } else {
     TEST_ASSERT_EQUAL_HEX32_MESSAGE(s_sentinel.hi, output.hi, label);
     TEST_ASSERT_EQUAL_HEX32_MESSAGE(s_sentinel.lo, output.lo, label);
   }
-  const SYSTIM *now = api == API_SET && ercd == E_OK ? &s_far : &s_base;
+  const SYSTIM *now = api == API_SET && ercd == E_OK ? &s_far : &s_base_now;
   SYSTIM clock = s_sentinel;
   TEST_ASSERT_EQUAL_INT_MESSAGE(E_OK, tk_get_utc(&clock), label);
   TEST_ASSERT_EQUAL_HEX32_MESSAGE(now->hi, clock.hi, label);

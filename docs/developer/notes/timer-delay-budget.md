@@ -229,9 +229,12 @@ inside the budget for a lateness of up to:
 | 29 waits with distinct limits end (the semaphore row above, plus the extra edges; the most this suite can make) | about 70 ticks (0.7 s) | about 1843 ticks (18 s) |
 | 31 waits with distinct limits end (the kernel's limit: the semaphore rows of `qemu-timer-cost-max`, plus the extra edges) | about 53 ticks (0.5 s) | about 1807 ticks (18 s) |
 
-The same loop runs in `tkmc_schedule_timer()`, in task context with
-interrupts off, while a timer interrupt is pending, and costs the same per
-edge. A wait started in that time counts the edges that have passed.
+The same loop runs in `tkmc_schedule_timer()`, `tk_get_utc()` and
+`tk_set_utc()`, in task context with interrupts off, while a timer interrupt is
+pending. Its work grows with the number of elapsed edges. A wait started in
+that time counts the edges that have passed, and so does the UTC clock.
+The measurements above cover the timer handler. Each caller also has its own
+snapshot and bookkeeping costs.
 
 The kernel has no bound on how long interrupts stay off. The budget holds as
 long as no section keeps them off for longer than the table says.

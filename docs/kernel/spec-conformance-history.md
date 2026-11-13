@@ -339,5 +339,7 @@ AddressSanitizer and UBSan. The six presets are `debug`, `relwithdebinfo`,
 The `timer-cost-max` suite raised the Debug count to 85 after the earlier
 2026-11-10 runs. A full validation then passed all 137 PC unit tests and all
 85 RV32 CTests in each of the six presets. The common-declaration checks add
-three compile/link CTests to Debug, giving the 88 tests in the new row.
+three compile/link CTests to Debug, giving the 88 tests in the common-declaration
+row. The `system-time` suite adds two more, its instruction-count and
+host-clock runs, giving the 90 tests in the time-representation row.
 The new declaration checks were validated with the host and Debug presets.

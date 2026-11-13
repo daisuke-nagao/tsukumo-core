@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Strengthen UTC reset and refusal regressions with elapsed and pending ticks
 - Keep the never-return attribute of the panic APIs when `<stdnoreturn.h>` is included before the kernel headers
 
 ## [0.0.1] - 2026-11-11
