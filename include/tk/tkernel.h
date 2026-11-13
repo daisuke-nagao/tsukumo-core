@@ -117,6 +117,9 @@ extern ER tk_slp_tsk(TMO tmout);
 extern ER tk_rel_wai(ID tskid);
 extern ER tk_wup_tsk(ID tskid);
 
+extern ER tk_set_utc(CONST SYSTIM *pk_tim);
+extern ER tk_get_utc(SYSTIM *pk_tim);
+
 typedef struct T_DINT {
   ATR intatr; /* Interrupt handler attribute */
   FP inthdr;  /* Interrupt handler address */

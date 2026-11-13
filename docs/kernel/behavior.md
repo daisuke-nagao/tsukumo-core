@@ -140,8 +140,8 @@ implements, the required ones are `tk_sta_tsk`, `tk_rel_wai`, `tk_wup_tsk`,
 `tk_sig_sem` and `tk_set_flg`. This kernel also allows `tk_cre_tsk`,
 `tk_cre_sem`, `tk_cre_flg`, `tk_cre_mbx`, `tk_del_sem`, `tk_del_mbx`,
 `tk_clr_flg` and `tk_snd_mbx` from a handler, with valid arguments and their
-normal error returns. The wait calls return `E_CTX`, and `tk_ext_tsk` and
-`tk_exd_tsk` stop the system.
+normal error returns. The wait calls, `tk_set_utc` and `tk_get_utc` return
+`E_CTX`, and `tk_ext_tsk` and `tk_exd_tsk` stop the system.
 
 This list is verified for a single-level handler only. Calls from a nested
 handler (one that interrupted another handler) need separate validation.
@@ -151,6 +151,45 @@ specification references. It also covers how to define a handler with
 `tk_def_int`, `EnableInt` and `DisableInt` for the PLIC (the external interrupt
 controller), the interrupt stack that handlers run on, how much a task stack
 needs for a trap, and the rules for nested interrupts.
+
+## System time (UTC)
+
+`tk_set_utc` sets and `tk_get_utc` reads the system time as a `SYSTIM`: the
+number of milliseconds since 1970-01-01 00:00:00 UTC, with the upper 32 bits in
+`hi` and the lower 32 bits in `lo`. The service profile declares
+`TK_SUPPORT_UTC` true, and `TK_SUPPORT_TRONTIME` and `TK_SUPPORT_USEC` false.
+The TRON-time, microsecond and operating-time calls are not provided.
+
+- The clock reads 0 when the kernel starts its timer, whatever the machine
+  timer reads at that point. The application sets the real date and time.
+- The clock advances 10 ms at each kernel tick. A set value keeps its
+  millisecond remainder: after setting 10005, the clock reads 10015 and then
+  10025 at the next two ticks.
+- A read counts the ticks that have passed even if their timer interrupt has
+  not run yet. A set counts from the moment of the call, so those earlier
+  ticks are not added again when the interrupt runs.
+- A set changes neither when the next tick comes nor any wait. A timed wait
+  counts ticks from its start and ends at the same tick, with the same result,
+  whether the clock is set forward or back while it waits.
+- The range is 0 to 2^63 − 1 ms. When the clock reaches 2^63 − 1 it stays
+  there (saturates). This boundary behavior is this kernel's choice. A later
+  valid set starts the clock again.
+
+The calls check their arguments in this order and change nothing when they
+refuse:
+
+1. `pk_tim` is NULL: `E_PAR`.
+2. For `tk_set_utc`, `pk_tim->hi` is negative: `E_PAR`.
+3. The call comes from an ISR or there is no current task: `E_CTX`.
+
+A task with interrupts disabled may call them. They return with the interrupt
+state as the caller had it.
+
+Tests: `test/host/test_system_time.c` covers the values, the ticks that are
+still pending, the range boundaries, every context with interrupts enabled and
+disabled, and the five timed waits with the clock set forward and back. The
+`system-time` QEMU suite checks the values, the waits and a call from a real
+timer interrupt.
 
 ## Interrupt-disabled time of mailbox calls
 

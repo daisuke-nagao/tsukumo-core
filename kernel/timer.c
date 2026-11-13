@@ -28,6 +28,19 @@ enum { TICK_COUNTS = 100000 };
 /* Static variable to store the next timer compare value */
 static UD s_mtimecmp;
 
+/*
+ * The UTC clock (see tk_get_utc()). Touched only with interrupts disabled or
+ * in the timer handler.
+ * - s_tick: ticks the handler has counted since the timer started.
+ * - s_utc_base: the last value set, in ms (0 to 2^63 - 1).
+ * - s_utc_base_tick: the tick count, pending ticks included, at that set.
+ */
+static UD s_tick;
+static UD s_utc_base;
+static UD s_utc_base_tick;
+
+#define UTC_MAX ((UD)0x7fffffffffffffffu)
+
 static UD read_mtime(void) {
   UW high, low, next_high;
   do {
@@ -71,6 +84,9 @@ void tkmc_start_timer(void) {
   UD mtimecmp = read_mtime();
   mtimecmp += TICK_COUNTS; // Set the initial timer compare value
   s_mtimecmp = mtimecmp;
+  s_tick = 0;
+  s_utc_base = 0;
+  s_utc_base_tick = 0;
   tkmc_compiler_barrier();
   write_mtimecmp(mtimecmp);
 }
@@ -103,6 +119,7 @@ void tkmc_timer_handler(void) {
   if (periods == 0) {
     return;
   }
+  s_tick += periods;
   s_mtimecmp = mtimecmp;
   tkmc_compiler_barrier();
   write_mtimecmp(mtimecmp);
@@ -273,4 +290,90 @@ ER tk_slp_tsk(TMO tmout) {
   }
 
   return ercd;
+}
+
+/*
+ * The UTC clock in ms, as set by tk_set_utc() plus the time since then. The
+ * kernel counts it in ticks, so it starts at 0 when the timer starts and
+ * advances in steps of 10 ms, including before the first set.
+ *
+ * Ticks whose timer interrupt is still pending are counted, from a local copy
+ * of the compare value: a set before a late interrupt must not have those
+ * ticks added again, and consuming them here would make the handler miss them.
+ *
+ * Returns the clock as {hi, lo}, the high 32 bits and low 32 bits of the ms
+ * count. The clock stops at 2^63 - 1 ms (saturates), which a time that large
+ * does not reach in practice. A wait is not affected by the clock.
+ *
+ * Parameters:
+ * - pk_tim: where to write the clock.
+ *
+ * Returns:
+ * - E_OK on success. Interrupts are as the caller had them, so a caller with
+ *   interrupts disabled may call it.
+ * - E_PAR if pk_tim is NULL.
+ * - E_CTX if no current task exists or execution is in an ISR. Nothing is
+ *   changed and *pk_tim is not written.
+ */
+ER tk_get_utc(SYSTIM *pk_tim) {
+  if (pk_tim == NULL) {
+    return E_PAR;
+  }
+
+  UINT intsts;
+  DI(intsts);
+  if (current == NULL || tkmc_in_isr()) {
+    EI(intsts);
+    return E_CTX;
+  }
+  UD mtimecmp = s_mtimecmp;
+  const UD elapsed = s_tick + pass_elapsed_periods(&mtimecmp) - s_utc_base_tick;
+  const UD base = s_utc_base;
+  EI(intsts);
+
+  // No 64 bit division: the kernel does not link the library for it.
+  UD value = UTC_MAX;
+  if (elapsed <= UTC_MAX / 10 && elapsed * 10 <= UTC_MAX - base) {
+    value = base + elapsed * 10;
+  }
+  pk_tim->hi = (W)(value >> 32);
+  pk_tim->lo = (UW)value;
+  return E_OK;
+}
+
+/*
+ * Set the UTC clock to pk_tim, in ms. The clock counts on from the moment of
+ * the call in steps of 10 ms; see tk_get_utc(). A wait is not affected.
+ *
+ * Parameters:
+ * - pk_tim: the new time, {hi, lo}: the high 32 bits (0 or more) and low 32
+ *   bits of the ms count, 0 to 2^63 - 1. It is read once.
+ *
+ * Returns:
+ * - E_OK on success. Interrupts are as the caller had them.
+ * - E_PAR if pk_tim is NULL or its hi is negative.
+ * - E_CTX if no current task exists or execution is in an ISR. Nothing is
+ *   changed.
+ */
+ER tk_set_utc(CONST SYSTIM *pk_tim) {
+  if (pk_tim == NULL) {
+    return E_PAR;
+  }
+  const SYSTIM time = *pk_tim;
+  if (time.hi < 0) {
+    return E_PAR;
+  }
+  const UD base = ((UD)(UW)time.hi << 32) | time.lo;
+
+  UINT intsts;
+  DI(intsts);
+  if (current == NULL || tkmc_in_isr()) {
+    EI(intsts);
+    return E_CTX;
+  }
+  UD mtimecmp = s_mtimecmp;
+  s_utc_base_tick = s_tick + pass_elapsed_periods(&mtimecmp);
+  s_utc_base = base;
+  EI(intsts);
+  return E_OK;
 }

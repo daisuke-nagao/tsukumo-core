@@ -199,7 +199,7 @@ implements and applies the policy in the table to the others:
 | --- | --- |
 | `tk_sta_tsk`, `tk_rel_wai`, `tk_wup_tsk`, `tk_sig_sem`, `tk_set_flg` | Required callable APIs; allowed by this kernel. |
 | `tk_cre_tsk`, `tk_cre_sem`, `tk_cre_flg`, `tk_cre_mbx`, `tk_del_sem`, `tk_del_mbx`, `tk_clr_flg`, `tk_snd_mbx` | The specification makes availability implementation-dependent. This kernel allows these calls with valid arguments and their normal error returns. |
-| `tk_slp_tsk`, `tk_dly_tsk`, `tk_wai_sem`, `tk_wai_flg`, `tk_rcv_mbx`, `tk_def_int` | Return `E_CTX` and change nothing (see the rules of each call in [behavior.md](behavior.md)). |
+| `tk_slp_tsk`, `tk_dly_tsk`, `tk_wai_sem`, `tk_wai_flg`, `tk_rcv_mbx`, `tk_def_int`, `tk_set_utc`, `tk_get_utc` | Return `E_CTX` and change nothing (see the rules of each call in [behavior.md](behavior.md)). |
 | `tk_ext_tsk`, `tk_exd_tsk` | Stop the kernel. |
 
 The rules in this table are verified for calls from a single-level handler,

@@ -10,8 +10,9 @@ on Windows with Clang.
 
 The project is in an early stage. The kernel implements a subset of the
 μT-Kernel 3.0 API: creating and starting tasks, a task ending itself, sleep,
-delay, wake-up and wait release, semaphores, event flags, mailboxes, external
-interrupt handlers, interrupt control and I/O port access. The
+delay, wake-up and wait release, semaphores, event flags, mailboxes, setting
+and reading the system time, external interrupt handlers, interrupt control and
+I/O port access. The
 [API support status](docs/kernel/API_Support_Status.md) lists which calls
 exist. The goal is to implement more of the μT-Kernel 3.0 API.
 

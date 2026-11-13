@@ -19,6 +19,7 @@ both clocks).
 | 2026-11-10 | [A zero delay yielded the processor](#a-zero-delay-yielded-the-processor) | `tk_dly_tsk` | PC unit test in `test/host/test_wait_context.c` |
 | 2026-11-10, in part | [The interrupt profile flags disagreed with the exported calls](#the-interrupt-profile-flags-disagreed-with-the-exported-calls) | `EnableInt`, `DisableInt` | PC unit test in `test/host/test_intctl.c` |
 | 2026-11-11 | [Common public declarations were unavailable](#common-public-declarations-were-unavailable) | `SYSTIM`, `LOCAL`, `EXPORT`, `IMPORT` | Public consumer compile and link checks |
+| 2026-11-11 | [No time representation was enabled](#no-time-representation-was-enabled) | `tk_set_utc`, `tk_get_utc`, `TK_SUPPORT_UTC` | PC unit tests in `test/host/test_system_time.c`, `system-time` suite, public consumer checks |
 
 The initial review on 2026-11-08 (JST) found the `EI` and interrupt-profile
 problems. After the `EI` fix, a second review of the kernel found the task-exit
@@ -277,9 +278,46 @@ external variable definition causes a duplicate-symbol link failure.
 
 Existing RV32 packet layouts matched the baseline in both `CONST` modes.
 Clang C++17 consumers compiled and linked against the actual C kernel in both
-modes. The correction uses the existing type-generation path. The remaining
-[time-representation difference](spec-conformance-review.md#no-time-representation-is-enabled)
-covers the time interfaces and their profile.
+modes. The correction uses the existing type-generation path. The time
+interfaces and their profile were then corrected as described in
+[the next section](#no-time-representation-was-enabled).
+
+### No time representation was enabled
+
+Before the fix, `include/sys/profile.h` declared `TK_SUPPORT_UTC` and
+`TK_SUPPORT_TRONTIME` both false, and the kernel provided no call that sets or
+reads the system time. The
+[service-profile definitions](https://tron-forum.github.io/mtk3_spec_jp/service_profile_definitions.html)
+require at least one of the two. This consumer assertion failed with `0 || 0`:
+
+```c
+#include <tk/tkernel.h>
+_Static_assert(TK_SUPPORT_UTC || TK_SUPPORT_TRONTIME,
+               "one time representation must be enabled");
+```
+
+Since 2026-11-11, the kernel provides `tk_set_utc` and `tk_get_utc` in
+milliseconds, as the
+[time-management chapter](https://tron-forum.github.io/mtk3_spec_jp/time_management_functions.html)
+defines them, and `TK_SUPPORT_UTC` is true. `TK_SUPPORT_TRONTIME` and
+`TK_SUPPORT_USEC` stay false. The clock starts at 0 with the kernel timer,
+advances 10 ms per tick, keeps the millisecond remainder of a set value, and
+saturates at 2^63 − 1 ms. It is kept apart from the tick count that timed waits
+use, so a set moves no wait and no timer compare value. The
+[kernel behavior](behavior.md#system-time-utc) page states the rules.
+
+Public consumer probes with the original headers failed because the UTC calls
+were undeclared and the time-profile assertion was false. The tests in
+`test/host/test_system_time.c` and the `system-time` suite cover the provided
+APIs. Fourteen isolated faults in the clock each made at least one PC unit
+test fail: a set that moves the timer compare value,
+a set or a read that counts pending ticks twice or consumes them, the tick unit,
+the word assembly and sign extension of `lo`, the saturation check, the tick
+count added after the wait loop, the order of `E_PAR` and `E_CTX`, an output
+written before the context check, interrupts not restored, a refused
+interrupts-disabled task, and a missing reset at timer start. Clang C++17
+consumers compiled and linked both calls against the C kernel in both `CONST`
+modes.
 
 ## Test runs by date
 
@@ -296,9 +334,12 @@ AddressSanitizer and UBSan. The six presets are `debug`, `relwithdebinfo`,
 | 2026-11-10 | After the zero-delay fix | 136 passed | All 84 passed in each of the six presets | |
 | 2026-11-10 | After the profile fix | 137 passed | `debug`: all 84 passed | |
 | 2026-11-11 | After the common-declaration fix | 137 passed, plus three host consumer checks | All 88 passed in Debug, including three compile/link checks | Original-header and six wrong-header cases detected on both targets. Existing RV32 packet layouts matched the baseline. Clang C++17 consumers linked against the C kernel in both `CONST` modes. |
+| 2026-11-11 | After the time-representation fix | 162 passed, plus three host consumer checks | All 90 passed in each of the six presets | `timer-cost`, `timer-cost-max` and `mailbox-cost` passed in all six presets. Fourteen isolated clock faults each failed a PC unit test. Clang C++17 consumers linked both time calls against the C kernel in both `CONST` modes. |
 
 The `timer-cost-max` suite raised the Debug count to 85 after the earlier
 2026-11-10 runs. A full validation then passed all 137 PC unit tests and all
 85 RV32 CTests in each of the six presets. The common-declaration checks add
-three compile/link CTests to Debug, giving the 88 tests in the new row.
+three compile/link CTests to Debug, giving the 88 tests in the common-declaration
+row. The `system-time` suite adds two more, its instruction-count and
+host-clock runs, giving the 90 tests in the time-representation row.
 The new declaration checks were validated with the host and Debug presets.

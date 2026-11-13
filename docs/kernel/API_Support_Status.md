@@ -7,7 +7,7 @@ box (`[ ]`) means it does not.
 
 The list says nothing about how closely an API follows the specification. The
 [specification conformance review](spec-conformance-review.md) checks each of
-the 34 provided APIs against the official
+the 36 provided APIs against the official
 [μT-Kernel 3.0 specification Ver.3.00.01](https://tron-forum.github.io/mtk3_spec_jp/index.html)
 and records the differences, the implementation choices and the gaps in the
 evidence.
@@ -20,10 +20,10 @@ management).
 
 | Part | Provided | Listed |
 | --- | --- | --- |
-| μT-Kernel/OS | 21 | 113 |
+| μT-Kernel/OS | 23 | 113 |
 | μT-Kernel/DS | 0 | 48 |
 | μT-Kernel/SM | 13 | 75 |
-| Total | 34 | 236 |
+| Total | 36 | 236 |
 
 ## μT-Kernel/OS API
 
@@ -78,7 +78,7 @@ management).
 * [ ] `tk_get_tid` - Refer task ID of running task
 * [ ] `tk_get_tim` - Refer system time (TRON expression)
 * [ ] `tk_get_tim_u` - Refer system time (TRON expression, microsecond unit)
-* [ ] `tk_get_utc` - Refer system time
+* [x] `tk_get_utc` - Refer system time
 * [ ] `tk_get_utc_u` - Refer system time (microsecond unit)
 * [ ] `tk_loc_mtx` - Lock mutex
 * [ ] `tk_loc_mtx_u` - Lock mutex (microsecond unit)
@@ -115,7 +115,7 @@ management).
 * [ ] `tk_set_reg` - Set task register
 * [ ] `tk_set_tim` - Set system time (TRON expression)
 * [ ] `tk_set_tim_u` - Set system time (TRON expression, microsecond unit)
-* [ ] `tk_set_utc` - Set system time
+* [x] `tk_set_utc` - Set system time
 * [ ] `tk_set_utc_u` - Set system time (microsecond unit)
 * [x] `tk_sig_sem` - Return semaphore resource
 * [ ] `tk_sig_tev` - Send task event

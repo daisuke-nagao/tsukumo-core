@@ -66,6 +66,7 @@ add_executable(
   test_memset.c
   test_object_id.c
   test_semaphore.c
+  test_system_time.c
   test_task.c
   test_timeout_ticks.c
   test_timer.c
