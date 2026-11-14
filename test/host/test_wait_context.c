@@ -33,6 +33,7 @@
 #include "context.h"
 #include "event_flag.h"
 #include "fakes.h"
+#include "intctl.h"
 #include "mailbox.h"
 #include "panic.h"
 #include "semaphore.h"
@@ -49,6 +50,10 @@ static volatile tkmc_context_api s_failed_api;
 // state.
 __attribute__((__noreturn__)) void tkmc_fatal_context(tkmc_context_api api) {
   if (!s_catch_context) {
+    fprintf(stderr, "unexpected fatal context api=%d during host test %s\n",
+            (int)api,
+            Unity.CurrentTestName != NULL ? Unity.CurrentTestName
+                                          : "<unknown>");
     abort();
   }
   s_failed_api = api;
@@ -474,4 +479,166 @@ void test_isr_and_absent_current_preserve_argument_error_priority(void) {
       }
     }
   }
+}
+
+static void assert_ret_int_stops(void *entry_sp) {
+  host_snapshot_t before;
+  host_take_snapshot(&before);
+  s_failed_api = TKMC_CONTEXT_NONE;
+  s_failure_irq_off = FALSE;
+  s_catch_context = TRUE;
+  volatile BOOL returned = FALSE;
+  if (setjmp(s_context_failure) == 0) {
+    tkmc_ret_int_from_sp(entry_sp);
+    returned = TRUE;
+  }
+  s_catch_context = FALSE;
+  TEST_ASSERT_FALSE_MESSAGE(returned, "tk_ret_int returned in a bad context");
+  TEST_ASSERT_EQUAL(TKMC_CONTEXT_RET_INT, s_failed_api);
+  TEST_ASSERT_TRUE(s_failure_irq_off);
+  host_assert_unchanged(&before, "invalid tk_ret_int changed kernel state");
+  host_check_kernel_queues();
+}
+
+static void raw_hl_handler(UINT intno) { (void)intno; }
+
+static void prepare_asm_context(tkmc_interrupt_context *context, UINT intno,
+                                UW *frame) {
+  const T_DINT assembler = {.intatr = TA_ASM, .inthdr = (FP)raw_hl_handler};
+  EI(0);
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(intno, &assembler));
+  EnableInt(intno, 3);
+  host_plic_raise(intno);
+  tkmc_isr_depth = 1;
+  UINT saved;
+  DI(saved);
+  (void)saved;
+  tkmc_prepare_external_interrupt(context, frame);
+  TEST_ASSERT_EQUAL_UINT(TKMC_INTERRUPT_KIND_ASM, context->kind);
+  TEST_ASSERT_EQUAL_UINT(intno, context->intno);
+}
+
+void test_tk_ret_int_stops_in_non_asm_contexts(void) {
+  UINT saved;
+  // Task context with interrupts on or off.
+  for (UINT enabled = 0; enabled < 2; ++enabled) {
+    host_reset();
+    fresh(FALSE);
+    UINT saved = 0;
+    if (!enabled) {
+      DI(saved);
+    }
+    assert_ret_int_stops(NULL);
+    EI(saved);
+  }
+
+  // No current task, and an ISR context without an active ASM external frame
+  // (the host model cannot distinguish timer from software trap entry).
+  host_reset();
+  fresh(FALSE);
+  current = NULL;
+  assert_ret_int_stops(NULL);
+  EI(0);
+
+  host_reset();
+  fresh(FALSE);
+  tkmc_isr_depth = 1;
+  DI(saved);
+  assert_ret_int_stops(NULL);
+  tkmc_isr_depth = 0;
+  EI(saved);
+
+  // An active high-level external handler is still not a tk_ret_int caller.
+  host_reset();
+  fresh(FALSE);
+  TEST_ASSERT_EQUAL(E_OK,
+                    tk_def_int(10, &(T_DINT){.intatr = TA_HLNG,
+                                             .inthdr = (FP)raw_hl_handler}));
+  EnableInt(10, 1);
+  host_plic_raise(10);
+  tkmc_isr_depth = 1;
+  DI(saved);
+  _Alignas(16) UW frame[32] = {0};
+  tkmc_interrupt_context context;
+  tkmc_prepare_external_interrupt(&context, frame);
+  TEST_ASSERT_EQUAL_UINT(TKMC_INTERRUPT_KIND_HLNG, context.kind);
+  // Keep task tables unchanged, then finish the synthetic trap so its claim
+  // does not leak into another host test.
+  assert_ret_int_stops(&context);
+  tkmc_finish_external_interrupt(&context);
+  tkmc_isr_depth = 0;
+  EI(0);
+}
+
+void test_tk_ret_int_rejects_invalid_asm_contexts(void) {
+  _Alignas(16) UW frame[32] = {0};
+  tkmc_interrupt_context context;
+
+  // A context record is usable only from the entry stack pointer associated
+  // with that exact claim.
+  host_reset();
+  fresh(FALSE);
+  prepare_asm_context(&context, 10, frame);
+  assert_ret_int_stops((unsigned char *)&context + sizeof(void *));
+  tkmc_finish_external_interrupt(&context);
+  tkmc_isr_depth = 0;
+  EI(0);
+
+  // A record from an outer depth cannot be returned while a nested trap is
+  // active.
+  host_reset();
+  fresh(FALSE);
+  prepare_asm_context(&context, 10, frame);
+  tkmc_isr_depth = 2;
+  assert_ret_int_stops(&context);
+  tkmc_isr_depth = 1;
+  tkmc_finish_external_interrupt(&context);
+  tkmc_isr_depth = 0;
+  EI(0);
+
+  // The public entry is an interrupt exit and requires MIE to be off at its
+  // call site. A valid ASM record with MIE on must fail before completing it.
+  host_reset();
+  fresh(FALSE);
+  prepare_asm_context(&context, 10, frame);
+  EI(0);
+  assert_ret_int_stops(&context);
+  tkmc_finish_external_interrupt(&context);
+  tkmc_isr_depth = 0;
+  EI(0);
+
+  // A valid active ASM record is still rejected when no task is current.
+  host_reset();
+  fresh(FALSE);
+  prepare_asm_context(&context, 10, frame);
+  TCB *saved_current = current;
+  current = NULL;
+  assert_ret_int_stops(&context);
+  current = saved_current;
+  tkmc_finish_external_interrupt(&context);
+  tkmc_isr_depth = 0;
+  EI(0);
+
+  // The inner HLNG record remains invalid even when its previous record is a
+  // valid ASM external interrupt.
+  _Alignas(16) UW inner_frame[32] = {0};
+  tkmc_interrupt_context outer, inner;
+  host_reset();
+  fresh(FALSE);
+  TEST_ASSERT_EQUAL(E_OK,
+                    tk_def_int(11, &(T_DINT){.intatr = TA_HLNG,
+                                             .inthdr = (FP)raw_hl_handler}));
+  EnableInt(11, 5);
+  prepare_asm_context(&outer, 10, frame);
+  host_plic_raise(11);
+  tkmc_isr_depth = 2;
+  tkmc_prepare_external_interrupt(&inner, inner_frame);
+  TEST_ASSERT_EQUAL_PTR(&outer, inner.previous);
+  TEST_ASSERT_EQUAL_UINT(TKMC_INTERRUPT_KIND_HLNG, inner.kind);
+  assert_ret_int_stops(&inner);
+  tkmc_finish_external_interrupt(&inner);
+  tkmc_isr_depth = 1;
+  tkmc_finish_external_interrupt(&outer);
+  tkmc_isr_depth = 0;
+  EI(0);
 }

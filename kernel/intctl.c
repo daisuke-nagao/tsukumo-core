@@ -9,6 +9,7 @@
 #include "asm/rv32/address.h"
 #include "context.h"
 #include "intctl.h"
+#include "panic.h"
 
 #define PLIC_PRIORITY(src)                                                     \
   (PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET + 4 * (src))
@@ -17,8 +18,58 @@
 #define PLIC_THRESHOLD (PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET)
 #define PLIC_CLAIM (PLIC_BASE_ADDRESS + PLIC_CLAIM_OFFSET)
 
-// The handler of each interrupt number, NULL where none is defined.
-static FP s_handlers[CFN_MAX_INTNO];
+extern void **schedule(void *sp);
+
+typedef struct {
+  FP handler;
+  UINT kind;
+} interrupt_handler;
+
+// Handler table entry, default-initialized to no handler.
+static interrupt_handler s_handlers[CFN_MAX_INTNO];
+
+// Active external interrupt contexts are linked in nesting order.
+tkmc_interrupt_context *volatile tkmc_active_interrupt_context;
+
+#define CLINT_MSIP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET)
+
+_Static_assert(TKMC_PLIC_BASE_ADDRESS == PLIC_BASE_ADDRESS,
+               "public ASM PLIC base must match the RV32 port");
+_Static_assert(TKMC_PLIC_ENABLE_OFFSET == PLIC_ENABLE_OFFSET,
+               "public ASM PLIC enable offset must match the RV32 port");
+_Static_assert(TKMC_PLIC_THRESHOLD_OFFSET == PLIC_THRESHOLD_OFFSET,
+               "public ASM PLIC threshold offset must match the RV32 port");
+_Static_assert(TKMC_PLIC_CLAIM_OFFSET == PLIC_CLAIM_OFFSET,
+               "public ASM PLIC claim offset must match the RV32 port");
+
+#if defined(__riscv) && __riscv_xlen == 32
+_Static_assert(sizeof(tkmc_interrupt_context) == TKMC_IRQCTX_SIZE,
+               "RV32 interrupt context size must match its assembly ABI");
+_Static_assert(__builtin_offsetof(tkmc_interrupt_context, previous) ==
+                   TKMC_IRQCTX_PREVIOUS,
+               "previous offset must match the assembly ABI");
+_Static_assert(__builtin_offsetof(tkmc_interrupt_context, frame) ==
+                   TKMC_IRQCTX_FRAME,
+               "frame offset must match the assembly ABI");
+_Static_assert(__builtin_offsetof(tkmc_interrupt_context, entry_sp) ==
+                   TKMC_IRQCTX_ENTRY_SP,
+               "entry SP offset must match the assembly ABI");
+_Static_assert(__builtin_offsetof(tkmc_interrupt_context, handler) ==
+                   TKMC_IRQCTX_HANDLER,
+               "handler offset must match the assembly ABI");
+_Static_assert(__builtin_offsetof(tkmc_interrupt_context, depth) ==
+                   TKMC_IRQCTX_DEPTH,
+               "depth offset must match the assembly ABI");
+_Static_assert(__builtin_offsetof(tkmc_interrupt_context, intno) ==
+                   TKMC_IRQCTX_INTNO,
+               "interrupt number offset must match the assembly ABI");
+_Static_assert(__builtin_offsetof(tkmc_interrupt_context, saved_threshold) ==
+                   TKMC_IRQCTX_SAVED_THRESHOLD,
+               "threshold offset must match the assembly ABI");
+_Static_assert(__builtin_offsetof(tkmc_interrupt_context, kind) ==
+                   TKMC_IRQCTX_KIND,
+               "kind offset must match the assembly ABI");
+#endif
 
 static BOOL is_intno(UINT intno) { return intno >= 1 && intno < CFN_MAX_INTNO; }
 
@@ -34,9 +85,64 @@ static void set_enabled(UINT src, BOOL on) {
   out_w(PLIC_ENABLE(src), on ? word | bit : word & ~bit);
 }
 
+// Claim one external source and capture all per-nesting state before dispatch.
+// ctx is allocated by the trap entry and remains live until finish/return.
+void tkmc_prepare_external_interrupt(tkmc_interrupt_context *ctx, void *frame) {
+  UINT intsts;
+  DI(intsts);
+  ctx->previous = tkmc_active_interrupt_context;
+  ctx->frame = frame;
+  ctx->entry_sp = ctx;
+  ctx->handler = NULL;
+  ctx->depth = tkmc_isr_depth;
+  ctx->intno = in_w(PLIC_CLAIM);
+  ctx->saved_threshold = 0;
+  ctx->kind = TKMC_INTERRUPT_KIND_NONE;
+  if (ctx->intno != 0) {
+    if (is_intno(ctx->intno)) {
+      ctx->handler = s_handlers[ctx->intno].handler;
+      ctx->kind = s_handlers[ctx->intno].kind;
+    }
+    if (ctx->handler != NULL) {
+      ctx->saved_threshold = in_w(PLIC_THRESHOLD);
+      out_w(PLIC_THRESHOLD, in_w(PLIC_PRIORITY(ctx->intno)));
+    }
+    tkmc_active_interrupt_context = ctx;
+  }
+  EI(intsts);
+}
+
+// The threshold precedes completion because the next PLIC claim must see the
+// priority of the enclosing handler. Complete once while enabled, then retain
+// the disabled state requested by DisableInt().
+void tkmc_finish_external_interrupt(tkmc_interrupt_context *ctx) {
+  if (ctx->intno == 0) {
+    return;
+  }
+
+  UINT intsts;
+  DI(intsts);
+  if (tkmc_active_interrupt_context != ctx || ctx->depth != tkmc_isr_depth) {
+    tkmc_invalid_ret_int();
+  }
+  if (ctx->handler != NULL) {
+    out_w(PLIC_THRESHOLD, ctx->saved_threshold);
+  }
+  BOOL stays_on = ctx->handler != NULL && is_enabled(ctx->intno);
+  set_enabled(ctx->intno, TRUE);
+  out_w(PLIC_CLAIM, ctx->intno);
+  if (!stays_on) {
+    set_enabled(ctx->intno, FALSE);
+  }
+  tkmc_active_interrupt_context = ctx->previous;
+  EI(intsts);
+}
+
 void tkmc_init_intctl(void) {
+  tkmc_active_interrupt_context = NULL;
   for (UINT intno = 0; intno < CFN_MAX_INTNO; ++intno) {
-    s_handlers[intno] = NULL;
+    s_handlers[intno] =
+        (interrupt_handler){.handler = NULL, .kind = TKMC_INTERRUPT_KIND_NONE};
   }
   for (UINT src = 1; src < PLIC_SOURCE_COUNT; ++src) {
     out_w(PLIC_PRIORITY(src), 0);
@@ -63,15 +169,17 @@ ER tk_def_int(UINT intno, CONST T_DINT *pk_dint) {
   } else if (!is_intno(intno)) {
     ercd = E_PAR;
   } else if (pk_dint == NULL) {
-    s_handlers[intno] = NULL;
-  } else if (pk_dint->intatr != TA_HLNG) {
-    // TA_ASM (0) is refused as well: the handler is called as a C function,
-    // and one that expects the registers of the trap would be called wrongly.
+    s_handlers[intno] =
+        (interrupt_handler){.handler = NULL, .kind = TKMC_INTERRUPT_KIND_NONE};
+  } else if (pk_dint->intatr != TA_HLNG && pk_dint->intatr != TA_ASM) {
     ercd = E_RSATR;
   } else if (pk_dint->inthdr == NULL) {
     ercd = E_PAR;
   } else {
-    s_handlers[intno] = pk_dint->inthdr;
+    s_handlers[intno].handler = pk_dint->inthdr;
+    s_handlers[intno].kind = pk_dint->intatr == TA_ASM
+                                 ? TKMC_INTERRUPT_KIND_ASM
+                                 : TKMC_INTERRUPT_KIND_HLNG;
   }
   EI(intsts);
   return ercd;
@@ -113,30 +221,45 @@ void DisableInt(UINT intno) {
 // off. Left on, a device that keeps asserting it would be served again and
 // again, and the system would do nothing else.
 void tkmc_external_interrupt(void) {
-  UINT intno = in_w(PLIC_CLAIM);
-  if (intno == 0) {
+  tkmc_interrupt_context ctx;
+  tkmc_prepare_external_interrupt(&ctx, NULL);
+  if (ctx.intno == 0) {
     return;
   }
-  FP handler = is_intno(intno) ? s_handlers[intno] : NULL;
-  if (handler != NULL) {
-    // The PLIC raises only a source whose priority is above the threshold, so
-    // a handler that turns interrupts on is interrupted by a source of a higher
-    // priority only, never by the same or a lower one. The threshold is put
-    // back before the completion, which is what the next claim looks at.
-    UW threshold = in_w(PLIC_THRESHOLD);
-    out_w(PLIC_THRESHOLD, in_w(PLIC_PRIORITY(intno)));
-    ((void (*)(UINT))handler)(intno);
-    out_w(PLIC_THRESHOLD, threshold);
+  if (ctx.kind == TKMC_INTERRUPT_KIND_ASM) {
+    tkmc_invalid_ret_int();
   }
-  // A source stays off if the default handler runs for it or if the handler
-  // switched it off (DisableInt()). The completion is written with the source
-  // enabled all the same: the PLIC specification has it ignore the completion
-  // of a source that is not enabled, and such a source would stay claimed and
-  // never be raised again. Interrupts are off, so nothing is taken in between.
-  BOOL stays_on = handler != NULL && is_enabled(intno);
-  set_enabled(intno, TRUE);
-  out_w(PLIC_CLAIM, intno);
-  if (!stays_on) {
-    set_enabled(intno, FALSE);
+  if (ctx.kind == TKMC_INTERRUPT_KIND_HLNG) {
+    ((void (*)(UINT))ctx.handler)(ctx.intno);
   }
+  tkmc_finish_external_interrupt(&ctx);
+}
+
+__attribute__((__noreturn__)) void tkmc_invalid_ret_int(void) {
+  tkmc_fatal_context(TKMC_CONTEXT_RET_INT);
+}
+
+__attribute__((__noreturn__)) void tkmc_ret_int_from_sp(void *entry_sp) {
+  UINT intsts;
+  DI(intsts);
+  tkmc_interrupt_context *ctx = tkmc_active_interrupt_context;
+  if (!isDI(intsts) || ctx == NULL || ctx->kind != TKMC_INTERRUPT_KIND_ASM ||
+      ctx->depth != tkmc_isr_depth || ctx->entry_sp != entry_sp ||
+      ctx->intno == 0 || ctx->frame == NULL || current == NULL) {
+    tkmc_invalid_ret_int();
+  }
+
+  void *resume_frame = ctx->frame;
+  UW saved_mie_bits = 0;
+  if (ctx->depth == 1) {
+    saved_mie_bits = ((UW *)ctx->frame)[29] & ((1u << 3) | (1u << 7));
+  }
+  UINT depth = ctx->depth;
+  tkmc_finish_external_interrupt(ctx);
+  if (depth == 1 && in_w(CLINT_MSIP_ADDRESS) != 0) {
+    out_w(CLINT_MSIP_ADDRESS, 0);
+    resume_frame = (void *)schedule(resume_frame);
+  }
+  tkmc_isr_depth = tkmc_isr_depth - 1;
+  tkmc_restore_external_interrupt_frame(resume_frame, saved_mie_bits);
 }

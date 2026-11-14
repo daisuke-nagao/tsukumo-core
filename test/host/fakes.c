@@ -6,6 +6,7 @@
 
 #include "fakes.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -182,6 +183,19 @@ void __launch_task(void **sp) {
   TEST_FAIL_MESSAGE("a task was switched to by __launch_task(), which the "
                     "fake machine cannot do");
   abort();
+}
+
+void **schedule(void *sp) {
+  return (void **)sp; // The host fake cannot switch the frame to another task.
+}
+
+__attribute__((__noreturn__)) void
+tkmc_restore_external_interrupt_frame(void *frame, UW saved_mie_bits) {
+  (void)frame;
+  (void)saved_mie_bits;
+  fprintf(stderr, "unexpected raw frame restore during host test %s\n",
+          Unity.CurrentTestName != NULL ? Unity.CurrentTestName : "<unknown>");
+  abort(); // A valid raw interrupt return cannot run on the PC fake machine.
 }
 
 void host_arm_wait(void) {

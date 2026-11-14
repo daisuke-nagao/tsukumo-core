@@ -9,6 +9,31 @@ regression test for a fix. The review describes the current state, and its
 the vocabulary used here (ISR, MIE, service profile, PC unit test, QEMU suite,
 both clocks).
 
+## Assembly entry support
+
+On 2026-11-14 the update passed 167 PC unit cases, three public consumers and
+all 104 RV32 CTests in each of six optimization/LTO presets. The
+[assembly validation record](../developer/notes/assembly-entry-validation.md)
+records seven isolated faults and their restored passing cases.
+
+The initial review observed that a valid `TA_ASM | TA_USERBUF` task packet
+was accepted while `TK_SUPPORT_ASM` was false. Attribute-check adaptation
+allowed that acceptance. Evidence of assembly entry and return was still
+missing. External registration accepted only `TA_HLNG`, and `tk_ret_int`
+was unavailable.
+
+The formal RV32 assembly contract covers signed task start codes, creation-time
+extended information, aligned stacks, normal task return and explicit task
+termination. External interrupts retain per-entry context records and support
+both `tk_ret_int` with outermost delayed dispatch and an inline direct return.
+The profile advertises these implemented forms. The
+[assembly entry guide](assembly-entry.md) gives the entry state, register and
+CSR responsibilities, termination rules and nesting limits.
+
+The `ClearInt`, `EndOfInt` and `CheckInt` profile difference remains tracked in
+the [current review](spec-conformance-review.md). The assembly exits use the
+port's PLIC completion protocol.
+
 ## Fixed differences
 
 | Fixed on | What was wrong | APIs | Regression test |

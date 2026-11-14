@@ -1,6 +1,6 @@
 # Specification conformance review of the implemented API
 
-This review compares the 36 APIs that tsukumo-core implements with the
+This review compares the 37 APIs that tsukumo-core implements with the
 official Japanese
 [μT-Kernel 3.0 specification Ver.3.00.01](https://tron-forum.github.io/mtk3_spec_jp/index.html).
 Read it to learn what the kernel conforms to today, where it still differs,
@@ -15,7 +15,7 @@ The review covers this configuration:
 
 - RV32 `rv32imac`/`ilp32` on a single hart (one RISC-V hardware thread).
 - The service profile in `include/sys/profile.h`.
-- The 36 entries checked in [API support status](API_Support_Status.md),
+- The 37 entries checked in [API support status](API_Support_Status.md),
   cross-checked against their public declarations and their definitions.
   Findings about the shared declarations and the service profile apply to all
   of them.
@@ -52,7 +52,7 @@ difference, the kernel was fixed on that date, and the entry now passes. The
 
 ## Current state
 
-- All 36 implemented entries are Checked. Some also carry a Defined choice or
+- All 37 implemented entries are Checked. Some also carry a Defined choice or
   an Evidence gap.
 - Seven differences that the review found are corrected. `EI` did not restore a
   saved disabled state (fixed 2026-11-09). On 2026-11-10 the kernel was fixed
@@ -64,9 +64,14 @@ difference, the kernel was fixed on that date, and the entry now passes. The
 - One difference remains open. It concerns the service profile and applies
   across the inventory: the
   [missing `ClearInt`, `EndOfInt` and `CheckInt` calls](#tk_support_intctrl-also-covers-calls-the-kernel-does-not-provide).
-- The remaining evidence gaps are `TA_ASM` task creation, interrupt nesting
-  beyond two levels with the interrupt-stack margin, real hardware and more
-  than one hart.
+- Assembly task and external-interrupt entries use the documented
+  [RV32 assembly contract](assembly-entry.md). The remaining evidence gaps
+  concern interrupt nesting beyond two levels with the interrupt-stack margin,
+  real hardware and more than one hart.
+- The assembly-entry update passed 167 PC unit tests, three public consumers
+  and all 104 RV32 CTests in each of six presets. Its
+  [validation record](../developer/notes/assembly-entry-validation.md) includes
+  the isolated fault experiments and restoration checks.
 - The time-representation update passed 162 PC unit tests, three host
   consumer checks and all 90 RV32 CTests in each of the six presets. The
   [test history](spec-conformance-history.md#test-runs-by-date) records this
@@ -108,7 +113,7 @@ and the [scheduling rules](https://tron-forum.github.io/mtk3_spec_jp/task_states
 
 | Entry | Assessment | Source and checked evidence |
 | --- | --- | --- |
-| `tk_cre_tsk` | Checked / Defined choice / Evidence gap | `kernel/task.c`, `test/host/test_task.c`, `task-create`. Allocation, ID and priority ranges, stack bounds and alignment, attributes, exhaustion, and that a refused call leaves the kernel unchanged. See the protection-level and `TA_ASM` items under [defined choices](#defined-choices) and [evidence gaps](#evidence-gaps). |
+| `tk_cre_tsk` | Checked / Defined choice | `kernel/task.c`, `test/host/test_task.c`, `task-create`. Allocation, ID and priority ranges, stack bounds and alignment, attributes, exhaustion, and that a refused call leaves the kernel unchanged. See the protection-level [defined choice](#defined-choices) and [assembly entry contract](assembly-entry.md). |
 | `tk_sta_tsk` | Checked | `kernel/task.c`, `task-restart`. Starts only a DORMANT task, rebuilds the argument and the initial frame, clears queued wakeup requests, inserts at the tail of the ready queue, and refuses an active task. |
 | `tk_ext_tsk` | Checked (Difference corrected 2026-11-10) / Defined choice | `kernel/task.c`, `task-restart`, `task-context`, `interrupt`. Moves the task to DORMANT, removes it from its queue, switches away and discards the ending context, and does not return from an invalid context. The race in which an ended task could resume its old run is fixed ([history](spec-conformance-history.md#an-ended-task-could-resume-its-old-run)). |
 | `tk_exd_tsk` | Checked (Difference corrected 2026-11-10) / Defined choice | `kernel/task.c`, `task-restart`, `task-context`, `interrupt`. Deletes the task, returns its TCB to the free list for reuse, switches away and discards the ending context, and does not return from an invalid context. The same race with a task created in the freed TCB is fixed ([history](spec-conformance-history.md#an-ended-task-could-resume-its-old-run)). |
@@ -173,7 +178,8 @@ and the [I/O access chapter](https://tron-forum.github.io/mtk3_spec_jp/io_port_m
 
 | Entry | Assessment | Source and checked evidence |
 | --- | --- | --- |
-| `tk_def_int` | Checked / Defined choice | `kernel/intctl.c`, `test/host/test_intctl.c`, `interrupt`. The `T_DINT` packet layout, a `TA_HLNG` handler called as a C function, replacement and removal, number ranges, and context handling. |
+| `tk_def_int` | Checked / Defined choice | `kernel/intctl.c`, `test/host/test_intctl.c`, `interrupt`. The `T_DINT` packet layout, a `TA_HLNG` C callback or a `TA_ASM` raw entry, replacement and removal, number ranges, and context handling. |
+| `tk_ret_int` | Checked / Defined choice | `kernel/intctl.c`, `kernel/asm/rv32/start.S`, `interrupt`. Matching ASM entry/depth/stack and disabled MIE required, fatal invalid context, exactly-once completion and outermost delayed dispatch. The [assembly contract](assembly-entry.md) also defines the direct-return alternative. |
 | `EnableInt` | Checked (Difference corrected 2026-11-10) / Defined choice | `kernel/intctl.c`, `test/host/test_intctl.c`, `interrupt`. Setting the priority, enabling the source, and delivery of an interrupt that was already pending. A consumer written to the service profile compiles and sets the level ([history](spec-conformance-history.md#the-interrupt-profile-flags-disagreed-with-the-exported-calls)). |
 | `DisableInt` | Checked / Defined choice | `kernel/intctl.c`, `test/host/test_intctl.c`, `interrupt`. Masking a source, a handler disabling its own source, and completion of the source. `TK_SUPPORT_INTCTRL` now announces it. |
 | `DI` | Checked | `include/sys/interrupt.h`, `wait-context`, an RV32 probe. Saves and clears MIE in one instruction and assigns the caller's variable. |
@@ -254,34 +260,6 @@ the review found the kernel's choice permitted.
 | `tk_set_utc`, `tk_get_utc` | A call from an ISR, or before the first task starts, returns `E_CTX` after the argument checks and changes nothing. `tk_set_utc` returns `E_PAR` for a negative time, and the clock stops at 2^63 − 1 ms (see [kernel behavior](behavior.md#system-time-utc)). | The [time-management chapter](https://tron-forum.github.io/mtk3_spec_jp/time_management_functions.html) marks both calls as not available in the task-independent portion, and the specification's notes on the API description format make detecting `E_CTX` implementation-dependent. `SYSTIM` is a signed 64-bit millisecond count; the `E_PAR` of `tk_set_utc` covers an invalid time without defining which times are invalid, and the specification does not say what follows the largest value. |
 
 ## Evidence gaps
-
-### TA_ASM tasks are accepted without assembly support
-
-`TK_SUPPORT_ASM` is false, yet `tk_cre_tsk` accepts a valid packet with
-`TA_ASM | TA_USERBUF` and returns a positive task ID. (`TA_ASM` is 0, so this
-is a packet without `TA_HLNG`.) The attribute-check adaptation rules allow an
-implementation to accept some unsupported choices. What is still missing is
-target evidence that assembly entry and return work, and an explicit policy on
-whether the kernel advertises that support. The gap closes with a documented
-policy and a focused target test of the entry and return contract it chooses.
-
-The observation used this packet in a PC unit test fixture initialized with
-`host_reset()`. Creation returned ID 1 with `TK_SUPPORT_ASM == 0`. It was one
-of three supplemental task probes; the other two covered the protection-level
-attributes and the order of equal-priority tasks.
-
-```c
-static _Alignas(16) UW stack[256];
-static void entry(INT code, void *info) { (void)code; (void)info; }
-T_CTSK packet = {
-    .tskatr = TA_ASM | TA_USERBUF,
-    .task = (FP)entry,
-    .itskpri = 4,
-    .stksz = sizeof stack,
-    .bufptr = stack,
-};
-/* In the initialized fixture, tk_cre_tsk(&packet) returns a positive ID. */
-```
 
 ### Interrupt nesting beyond two levels
 

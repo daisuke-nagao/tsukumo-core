@@ -7,7 +7,7 @@ box (`[ ]`) means it does not.
 
 The list says nothing about how closely an API follows the specification. The
 [specification conformance review](spec-conformance-review.md) checks each of
-the 36 provided APIs against the official
+the 37 provided APIs against the official
 [μT-Kernel 3.0 specification Ver.3.00.01](https://tron-forum.github.io/mtk3_spec_jp/index.html)
 and records the differences, the implementation choices and the gaps in the
 evidence.
@@ -20,10 +20,10 @@ management).
 
 | Part | Provided | Listed |
 | --- | --- | --- |
-| μT-Kernel/OS | 23 | 113 |
+| μT-Kernel/OS | 24 | 113 |
 | μT-Kernel/DS | 0 | 48 |
 | μT-Kernel/SM | 13 | 75 |
-| Total | 36 | 236 |
+| Total | 37 | 236 |
 
 ## μT-Kernel/OS API
 
@@ -106,7 +106,7 @@ management).
 * [ ] `tk_rel_mpf` - Return fixed-size memory block
 * [ ] `tk_rel_mpl` - Return variable-size memory block
 * [x] `tk_rel_wai` - Release other task from wait state
-* [ ] `tk_ret_int` - Return from interrupt handler
+* [x] `tk_ret_int` - Return from interrupt handler
 * [ ] `tk_rot_rdq` - Rotate task priority
 * [ ] `tk_rsm_tsk` - Resume task in forced wait state
 * [ ] `tk_set_cpr` - Set coprocessor register

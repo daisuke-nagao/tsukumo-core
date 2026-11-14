@@ -69,7 +69,8 @@ tkmc_startup_panic(tkmc_startup_stage stage, ER error);
 typedef enum {
   TKMC_CONTEXT_NONE = 0,
   TKMC_CONTEXT_EXT_TSK,
-  TKMC_CONTEXT_EXD_TSK
+  TKMC_CONTEXT_EXD_TSK,
+  TKMC_CONTEXT_RET_INT
 } tkmc_context_api;
 
 typedef struct {

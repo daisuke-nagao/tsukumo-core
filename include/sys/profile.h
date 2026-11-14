@@ -71,7 +71,7 @@
 
 /* Miscellaneous Functions */
 #define TK_SUPPORT_ASM                                                         \
-  FALSE /* Support of assembly language function entry/exit */
+  TRUE /* Support of assembly language task/interrupt handlers */
 #define TK_SUPPORT_REGOPS                                                      \
   FALSE /* Support for task-register manipulation functions */
 #define TK_ALLOW_MISALIGN FALSE /* Memory misalign access is permitted */

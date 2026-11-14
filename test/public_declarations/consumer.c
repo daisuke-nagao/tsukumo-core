@@ -4,11 +4,13 @@
  */
 
 #include <stddef.h>
+#include <tk/asm/rv32/interrupt.h>
 
 #if defined(PUBLIC_DECLARATIONS_UMBRELLA)
 #include <tk/tkernel.h>
 
 _Static_assert(TK_SUPPORT_USEC == FALSE, "microsecond profile changed");
+_Static_assert(TK_SUPPORT_ASM == TRUE, "assembly support profile changed");
 _Static_assert(TK_SUPPORT_UTC == TRUE, "UNIX time profile changed");
 _Static_assert(TK_SUPPORT_TRONTIME == FALSE, "TRON time profile changed");
 #if defined(TKERNEL_CHECK_CONST)
@@ -24,11 +26,15 @@ _Static_assert(_Generic(&tk_set_utc, ER (*)(SYSTIM *): 1, default: 0),
 #endif
 _Static_assert(_Generic(&tk_get_utc, ER (*)(SYSTIM *): 1, default: 0),
                "tk_get_utc() must take a mutable SYSTIM pointer");
+_Static_assert(_Generic(&tk_ret_int, void (*)(void): 1, default: 0),
+               "tk_ret_int must be a public nonreturning void API");
 #else
 #include <tk/typedef.h>
 #endif
 
 _Static_assert(sizeof(W) == 4 && (W)-1 < 0, "W must be signed 32-bit");
+_Static_assert(TKMC_IRQCTX_SIZE == 32,
+               "the public RV32 interrupt context size changed");
 _Static_assert(sizeof(UW) == 4 && (UW)-1 > 0, "UW must be unsigned 32-bit");
 _Static_assert(sizeof(struct systim) == 8, "systim must be eight bytes");
 _Static_assert(offsetof(struct systim, hi) == 0, "systim.hi offset changed");

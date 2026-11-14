@@ -126,6 +126,7 @@ typedef struct T_DINT {
 } T_DINT;
 
 extern ER tk_def_int(UINT intno, CONST T_DINT *pk_dint);
+extern __attribute__((__noreturn__)) void tk_ret_int(void);
 extern void EnableInt(UINT intno, INT level);
 extern void DisableInt(UINT intno);
 
