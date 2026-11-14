@@ -32,6 +32,7 @@
 #include "panic.h"
 #include "runner.h"
 #include "task.h"
+#include <tk/asm/rv32/interrupt.h>
 
 extern void **__real_schedule(void *sp);
 extern volatile UINT tkmc_isr_depth;
@@ -372,7 +373,6 @@ static void defining_handler(UINT intno) {
 static void bad_definitions_are_refused(void) {
   reset_counters();
   T_DINT no_handler = {.intatr = TA_HLNG, .inthdr = NULL};
-  T_DINT assembler = {.intatr = TA_ASM, .inthdr = second_handler};
   T_DINT unknown_bit = {.intatr = TA_HLNG | 0x2, .inthdr = second_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &s_uart_dint));
   ER er[] = {
@@ -382,11 +382,10 @@ static void bad_definitions_are_refused(void) {
       tk_def_int(0, NULL),
       tk_def_int(0xffffffffu, NULL),
       tk_def_int(UART_IRQ, &no_handler),
-      tk_def_int(UART_IRQ, &assembler),
       tk_def_int(UART_IRQ, &unknown_bit),
   };
-  static const ER expected[] = {E_PAR, E_PAR, E_PAR,   E_PAR,
-                                E_PAR, E_PAR, E_RSATR, E_RSATR};
+  static const ER expected[] = {E_PAR, E_PAR, E_PAR,  E_PAR,
+                                E_PAR, E_PAR, E_RSATR};
   EnableInt(UART_IRQ, 1);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
@@ -768,6 +767,8 @@ static volatile UW s_outer_sp, s_inner_sp;
 static volatile UW s_outer_mie, s_outer_threshold, s_inner_threshold;
 static volatile UINT s_timer_calls_in, s_timer_calls_out;
 static volatile BOOL s_inner_ran;
+static BOOL s_track_mixed_cause;
+static UINT s_mixed_external_start, s_mixed_software_start;
 // Seen from the outer handler while it waits: the RTC pending in the PLIC, and
 // the timer's pending bit in mip after the wait.
 static volatile BOOL s_rtc_pending_seen, s_timer_pending_at_end;
@@ -814,6 +815,11 @@ static void nested_inner_handler(UINT intno) {
 
 static void nested_outer_handler(UINT intno) {
   (void)intno;
+  if (s_track_mixed_cause) {
+    s_last_mcause = 0;
+    s_mixed_external_start = s_schedule_calls[TRAP_EXTERNAL];
+    s_mixed_software_start = s_schedule_calls[TRAP_SOFTWARE];
+  }
   out_b(UART_IER, 0);
   event(EV_OUTER_START);
   s_outer_depth = tkmc_isr_depth;
@@ -1185,6 +1191,442 @@ static void exiting_task(INT stacd, void *exinf) {
   exit_with_an_external_interrupt_pending();
 }
 
+// FormalASM task entry points record the startup ABI and then take one of the
+// three supported termination paths. The assembly leaves gp/tp untouched.
+extern void asm_task_return_entry(void);
+extern void asm_task_ext_entry(void);
+extern void asm_task_exd_entry(void);
+
+volatile UW asm_task_seen_stacd;
+volatile UW asm_task_seen_exinf;
+volatile UW asm_task_seen_sp;
+volatile UW asm_task_entry_count;
+
+enum {
+  ASM_TASK_PRIORITY = 2,
+  ASM_TASK_STACK_WORDS = 128,
+  ASM_TASK_CLEANUP_STACD = 0x41534d
+};
+
+static _Alignas(16) UW s_asm_return_stack[ASM_TASK_STACK_WORDS];
+static _Alignas(16) UW s_asm_ext_stack[ASM_TASK_STACK_WORDS];
+static _Alignas(16) UW s_asm_exd_stack[ASM_TASK_STACK_WORDS];
+static _Alignas(16) UW s_asm_restart_stack[ASM_TASK_STACK_WORDS];
+static _Alignas(16) UW s_asm_reused_stack[ASM_TASK_STACK_WORDS];
+static _Alignas(16) UW s_asm_filler_stacks[CFN_MAX_TSKID][ASM_TASK_STACK_WORDS];
+static ID s_asm_filler_ids[CFN_MAX_TSKID];
+static const UW s_asm_exinf_one, s_asm_exinf_two, s_asm_exinf_three;
+
+static ID create_asm_task(void (*entry)(void), void *exinf, UW *stack,
+                          SZ stack_size) {
+  return tk_cre_tsk(&(T_CTSK){.exinf = exinf,
+                              .tskatr = TA_ASM | TA_USERBUF,
+                              .task = (FP)entry,
+                              .itskpri = ASM_TASK_PRIORITY,
+                              .stksz = stack_size,
+                              .bufptr = stack});
+}
+
+typedef struct {
+  INT stacd;
+  UW exinf;
+  UW sp;
+  UINT entries;
+  UINT state;
+} asm_entry_observation_t;
+
+static asm_entry_observation_t observe_asm_entry(ID id) {
+  BOOL ended =
+      WAIT_UNTIL(task_state(id) == TTS_DMT || task_state(id) == TTS_NOEXS);
+  TEST_ASSERT_TRUE_MESSAGE(ended, "the ASM task did not terminate");
+  return (asm_entry_observation_t){
+      .stacd = (INT)asm_task_seen_stacd,
+      .exinf = asm_task_seen_exinf,
+      .sp = asm_task_seen_sp,
+      .entries = asm_task_entry_count,
+      .state = task_state(id),
+  };
+}
+
+static void assert_asm_entry(asm_entry_observation_t observed, INT stacd,
+                             void *exinf, UW *stack, UINT expected_entries,
+                             UINT expected_state) {
+  TEST_ASSERT_EQUAL_UINT(expected_state, observed.state);
+  TEST_ASSERT_EQUAL_UINT(expected_entries, observed.entries);
+  TEST_ASSERT_EQUAL_HEX32((UW)stacd, (UW)observed.stacd);
+  TEST_ASSERT_EQUAL_HEX32((UW)exinf, observed.exinf);
+  UW begin = (UW)stack;
+  UW end = begin + ASM_TASK_STACK_WORDS * sizeof(UW);
+  TEST_ASSERT_TRUE_MESSAGE(observed.sp >= begin && observed.sp <= end,
+                           "the ASM task stack pointer is outside its stack");
+  TEST_ASSERT_EQUAL_HEX32(0, observed.sp % 16);
+  TEST_ASSERT_EQUAL_HEX32(end, observed.sp);
+}
+
+static void cleanup_dormant_asm_task(ID id) {
+  if (task_state(id) == TTS_NOEXS) {
+    return;
+  }
+  TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, ASM_TASK_CLEANUP_STACD));
+  BOOL deleted = WAIT_UNTIL(task_state(id) == TTS_NOEXS);
+  TEST_ASSERT_TRUE_MESSAGE(deleted,
+                           "the ASM task cleanup did not free its TCB");
+}
+
+static void asm_task_entry_and_termination_paths(void) {
+  struct {
+    void (*entry)(void);
+    void *exinf;
+    UW *stack;
+    INT stacd;
+    UINT state;
+  } cases[] = {{asm_task_return_entry, (void *)&s_asm_exinf_one,
+                s_asm_return_stack, 37, TTS_DMT},
+               {asm_task_ext_entry, (void *)&s_asm_exinf_two, s_asm_ext_stack,
+                -41, TTS_DMT},
+               {asm_task_exd_entry, (void *)&s_asm_exinf_three, s_asm_exd_stack,
+                -53, TTS_NOEXS}};
+  ID ids[sizeof(cases) / sizeof(cases[0])];
+  asm_entry_observation_t observed[sizeof(cases) / sizeof(cases[0])];
+  for (UINT i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+    asm_task_entry_count = 0;
+    ID id = create_asm_task(cases[i].entry, cases[i].exinf, cases[i].stack,
+                            sizeof(s_asm_return_stack));
+    TEST_ASSERT_GREATER_THAN(0, id);
+    ids[i] = id;
+    TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, cases[i].stacd));
+    observed[i] = observe_asm_entry(id);
+  }
+  cleanup_dormant_asm_task(ids[0]);
+  cleanup_dormant_asm_task(ids[1]);
+  for (UINT i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+    assert_asm_entry(observed[i], cases[i].stacd, cases[i].exinf,
+                     cases[i].stack, 1, cases[i].state);
+  }
+}
+
+static void asm_task_restart_rebuilds_entry_and_arguments(void) {
+  asm_task_entry_count = 0;
+  ID id = create_asm_task(asm_task_return_entry, (void *)&s_asm_exinf_one,
+                          s_asm_restart_stack, sizeof(s_asm_restart_stack));
+  TEST_ASSERT_GREATER_THAN(0, id);
+  TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, 123));
+  asm_entry_observation_t first = observe_asm_entry(id);
+  TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, -321));
+  asm_entry_observation_t second = observe_asm_entry(id);
+  cleanup_dormant_asm_task(id);
+  assert_asm_entry(first, 123, (void *)&s_asm_exinf_one, s_asm_restart_stack, 1,
+                   TTS_DMT);
+  assert_asm_entry(second, -321, (void *)&s_asm_exinf_one, s_asm_restart_stack,
+                   2, TTS_DMT);
+}
+
+static void asm_task_tcb_reuse_starts_with_fresh_arguments(void) {
+  asm_task_entry_count = 0;
+  ID deleted = create_asm_task(asm_task_exd_entry, (void *)&s_asm_exinf_one,
+                               s_asm_exd_stack, sizeof(s_asm_exd_stack));
+  TEST_ASSERT_GREATER_THAN(0, deleted);
+
+  UINT fillers = 0;
+  while (fillers < CFN_MAX_TSKID) {
+    ID id =
+        create_asm_task(asm_task_exd_entry, NULL, s_asm_filler_stacks[fillers],
+                        sizeof(s_asm_filler_stacks[fillers]));
+    if (id == E_LIMIT) {
+      break;
+    }
+    TEST_ASSERT_GREATER_THAN(0, id);
+    s_asm_filler_ids[fillers++] = id;
+  }
+  TEST_ASSERT_LESS_THAN(CFN_MAX_TSKID, fillers);
+
+  TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(deleted, -101));
+  asm_entry_observation_t deleted_run = observe_asm_entry(deleted);
+  ID reused = create_asm_task(asm_task_exd_entry, (void *)&s_asm_exinf_two,
+                              s_asm_reused_stack, sizeof(s_asm_reused_stack));
+  BOOL reused_same_id = deleted == reused;
+  ER reused_start = reused > 0 ? tk_sta_tsk(reused, 202) : E_ID;
+  asm_entry_observation_t reused_run = {0};
+  if (reused_start == E_OK) {
+    reused_run = observe_asm_entry(reused);
+  }
+
+  for (UINT i = 0; i < fillers; ++i) {
+    TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(s_asm_filler_ids[i], (INT)i));
+    TEST_ASSERT_EQUAL_UINT(TTS_NOEXS, task_state(s_asm_filler_ids[i]));
+  }
+  TEST_ASSERT_TRUE_MESSAGE(reused_same_id, "the freed TCB was not reused");
+  TEST_ASSERT_EQUAL(E_OK, reused_start);
+  assert_asm_entry(deleted_run, -101, (void *)&s_asm_exinf_one, s_asm_exd_stack,
+                   1, TTS_NOEXS);
+  assert_asm_entry(reused_run, 202, (void *)&s_asm_exinf_two,
+                   s_asm_reused_stack, 2, TTS_NOEXS);
+}
+
+extern void asm_irq_ret_entry(void);
+extern void asm_irq_direct_entry(void);
+extern UW test_spin_with_registers(volatile UW *flag, UW deadline,
+                                   volatile UB *reg, UB value);
+
+volatile UW asm_irq_seen_intno;
+volatile UW asm_irq_seen_frame;
+volatile UW asm_irq_seen_sp;
+volatile UW asm_irq_seen_mstatus;
+volatile UW asm_irq_seen_mie;
+volatile UW asm_irq_seen_s0;
+volatile UW asm_irq_seen_s2;
+static volatile UINT s_asm_irq_hits;
+static volatile ER s_asm_irq_sig_er;
+static volatile ER s_asm_irq_child_er;
+static BOOL s_asm_irq_disable_source;
+static BOOL s_asm_irq_wake_child;
+static BOOL s_asm_nested_outer;
+
+void asm_irq_callback(UINT intno, void *frame) {
+  ++s_asm_irq_hits;
+  if (intno == RTC_IRQ) {
+    rtc_quiet();
+    event(EV_INNER);
+    s_inner_depth = tkmc_isr_depth;
+    s_inner_sp = current_sp();
+    s_inner_threshold = in_w(PLIC_THRESHOLD_REG);
+    s_inner_ran = TRUE;
+    if (s_inner_wakes) {
+      s_asm_irq_sig_er = tk_sig_sem(s_sem, 1);
+    }
+    return;
+  }
+
+  out_b(UART_IER, 0);
+  const UW *saved_frame = frame;
+  asm_irq_seen_s0 = saved_frame[4];
+  asm_irq_seen_s2 = saved_frame[14];
+  if (s_asm_nested_outer) {
+    s_last_mcause = 0;
+    s_mixed_external_start = s_schedule_calls[TRAP_EXTERNAL];
+    s_mixed_software_start = s_schedule_calls[TRAP_SOFTWARE];
+    event(EV_OUTER_START);
+    s_outer_depth = tkmc_isr_depth;
+    s_outer_sp = current_sp();
+    s_outer_threshold = in_w(PLIC_THRESHOLD_REG);
+    s_outer_mie = read_mie();
+    EI(0);
+    s_timer_calls_in = s_timer_handler_calls;
+    EnableInt(RTC_IRQ, s_rtc_level);
+    rtc_raise();
+    UW start = test_mtime();
+    while (!s_inner_ran &&
+           (UW)(test_mtime() - start) < WAIT_MS * TEST_MTIME_PER_MS) {
+      if (source_is_pending(RTC_IRQ)) {
+        s_rtc_pending_seen = TRUE;
+      }
+    }
+    s_timer_pending_at_end = (read_mip() & MIP_TIMER) != 0;
+    s_timer_calls_out = s_timer_handler_calls;
+    UINT intsts;
+    DI(intsts);
+    event(EV_OUTER_END);
+    s_flag = 1;
+    return;
+  }
+
+  if (s_asm_irq_disable_source) {
+    DisableInt(intno);
+  }
+  if (s_asm_irq_wake_child) {
+    s_asm_irq_sig_er = tk_sig_sem(s_sem, 1);
+  }
+  s_flag = 1;
+}
+
+static void asm_irq_child_with_timeout(void *arg) {
+  (void)arg;
+  s_asm_irq_child_er = tk_wai_sem(s_sem, 1, 100);
+  s_child_cause = s_last_mcause;
+  test_checkpoint();
+}
+
+static void run_asm_irq_exit(BOOL direct) {
+  reset_counters();
+  s_flag = 0;
+  s_asm_irq_hits = 0;
+  s_asm_irq_sig_er = E_SYS;
+  s_asm_irq_child_er = E_SYS;
+  s_child_cause = 0;
+  s_asm_irq_disable_source = TRUE;
+  s_asm_irq_wake_child = TRUE;
+  asm_irq_seen_intno = 0;
+  asm_irq_seen_frame = 0;
+  asm_irq_seen_sp = 0;
+  asm_irq_seen_mstatus = 0;
+  asm_irq_seen_mie = 0;
+  asm_irq_seen_s0 = 0;
+  asm_irq_seen_s2 = 0;
+  s_sem = tk_cre_sem(
+      &(T_CSEM){.exinf = 0, .sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
+  TEST_ASSERT_GREATER_THAN(E_OK, s_sem);
+  test_spawn(asm_irq_child_with_timeout, CHILD_PRIORITY, NULL);
+
+  const T_DINT dint = {
+      .intatr = TA_ASM,
+      .inthdr = (FP)(direct ? asm_irq_direct_entry : asm_irq_ret_entry)};
+  ER defined = tk_def_int(UART_IRQ, &dint);
+  EnableInt(UART_IRQ, 1);
+  reset_trap_records();
+  s_last_mcause = 0;
+  UW mie_before = read_mie();
+  UW changed = test_spin_with_registers(
+      &s_flag, test_mtime() + WAIT_MS * TEST_MTIME_PER_MS,
+      (volatile UB *)UART_IER, IER_THRE);
+  UW mie_after = read_mie();
+  test_join();
+  UINT external_schedules = s_schedule_calls[TRAP_EXTERNAL];
+  UINT software_schedules = s_schedule_calls[TRAP_SOFTWARE];
+  BOOL external_schedule_ok = s_schedule_ok[TRAP_EXTERNAL];
+  BOOL disabled = !source_is_enabled(UART_IRQ);
+
+  // Prove a second claim of the same source can run after the first complete.
+  EnableInt(UART_IRQ, 1);
+  s_flag = 0;
+  s_asm_irq_disable_source = FALSE;
+  s_asm_irq_wake_child = FALSE;
+  reset_trap_records();
+  UW mie_before_again = read_mie();
+  UW changed_again = test_spin_with_registers(
+      &s_flag, test_mtime() + WAIT_MS * TEST_MTIME_PER_MS,
+      (volatile UB *)UART_IER, IER_THRE);
+  UW mie_after_again = read_mie();
+  clean_up();
+  ER deleted = tk_del_sem(s_sem);
+
+  TEST_ASSERT_EQUAL(E_OK, defined);
+  TEST_ASSERT_EQUAL(E_OK, deleted);
+  TEST_ASSERT_EQUAL_UINT(2, s_asm_irq_hits);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0, changed,
+                                 "the interrupted task's registers changed");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0, changed_again, "the second interrupted task's registers changed");
+  TEST_ASSERT_EQUAL_UINT(UART_IRQ, asm_irq_seen_intno);
+  TEST_ASSERT_NOT_EQUAL(0, asm_irq_seen_frame);
+  TEST_ASSERT_EQUAL_HEX32(0, asm_irq_seen_frame % 16);
+  TEST_ASSERT_EQUAL_HEX32(0, asm_irq_seen_sp % 16);
+  TEST_ASSERT_TRUE_MESSAGE(
+      asm_irq_seen_sp >= (UW)_isr_stack_start &&
+          asm_irq_seen_sp + TKMC_IRQCTX_SIZE <= (UW)_isr_stack_end,
+      "the raw entry context was outside the interrupt stack");
+  TEST_ASSERT_EQUAL_HEX32(0x7e570000 + 11, asm_irq_seen_s0);
+  TEST_ASSERT_EQUAL_HEX32(0x7e570000 + 13, asm_irq_seen_s2);
+  TEST_ASSERT_EQUAL_HEX32(mie_before, mie_after);
+  TEST_ASSERT_EQUAL_HEX32(mie_before_again, mie_after_again);
+  TEST_ASSERT_EQUAL_UINT(0, tkmc_isr_depth);
+  TEST_ASSERT_EQUAL_HEX32(0, asm_irq_seen_mstatus & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_HEX32(0, asm_irq_seen_mie & MIE_TIMER_AND_SOFTWARE);
+  TEST_ASSERT_TRUE_MESSAGE(disabled,
+                           "the raw handler's DisableInt() was undone");
+  TEST_ASSERT_EQUAL(E_OK, s_asm_irq_sig_er);
+  TEST_ASSERT_EQUAL(E_OK, s_asm_irq_child_er);
+  TEST_ASSERT_TRUE_MESSAGE(external_schedule_ok,
+                           "external dispatch used an invalid stack or depth");
+  if (direct) {
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        0, external_schedules, "direct return scheduled in the external trap");
+    TEST_ASSERT_GREATER_THAN_UINT_MESSAGE(
+        0, software_schedules,
+        "direct return did not dispatch in the software trap");
+    TEST_ASSERT_EQUAL(MCAUSE_SOFTWARE, s_child_cause);
+  } else {
+    TEST_ASSERT_GREATER_THAN_UINT_MESSAGE(
+        0, external_schedules,
+        "tk_ret_int did not dispatch in the external trap");
+    TEST_ASSERT_EQUAL(MCAUSE_EXTERNAL, s_child_cause);
+  }
+}
+
+static void run_mixed_nested_entries(BOOL asm_outer, BOOL direct_asm_inner) {
+  const nest_t nest = {
+      .rtc_level = HIGHER_LEVEL, .wait_for_inner = TRUE, .inner_wakes = TRUE};
+  nested_set_up(&nest);
+  s_asm_irq_hits = 0;
+  s_asm_irq_sig_er = E_SYS;
+  s_asm_irq_disable_source = FALSE;
+  s_asm_irq_wake_child = FALSE;
+  s_asm_nested_outer = asm_outer;
+  s_track_mixed_cause = TRUE;
+
+  if (asm_outer) {
+    const T_DINT outer = {.intatr = TA_ASM, .inthdr = (FP)asm_irq_ret_entry};
+    TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &outer));
+  }
+  if (!asm_outer) {
+    const T_DINT inner = {.intatr = TA_ASM,
+                          .inthdr = (FP)(direct_asm_inner ? asm_irq_direct_entry
+                                                          : asm_irq_ret_entry)};
+    TEST_ASSERT_EQUAL(E_OK, tk_def_int(RTC_IRQ, &inner));
+  } else {
+    const T_DINT inner = {.intatr = TA_HLNG, .inthdr = nested_inner_handler};
+    TEST_ASSERT_EQUAL(E_OK, tk_def_int(RTC_IRQ, &inner));
+  }
+
+  paint_the_interrupt_stack();
+  reset_trap_records();
+  s_last_mcause = 0;
+  BOOL done = nested_run(4);
+  UINT used = interrupt_stack_high_water();
+  UINT external_schedules =
+      s_schedule_calls[TRAP_EXTERNAL] - s_mixed_external_start;
+  UINT software_schedules =
+      s_schedule_calls[TRAP_SOFTWARE] - s_mixed_software_start;
+  BOOL external_schedule_ok = s_schedule_ok[TRAP_EXTERNAL];
+  nested_finish(TRUE);
+  s_track_mixed_cause = FALSE;
+
+  TEST_ASSERT_TRUE_MESSAGE(done, "the mixed handlers and child did not run");
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT_MESSAGE(
+      NESTED_HIGH_WATER_MIN, used, "the mixed nested trap was not measured");
+  TEST_ASSERT_LESS_OR_EQUAL_UINT_MESSAGE(
+      NESTED_HIGH_WATER_MAX, used, "the mixed nested trap used too much stack");
+  assert_the_trap_nested();
+  const UINT expected[] = {EV_OUTER_START, EV_INNER, EV_OUTER_END, EV_CHILD};
+  assert_events(expected, 4);
+  TEST_ASSERT_EQUAL_UINT(1, s_outer_depth);
+  TEST_ASSERT_EQUAL_UINT(HIGHER_LEVEL, s_inner_threshold);
+  TEST_ASSERT_EQUAL_UINT(OUTER_LEVEL, s_outer_threshold);
+  TEST_ASSERT_EQUAL_UINT(0, s_timer_calls_out - s_timer_calls_in);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      1, external_schedules,
+      "the outer external trap must dispatch exactly once");
+  TEST_ASSERT_TRUE_MESSAGE(external_schedule_ok,
+                           "schedule() ran at the wrong stack or depth");
+  if (!asm_outer && direct_asm_inner) {
+    // The nested direct return cannot schedule while the outer handler is
+    // active; the outer external exit services the pending request.
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(0, software_schedules,
+                                   "a nested direct return dispatched early");
+  }
+  s_asm_nested_outer = FALSE;
+}
+
+static void asm_outer_and_hlng_inner_dispatch_at_the_outer_exit(void) {
+  run_mixed_nested_entries(TRUE, FALSE);
+}
+
+static void hlng_outer_and_asm_inner_direct_return_defers_dispatch(void) {
+  run_mixed_nested_entries(FALSE, TRUE);
+}
+
+static void hlng_outer_and_asm_inner_tk_ret_int_defers_dispatch(void) {
+  run_mixed_nested_entries(FALSE, FALSE);
+}
+
+static void
+asm_tk_ret_int_restores_frame_and_dispatches_in_external_trap(void) {
+  run_asm_irq_exit(FALSE);
+}
+
+static void asm_direct_return_restores_frame_and_leaves_dispatch_pending(void) {
+  run_asm_irq_exit(TRUE);
+}
+
 static void dummy_task(INT stacd, void *exinf) {
   (void)stacd;
   (void)exinf;
@@ -1367,6 +1809,22 @@ static const test_case_t s_cases[] = {
      a_task_keeps_its_registers_through_a_nested_interrupt},
     {"the_interrupt_stack_holds_nested_handlers",
      the_interrupt_stack_holds_nested_handlers},
+    {"asm_task_entry_and_termination_paths",
+     asm_task_entry_and_termination_paths},
+    {"asm_task_restart_rebuilds_entry_and_arguments",
+     asm_task_restart_rebuilds_entry_and_arguments},
+    {"asm_task_tcb_reuse_starts_with_fresh_arguments",
+     asm_task_tcb_reuse_starts_with_fresh_arguments},
+    {"asm_tk_ret_int_restores_frame_and_dispatches_in_external_trap",
+     asm_tk_ret_int_restores_frame_and_dispatches_in_external_trap},
+    {"asm_direct_return_restores_frame_and_leaves_dispatch_pending",
+     asm_direct_return_restores_frame_and_leaves_dispatch_pending},
+    {"asm_outer_and_hlng_inner_dispatch_at_the_outer_exit",
+     asm_outer_and_hlng_inner_dispatch_at_the_outer_exit},
+    {"hlng_outer_and_asm_inner_direct_return_defers_dispatch",
+     hlng_outer_and_asm_inner_direct_return_defers_dispatch},
+    {"hlng_outer_and_asm_inner_tk_ret_int_defers_dispatch",
+     hlng_outer_and_asm_inner_tk_ret_int_defers_dispatch},
     // Last: they take every TCB for a while, and a failure that left them
     // taken would fail every case after it.
     {"a_task_restarted_by_an_isr_right_after_tk_ext_tsk_starts_anew",

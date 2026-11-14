@@ -404,8 +404,15 @@ set(context_cases
     isr-ext
     isr-exd
     no-current-ext
-    no-current-exd)
-foreach(mode RANGE 0 7)
+    no-current-exd
+    ret-task
+    ret-task-di
+    ret-hlng
+    ret-timer
+    ret-software
+    ret-asm-task-di
+    ret-no-current)
+foreach(mode RANGE 0 14)
   list(GET context_cases ${mode} context_case)
   if(mode EQUAL 0)
     set(context_marker "1 Tests 0 Failures")
@@ -417,6 +424,9 @@ foreach(mode RANGE 0 7)
   add_test_suite(task-context-${context_case} SOURCES
                  test/suites/task_context.c OUTPUT_REGEX "${context_marker}")
   set(context_target ${PROJECT_NAME}-test-task-context-${context_case}.elf)
+  if(mode EQUAL 13)
+    target_sources(${context_target} PRIVATE test/asm_task_di_ret.S)
+  endif()
   target_compile_definitions(${context_target}
                              PRIVATE CONTEXT_TEST_MODE=${mode})
   target_link_options(${context_target} PRIVATE LINKER:--wrap=tk_cre_tsk
@@ -485,8 +495,9 @@ add_test_suite(interrupt-state SOURCES test/suites/interrupt_state.c)
 # test-only link wraps of schedule() and tkmc_timer_handler() keep the mcause of
 # the trap that switches to a task the handler woke, and where the C part of
 # each trap ran.
-add_test_suite(interrupt SOURCES test/suites/interrupt.c
-               test/spin_with_registers.S)
+add_test_suite(
+  interrupt SOURCES test/suites/interrupt.c test/spin_with_registers.S
+  test/asm_task_entries.S test/asm_interrupt_entries.S)
 target_link_options(${PROJECT_NAME}-test-interrupt.elf PRIVATE
                     LINKER:--wrap=schedule LINKER:--wrap=tkmc_timer_handler)
 add_test_suite(idle-halt ICOUNT_ONLY SOURCES test/suites/idle_halt.c)

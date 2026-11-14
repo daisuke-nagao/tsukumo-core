@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "address.h"
+#include <tk/asm/rv32/interrupt.h>
 
 /*
  * The frame that a trap pushes on the stack of the task it interrupts: 32
@@ -158,6 +159,23 @@ __launch_task:
   RESTORE_FRAME
   mret
 
+  .global tk_ret_int, @function
+  .balign 4
+tk_ret_int:
+  mv a0, sp
+  tail tkmc_ret_int_from_sp
+
+  .global tkmc_restore_external_interrupt_frame, @function
+  .balign 4
+tkmc_restore_external_interrupt_frame:
+  mv sp, a0
+  andi a1, a1, 0x88
+  csrs mie, a1
+  li t0, 3<<11
+  csrs mstatus, t0
+  RESTORE_FRAME
+  mret
+
   .section .reset, "ax", @progbits
   .global _start, @function
   .balign 4
@@ -242,35 +260,20 @@ timer_interrupt:
   mret
 
   /*
-   * The external interrupt is the one trap that can nest: a handler that turns
-   * interrupts on (EI) is interrupted by a source of a higher priority, which
-   * the PLIC threshold set in tkmc_external_interrupt() lets in, and by no
-   * other. A trap that finds the depth already above 0 is on the interrupt
-   * stack, so it keeps sp, and its frame goes below the handler's.
+   * External interrupts may nest only when a handler enables mstatus.MIE; the
+   * PLIC threshold admits only sources above the active source's priority. The
+   * outer trap masks MTIE/MSIE and saves those mie bits in frame word 29. They
+   * remain masked until the outermost exit, where an MSIP request is dispatched
+   * once. Nested traps stay on the ISR stack and leave scheduling to the outer
+   * exit. Timer/software nesting is unsupported.
    *
-   * Only the outermost trap changes mie and switches tasks. It masks the timer
-   * and software interrupts (MTIE and MSIE) while the handler runs, because
-   * those traps would serve a task switch inside the handler: the task that a
-   * nested handler wakes is switched to once, at the exit of the outermost
-   * trap, which reads MSIP as the timer trap does. The mie bits it cleared are
-   * in the frame (word 29, unused) until then. Nested traps change nothing of
-   * mie and leave the switch to the outermost one.
-   *
-   * Not done: nesting of the timer and software interrupts. A software
-   * interrupt that nested would have to be held back and served at the
-   * outermost exit anyway, and a timer one that ran inside a handler would
-   * only be ahead of it by the handler's time.
-   *
-   * Every exit sets mstatus.MPP to machine mode before mret. An mret sets MPP
-   * to the least privileged mode there is (User on this machine), so the mret
-   * of a nested trap would leave the outer one returning to User mode, where
-   * the machine has no access to the kernel's memory: the outer handler runs
-   * on, and its own mret then fails to fetch.
-   *
-   * A handler that has turned interrupts on must turn them off again before
-   * it returns: the exit below puts the threshold and the frame back with
-   * interrupts as the handler left them, and a trap in the middle would find
-   * them half done.
+   * Each trap gets a 32-byte context record below its saved frame (or below the
+   * ISR stack top for the outer trap). C prepare returns before a raw ASM entry
+   * so no C dispatcher frame is live when that handler starts. TA_HLNG handlers
+   * return through C finish; TA_ASM handlers use tk_ret_int or the public direct
+   * return macro. Both must disable MIE before exit. Every mret sets MPP to
+   * machine mode, because a nested mret otherwise leaves the outer handler
+   * unable to access kernel memory.
    */
   .balign 4
 external_interrupt:
@@ -288,7 +291,44 @@ external_interrupt:
   csrrc t1, mie, t1
   sw t1, 29*4(s0)
 1:
-  call tkmc_external_interrupt
+  addi sp, sp, -TKMC_IRQCTX_SIZE
+  mv a0, sp
+  mv a1, s0
+  call tkmc_prepare_external_interrupt
+
+  lw t0, TKMC_IRQCTX_INTNO(sp)
+  beqz t0, .Lexternal_epilog
+  lw t1, TKMC_IRQCTX_KIND(sp)
+  beqz t1, .Lexternal_default
+  li t2, TKMC_INTERRUPT_KIND_HLNG
+  beq t1, t2, .Lexternal_hlng
+  li t2, TKMC_INTERRUPT_KIND_ASM
+  beq t1, t2, .Lexternal_asm
+  j tkmc_invalid_ret_int
+
+.Lexternal_hlng:
+  lw a0, TKMC_IRQCTX_INTNO(sp)
+  lw t0, TKMC_IRQCTX_HANDLER(sp)
+  jalr ra, t0, 0
+  mv a0, sp
+  call tkmc_finish_external_interrupt
+  j .Lexternal_epilog
+
+.Lexternal_default:
+  mv a0, sp
+  call tkmc_finish_external_interrupt
+  j .Lexternal_epilog
+
+.Lexternal_asm:
+  lw a0, TKMC_IRQCTX_INTNO(sp)
+  lw a1, TKMC_IRQCTX_FRAME(sp)
+  lw t0, TKMC_IRQCTX_HANDLER(sp)
+  la ra, .Linvalid_asm_return
+  jr t0
+.Linvalid_asm_return:
+  j tkmc_invalid_ret_int
+
+.Lexternal_epilog:
 
   la t0, tkmc_isr_depth
   lw t1, 0(t0)

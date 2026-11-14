@@ -10,6 +10,7 @@ kernel and run it on QEMU.
 | --- | --- |
 | [API support status](kernel/API_Support_Status.md) | Which μT-Kernel 3.0 calls does the kernel provide? |
 | [Kernel behavior](kernel/behavior.md) | What happens when startup fails, which calls work in which context, and how long do mailbox calls keep interrupts disabled? |
+| [Assembly entries](kernel/assembly-entry.md) | How do assembly tasks and external-interrupt handlers enter, call C and return? |
 | [Interrupts](kernel/interrupts.md) | How do I use `DI()` and `EI()`, define an interrupt handler, and size stacks for traps and nested interrupts? |
 
 ## Understand behavior and specification conformance
@@ -41,4 +42,5 @@ the results and the limits.
 | [Mailbox interrupt-disabled time](developer/notes/mailbox-di-budget.md) | How long does a mailbox send into a long queue keep interrupts disabled, and for how many messages does the budget hold? |
 | [Optimization and LTO validation](developer/notes/optimization-lto-validation.md) | Do the memory copy routines and mailbox links stay correct at every optimization level, with and without link-time optimization? |
 | [Semaphore order checks](developer/notes/semaphore-order-mutation.md) | Which wrong versions of the semaphore request-order rule do the tests catch? |
+| [Assembly entry checks](developer/notes/assembly-entry-validation.md) | Which entry, return, completion and dispatch faults do the RV32 assembly tests detect? |
 | [Wake-up context checks](developer/notes/wakeup-context-mutation.md) | Which faults in the `tk_wup_tsk` context check do the tests detect? |

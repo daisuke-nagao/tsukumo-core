@@ -16,7 +16,8 @@ The specification cited here is the official Japanese
   same variable to `EI(intsts)`.
 - Define a handler with `tk_def_int()` as a C function
   `void inthdr(UINT intno)` with the attribute `TA_HLNG`, then enable its
-  source with `EnableInt(intno, level)`.
+  source with `EnableInt(intno, level)`. Assembly entries use `TA_ASM` and
+  the [assembly entry conventions](assembly-entry.md).
 - In the handler, make the device stop asserting the interrupt. Do not
   complete the source: the kernel does that after the handler returns.
 - Keep the handler short. Every handler shares one 2048-byte interrupt stack,
@@ -133,14 +134,15 @@ does not exist.
 | `EnableInt(intno, level)` | Sets the PLIC priority of the source to `level` (1 to 7) and enables it. |
 | `DisableInt(intno)` | Disables the source. |
 
-A handler is a C function `void inthdr(UINT intno)`, which the attribute
-`TA_HLNG` selects. `tk_def_int` returns these errors:
+`TA_HLNG` selects a C function `void inthdr(UINT intno)`. `TA_ASM` selects
+an assembly entry with the [RV32 assembly contract](assembly-entry.md).
+`tk_def_int` returns these errors:
 
 | Error | When |
 | --- | --- |
 | `E_CTX` | The call comes from an ISR, as the specification says, or runs with interrupts disabled, which the specification does not say. This check comes first: `tk_def_int(0, p)` with interrupts disabled returns `E_CTX`, not `E_PAR`. |
 | `E_PAR` | `intno` is 0 or beyond the table, or `pk_dint` has a NULL `inthdr`. |
-| `E_RSATR` | `intatr` is anything other than exactly `TA_HLNG`. |
+| `E_RSATR` | `intatr` is anything other than exactly `TA_HLNG` or `TA_ASM`. |
 
 `E_NOMEM` is never returned, because the handler table is static.
 
@@ -155,7 +157,7 @@ A handler runs in the ISR state, on the interrupt stack (see
 them on (see [Nested interrupts](#nested-interrupts)).
 
 The kernel claims the source before it calls the handler and completes the
-source after the handler returns. Claiming tells the PLIC that the interrupt
+source after a C handler returns or an assembly exit completes. Claiming tells the PLIC that the interrupt
 is being served, and completing lets the PLIC raise that source again. A
 handler does not complete its source, so `EndOfInt` is not provided.
 
@@ -167,8 +169,9 @@ handler does not complete its source, so `EndOfInt` is not provided.
   work is done. The kernel still completes the source, which the PLIC would
   otherwise ignore because the source is disabled, and the source stays
   disabled.
-- A task that a handler wakes runs after the outermost handler returns, at the
-  exit of the same trap.
+- A task that a handler wakes runs at the outermost exit for `TA_HLNG` and
+  `tk_ret_int`. A direct ASM return preserves the dispatch request for the
+  subsequent software interrupt.
 
 ### Sources without a handler
 
@@ -232,7 +235,8 @@ boot stack below it.
 ### Stack size and nesting
 
 The stack is sized for nesting. A trap that starts inside a handler pushes a
-128-byte frame and its own handler's frames on the same stack. The PLIC has 7
+128-byte frame, a 32-byte external-entry record and its own handler's frames
+on the same stack. The PLIC has 7
 priorities, which is the deepest nesting there can be, so 2048 bytes leave
 about 290 bytes for each level.
 
@@ -241,13 +245,16 @@ about 290 bytes for each level.
 The `interrupt` QEMU suite (`test/suites/interrupt.c`; QEMU suites are
 described in [run_qemu.md](../developer/notes/run_qemu.md)) measures the most
 of the interrupt stack that its paths use, its high-water mark, and fails
-above a limit. The counts below were rechecked on 2026-11-09 in the `debug`
-and `minsizerel` build presets (`CMakePresets.json`):
+above a limit. The counts below were measured on 2026-11-14 in the `debug`
+build preset (`CMakePresets.json`) using the instruction-count clock.
 
-| Paths | `debug` | `minsizerel` | Test fails above |
-| --- | --- | --- | --- |
-| One level: a handler that sends a message to a waiting higher-priority task, the end of a timed wait, and a task switch | 212 bytes | 56 bytes | 768 bytes |
-| Two levels: the UART handler interrupted by the RTC | 468 bytes | 256 bytes | 1024 bytes |
+| Paths | Observed bytes | Test fails above |
+| --- | --- | --- |
+| One level with external/timer work and a task switch | 196 | 768 |
+| Two levels with high-level UART and RTC handlers | 436 | 1024 |
+| ASM outer handler with a high-level inner handler | 420 | 1024 |
+| High-level outer handler with a direct-return ASM inner handler | 452 | 1024 |
+| High-level outer handler with an ASM inner handler using `tk_ret_int` | 452 | 1024 |
 
 The suite checks the limits but does not print the counts. Diagnostic-only
 copies of the suite recorded them. They are observed counts, and interrupt
@@ -278,9 +285,9 @@ priorities.
   not. A tick that falls due meanwhile is served once the handler has
   returned, and the software interrupt that a task switch asks for never
   happens inside a handler.
-- The kernel switches tasks only at the exit of the outermost trap. A task
-  that a nested handler wakes runs once, after the outermost handler returns:
-  a nested trap leaves the switch to the outer one.
+- Nested traps defer a requested task switch to the outermost exit.
+  `TA_HLNG` and `tk_ret_int` service that request at the outermost external
+  exit. A direct ASM exit leaves it to the subsequent software trap.
 - The calls that turn interrupts off and on themselves (`EnableInt`,
   `DisableInt`, and every kernel call that disables interrupts for a moment)
   put the interrupt flag back as they found it, so they are safe in a handler

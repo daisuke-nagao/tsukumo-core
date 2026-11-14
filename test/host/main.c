@@ -6,6 +6,8 @@
 
 #include <unity.h>
 
+#include <stdio.h>
+
 #include "fakes.h"
 
 // Every test starts from a freshly booted kernel on a fresh fake machine.
@@ -13,6 +15,8 @@ void setUp(void) { host_reset(); }
 void tearDown(void) {}
 
 extern void test_invalid_termination_context_stops_before_changing_tasks(void);
+extern void test_tk_ret_int_stops_in_non_asm_contexts(void);
+extern void test_tk_ret_int_rejects_invalid_asm_contexts(void);
 extern void test_isr_and_absent_current_refuse_every_wait_without_changes(void);
 extern void
 test_a_trap_inside_a_trap_is_still_the_isr_state_for_every_wait(void);
@@ -37,6 +41,9 @@ test_a_null_flag_output_is_checked_before_the_single_waiter_rule(void);
 extern void test_a_priority_mailbox_delivers_by_priority_then_arrival(void);
 extern void
 test_a_claim_of_no_source_calls_no_handler_and_completes_nothing(void);
+extern void test_asm_interrupt_uses_the_raw_prepare_finish_path(void);
+extern void test_asm_prepare_without_a_claim_is_a_no_op(void);
+extern void test_nested_asm_contexts_restore_each_claim_and_threshold(void);
 extern void test_a_source_beyond_the_table_is_switched_off_and_completed(void);
 extern void test_the_first_and_the_last_interrupt_number_have_a_handler(void);
 extern void test_enabling_and_disabling_a_source_keeps_the_others(void);
@@ -235,8 +242,11 @@ extern void
 test_relative_waits_end_at_the_same_tick_whatever_is_set_to_utc(void);
 
 int main(void) {
+  setvbuf(stdout, NULL, _IONBF, 0);
   UNITY_BEGIN();
   RUN_TEST(test_invalid_termination_context_stops_before_changing_tasks);
+  RUN_TEST(test_tk_ret_int_stops_in_non_asm_contexts);
+  RUN_TEST(test_tk_ret_int_rejects_invalid_asm_contexts);
   RUN_TEST(test_isr_and_absent_current_refuse_every_wait_without_changes);
   RUN_TEST(test_a_trap_inside_a_trap_is_still_the_isr_state_for_every_wait);
   RUN_TEST(test_isr_and_absent_current_preserve_argument_error_priority);
@@ -366,6 +376,9 @@ int main(void) {
   RUN_TEST(test_a_null_flag_output_is_checked_after_id_before_existence);
   RUN_TEST(test_a_null_flag_output_is_checked_before_the_single_waiter_rule);
   RUN_TEST(test_a_claim_of_no_source_calls_no_handler_and_completes_nothing);
+  RUN_TEST(test_asm_interrupt_uses_the_raw_prepare_finish_path);
+  RUN_TEST(test_asm_prepare_without_a_claim_is_a_no_op);
+  RUN_TEST(test_nested_asm_contexts_restore_each_claim_and_threshold);
   RUN_TEST(test_a_source_beyond_the_table_is_switched_off_and_completed);
   RUN_TEST(test_the_first_and_the_last_interrupt_number_have_a_handler);
   RUN_TEST(test_enabling_and_disabling_a_source_keeps_the_others);

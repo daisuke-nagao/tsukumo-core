@@ -17,8 +17,10 @@
 #include "intctl.h"
 
 enum { SOME_SOURCE = 10 };
+enum { OUTER_SOURCE = 10, INNER_SOURCE = 11, QUIET_SOURCE = 12 };
 
 static UINT s_calls;
+extern volatile UINT tkmc_isr_depth;
 
 static void counting_handler(UINT intno) {
   (void)intno;
@@ -154,23 +156,117 @@ void test_a_refused_definition_leaves_the_old_one_in_place(void) {
   s_calls = 0;
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(SOME_SOURCE, &s_recording));
   T_DINT no_handler = {.intatr = TA_HLNG, .inthdr = NULL};
-  T_DINT assembler = {.intatr = TA_ASM, .inthdr = (FP)counting_handler};
+  T_DINT unknown_attribute = {.intatr = 2, .inthdr = (FP)counting_handler};
   TEST_ASSERT_EQUAL(E_PAR, tk_def_int(0, NULL));
   TEST_ASSERT_EQUAL(E_PAR, tk_def_int(CFN_MAX_INTNO, NULL));
   TEST_ASSERT_EQUAL(E_PAR, tk_def_int(0xffffffffu, NULL));
   TEST_ASSERT_EQUAL(E_PAR, tk_def_int(SOME_SOURCE, &no_handler));
-  TEST_ASSERT_EQUAL(E_RSATR, tk_def_int(SOME_SOURCE, &assembler));
+  TEST_ASSERT_EQUAL(E_RSATR, tk_def_int(SOME_SOURCE, &unknown_attribute));
   host_plic_raise(SOME_SOURCE);
   tkmc_external_interrupt();
   TEST_ASSERT_EQUAL_UINT(1, s_calls);
   TEST_ASSERT_EQUAL_UINT(SOME_SOURCE, s_last_intno);
 }
 
+void test_asm_interrupt_uses_the_raw_prepare_finish_path(void) {
+  _Alignas(16) UW frame[32] = {0};
+  static void (*const entry)(UINT) = counting_handler;
+  const T_DINT assembler = {.intatr = TA_ASM, .inthdr = (FP)entry};
+  tkmc_interrupt_context context;
+  UINT saved;
+
+  s_calls = 0;
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(SOME_SOURCE, &assembler));
+  EnableInt(SOME_SOURCE, 4);
+  host_plic_set_threshold(2);
+  host_plic_raise(SOME_SOURCE);
+  DI(saved);
+  tkmc_isr_depth = 1;
+  tkmc_prepare_external_interrupt(&context, frame);
+  TEST_ASSERT_EQUAL_UINT(TKMC_INTERRUPT_KIND_ASM, context.kind);
+  TEST_ASSERT_EQUAL_UINT(SOME_SOURCE, context.intno);
+  TEST_ASSERT_EQUAL_PTR(entry, context.handler);
+  TEST_ASSERT_EQUAL_PTR(frame, context.frame);
+  TEST_ASSERT_EQUAL_PTR(&context, context.entry_sp);
+  TEST_ASSERT_EQUAL_UINT(1, context.depth);
+  TEST_ASSERT_EQUAL_UINT(2, context.saved_threshold);
+  TEST_ASSERT_EQUAL_UINT(4, host_plic_threshold());
+  TEST_ASSERT_EQUAL_UINT(0, s_calls);
+
+  DisableInt(SOME_SOURCE);
+  tkmc_finish_external_interrupt(&context);
+  TEST_ASSERT_EQUAL_UINT(2, host_plic_threshold());
+  TEST_ASSERT_FALSE(host_plic_is_enabled(SOME_SOURCE));
+  TEST_ASSERT_EQUAL_UINT(0, host_plic_ignored_completions());
+  TEST_ASSERT_EQUAL_UINT(1, host_write_count(host_plic_claim_port()));
+  TEST_ASSERT_EQUAL_UINT(SOME_SOURCE, host_last_write(host_plic_claim_port()));
+  TEST_ASSERT_EQUAL_UINT(0, s_calls);
+  TEST_ASSERT_FALSE(host_interrupts_enabled());
+  tkmc_isr_depth = 0;
+  EI(saved);
+}
+
+void test_asm_prepare_without_a_claim_is_a_no_op(void) {
+  _Alignas(16) UW frame[32] = {0};
+  tkmc_interrupt_context context;
+  UINT saved;
+  host_plic_set_threshold(3);
+  host_plic_raise(0);
+  host_log_count = 0;
+  DI(saved);
+  tkmc_isr_depth = 1;
+  tkmc_prepare_external_interrupt(&context, frame);
+  TEST_ASSERT_EQUAL_UINT(TKMC_INTERRUPT_KIND_NONE, context.kind);
+  TEST_ASSERT_EQUAL_UINT(0, context.intno);
+  tkmc_finish_external_interrupt(&context);
+  TEST_ASSERT_EQUAL_UINT(3, host_plic_threshold());
+  TEST_ASSERT_EQUAL_UINT(0, host_write_count(host_plic_claim_port()));
+  TEST_ASSERT_FALSE(host_interrupts_enabled());
+  tkmc_isr_depth = 0;
+  EI(saved);
+}
+
+void test_nested_asm_contexts_restore_each_claim_and_threshold(void) {
+  _Alignas(16) UW outer_frame[32] = {0};
+  _Alignas(16) UW inner_frame[32] = {0};
+  const T_DINT outer = {.intatr = TA_ASM, .inthdr = (FP)counting_handler};
+  const T_DINT inner = {.intatr = TA_ASM, .inthdr = (FP)counting_handler};
+  tkmc_interrupt_context outer_context, inner_context;
+  UINT saved;
+
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(OUTER_SOURCE, &outer));
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(INNER_SOURCE, &inner));
+  EnableInt(OUTER_SOURCE, 2);
+  EnableInt(INNER_SOURCE, 5);
+  host_plic_set_threshold(1);
+  tkmc_isr_depth = 1;
+  host_plic_raise(OUTER_SOURCE);
+  DI(saved);
+  tkmc_prepare_external_interrupt(&outer_context, outer_frame);
+  TEST_ASSERT_EQUAL_UINT(2, host_plic_threshold());
+
+  tkmc_isr_depth = 2;
+  host_plic_raise(INNER_SOURCE);
+  tkmc_prepare_external_interrupt(&inner_context, inner_frame);
+  TEST_ASSERT_EQUAL_PTR(&outer_context, inner_context.previous);
+  TEST_ASSERT_EQUAL_UINT(5, host_plic_threshold());
+  tkmc_finish_external_interrupt(&inner_context);
+  tkmc_isr_depth = 1;
+  TEST_ASSERT_EQUAL_UINT(2, host_plic_threshold());
+  tkmc_finish_external_interrupt(&outer_context);
+  TEST_ASSERT_EQUAL_UINT(1, host_plic_threshold());
+  TEST_ASSERT_EQUAL_UINT(2, host_write_count(host_plic_claim_port()));
+  TEST_ASSERT_EQUAL_UINT(OUTER_SOURCE, host_last_write(host_plic_claim_port()));
+  TEST_ASSERT_EQUAL_UINT(0, host_plic_ignored_completions());
+  TEST_ASSERT_FALSE(host_interrupts_enabled());
+
+  tkmc_isr_depth = 0;
+  EI(saved);
+}
+
 // The ISR state alone refuses the call, with interrupts on: on the target a
 // handler runs with them off, and the state is what a later handler that turns
 // them on would be judged by.
-extern volatile UINT tkmc_isr_depth;
-
 void test_a_handler_cannot_be_defined_in_the_isr_state(void) {
   // Depth 2 is a trap taken inside a trap: still the ISR state.
   for (UINT depth = 1; depth <= 2; ++depth) {
@@ -238,8 +334,6 @@ void test_the_interrupt_calls_leave_interrupts_off_when_they_found_them_off(
 // handler that has interrupts on: the PLIC raises only a source whose priority
 // is above it. It is the priority of the source being served while the handler
 // runs, and what it was before afterwards.
-enum { OUTER_SOURCE = 10, INNER_SOURCE = 11, QUIET_SOURCE = 12 };
-
 static UW s_threshold_seen;
 static UW s_threshold_seen_after_nested;
 static UW s_inner_threshold_seen;

@@ -11,12 +11,14 @@
 #include "../putstring.h"
 #include "asm/rv32/address.h"
 #include "context.h"
+#include "dispatch.h"
 #include "event_flag.h"
 #include "mailbox.h"
 #include "panic.h"
 #include "runner.h"
 #include "semaphore.h"
 
+#define RET_ASM_TASK_DI_MODE 13
 enum {
   LIVE_ISR,
   NO_CURRENT_WAIT,
@@ -25,10 +27,17 @@ enum {
   ISR_EXT,
   ISR_EXD,
   NO_CURRENT_EXT,
-  NO_CURRENT_EXD
+  NO_CURRENT_EXD,
+  RET_TASK,
+  RET_TASK_DI,
+  RET_HLNG,
+  RET_TIMER,
+  RET_SOFTWARE,
+  RET_ASM_TASK_DI = RET_ASM_TASK_DI_MODE,
+  RET_NO_CURRENT
 };
 _Static_assert(CONTEXT_TEST_MODE >= LIVE_ISR &&
-                   CONTEXT_TEST_MODE <= NO_CURRENT_EXD,
+                   CONTEXT_TEST_MODE <= RET_NO_CURRENT,
                "unknown context fixture");
 
 extern SEMCB tkmc_semcbs[CFN_MAX_SEMID];
@@ -38,8 +47,17 @@ extern tkmc_list_head tkmc_timer_queue;
 extern ID __real_tk_cre_tsk(CONST T_CTSK *packet);
 extern void __real_tkmc_timer_handler(void);
 extern void **__real_schedule(void *sp);
+#if CONTEXT_TEST_MODE == RET_ASM_TASK_DI_MODE
+extern void asm_task_di_ret_entry(void);
+#endif
 
 enum { MSIP = CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET, SENTINEL = 0x12345678 };
+enum {
+  UART_IRQ = 10,
+  UART_BASE = 0x10000000,
+  UART_IER = UART_BASE + 1,
+  IER_THRE = 0x02,
+};
 static struct {
   TCB tasks[CFN_MAX_TSKID];
   tkmc_list_head ready[CFN_MAX_PRI], timer;
@@ -240,6 +258,18 @@ static __attribute__((__noreturn__)) void terminate_invalid(void) {
 }
 
 __attribute__((__noreturn__)) void tkmc_context_panic(tkmc_context_api api) {
+  if (CONTEXT_TEST_MODE >= RET_TASK) {
+    tkmc_context_api expected = CONTEXT_TEST_MODE == RET_ASM_TASK_DI
+                                    ? TKMC_CONTEXT_EXT_TSK
+                                    : TKMC_CONTEXT_RET_INT;
+    if (api != expected || tkmc_last_context_failure.api != expected ||
+        tkmc_last_context_failure.error != E_CTX || irq_enabled() ||
+        !unchanged()) {
+      fail("invalid return context failure or state mismatch");
+    }
+    putstring("CONTEXT STOP OK\n");
+    test_exit(0);
+  }
   tkmc_context_api expected =
       CONTEXT_TEST_MODE % 2 ? TKMC_CONTEXT_EXD_TSK : TKMC_CONTEXT_EXT_TSK;
   if (CONTEXT_TEST_MODE < DI_EXT || api != expected ||
@@ -251,6 +281,8 @@ __attribute__((__noreturn__)) void tkmc_context_panic(tkmc_context_api api) {
   putstring("CONTEXT STOP OK\n");
   test_exit(0);
 }
+
+void asm_task_di_ret_capture(void) { capture(); }
 
 __attribute__((__noreturn__)) void tkmc_panic(UW cause, UW epc, UW value) {
   (void)cause;
@@ -266,7 +298,12 @@ ID __wrap_tk_cre_tsk(CONST T_CTSK *packet) {
       make_objects();
       probe_waits();
       observed = TRUE;
-    } else if (CONTEXT_TEST_MODE >= NO_CURRENT_EXT) {
+    } else if (CONTEXT_TEST_MODE >= RET_NO_CURRENT) {
+      capture();
+      tk_ret_int();
+      fail("tk_ret_int returned before current task existed");
+    } else if (CONTEXT_TEST_MODE == NO_CURRENT_EXT ||
+               CONTEXT_TEST_MODE == NO_CURRENT_EXD) {
       // Exercise current==NULL independently of the entry interrupt state.
       __asm__ volatile("csrw mie, zero" ::: "memory");
       EI(0);
@@ -281,6 +318,11 @@ void **__wrap_schedule(void *sp) {
     fail("dispatch entry missing ISR state");
   }
   ++dispatches;
+  if (CONTEXT_TEST_MODE == RET_SOFTWARE) {
+    capture();
+    tk_ret_int();
+    fail("tk_ret_int returned from software interrupt");
+  }
   return __real_schedule(sp);
 }
 
@@ -289,6 +331,11 @@ void __wrap_tkmc_timer_handler(void) {
     fail("timer entry missing ISR state");
   }
   __real_tkmc_timer_handler();
+  if (CONTEXT_TEST_MODE == RET_TIMER) {
+    capture();
+    tk_ret_int();
+    fail("tk_ret_int returned from timer interrupt");
+  }
   if (quiet_armed && current == expected_current && in_w(MSIP) == 0) {
     quiet_armed = FALSE;
     quiet_dispatches = dispatches;
@@ -311,6 +358,14 @@ void __wrap_tkmc_timer_handler(void) {
     fail("child ran before ISR return");
   }
   observed = TRUE;
+}
+
+static void ret_int_hlng_handler(UINT intno) {
+  (void)intno;
+  out_b(UART_IER, 0);
+  capture();
+  tk_ret_int();
+  fail("tk_ret_int returned from high-level handler");
 }
 
 static void child(void *arg) {
@@ -405,8 +460,50 @@ void usermain(int argument) {
     putstring("NO CURRENT WAIT OK\n");
     test_exit(0);
   }
-  if (CONTEXT_TEST_MODE >= NO_CURRENT_EXT) {
+  if (CONTEXT_TEST_MODE == NO_CURRENT_EXT ||
+      CONTEXT_TEST_MODE == NO_CURRENT_EXD) {
     fail("prelaunch termination skipped");
+  }
+  if (CONTEXT_TEST_MODE == RET_TASK || CONTEXT_TEST_MODE == RET_TASK_DI) {
+    if (CONTEXT_TEST_MODE == RET_TASK_DI) {
+      UINT ignored;
+      DI(ignored);
+    }
+    capture();
+    tk_ret_int();
+    fail("tk_ret_int returned from task context");
+  }
+#if CONTEXT_TEST_MODE == RET_ASM_TASK_DI_MODE
+  {
+    static _Alignas(16) UW stack[128];
+    ID id = tk_cre_tsk(&(T_CTSK){.tskatr = TA_ASM | TA_USERBUF,
+                                 .task = (FP)asm_task_di_ret_entry,
+                                 .itskpri = 2,
+                                 .stksz = sizeof(stack),
+                                 .bufptr = stack});
+    if (id <= 0 || tk_sta_tsk(id, 0) != E_OK) {
+      fail("could not start DI ASM task");
+    }
+    (void)tk_slp_tsk(TMO_FEVR);
+    fail("DI ASM task return did not stop");
+  }
+#endif
+  if (CONTEXT_TEST_MODE == RET_HLNG) {
+    const T_DINT dint = {.intatr = TA_HLNG, .inthdr = ret_int_hlng_handler};
+    if (tk_def_int(UART_IRQ, &dint) != E_OK) {
+      fail("could not define UART context handler");
+    }
+    EnableInt(UART_IRQ, 7);
+    out_b(UART_IER, IER_THRE);
+    UW start = test_mtime();
+    while ((UW)(test_mtime() - start) < 2000 * TEST_MTIME_PER_MS) {
+    }
+    fail("UART context handler did not run");
+  }
+  if (CONTEXT_TEST_MODE == RET_SOFTWARE) {
+    capture();
+    dispatch();
+    fail("software interrupt did not run");
   }
   if (CONTEXT_TEST_MODE == DI_EXT || CONTEXT_TEST_MODE == DI_EXD) {
     UINT ignored;
