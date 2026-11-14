@@ -30,9 +30,16 @@ The profile advertises these implemented forms. The
 [assembly entry guide](assembly-entry.md) gives the entry state, register and
 CSR responsibilities, termination rules and nesting limits.
 
-The `ClearInt`, `EndOfInt` and `CheckInt` profile difference remains tracked in
-the [current review](spec-conformance-review.md). The assembly exits use the
-port's PLIC completion protocol.
+At the time of this 2026-11-14 validation, `ClearInt`, `EndOfInt` and `CheckInt`
+were still unavailable under the interrupt-controller profile. The assembly
+exits use the port's PLIC completion protocol.
+
+## CheckInt pending query
+
+On 2026-11-15 the public API added `CheckInt(UINT)` as a non-destructive
+snapshot of the PLIC pending bit. It is available with enabled or disabled
+sources and does not change interrupt state. `ClearInt` and `EndOfInt` remain
+unavailable; see the [current review](spec-conformance-review.md).
 
 ## Fixed differences
 
@@ -264,8 +271,8 @@ review reported the problem again.
 Since 2026-11-10, `TK_SUPPORT_INTCTRL` and `TK_HAS_ENAINTLEVEL` are true. They
 match the exported `EnableInt(intno, level)`, whose level is the PLIC priority
 (1 to 7, see [interrupts](interrupts.md)), and `DisableInt(intno)`. The snippet
-above now compiles and takes the two-argument branch. The fix is partial:
-`ClearInt`, `EndOfInt` and `CheckInt` are still missing, an
+above now compiles and takes the two-argument branch. At that point,
+`ClearInt`, `EndOfInt` and `CheckInt` were still missing, an
 [open difference](spec-conformance-review.md#tk_support_intctrl-also-covers-calls-the-kernel-does-not-provide)
 in the review.
 

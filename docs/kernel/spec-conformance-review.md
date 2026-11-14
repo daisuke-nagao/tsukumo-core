@@ -1,6 +1,6 @@
 # Specification conformance review of the implemented API
 
-This review compares the 37 APIs that tsukumo-core implements with the
+This review compares the 38 APIs that tsukumo-core implements with the
 official Japanese
 [μT-Kernel 3.0 specification Ver.3.00.01](https://tron-forum.github.io/mtk3_spec_jp/index.html).
 Read it to learn what the kernel conforms to today, where it still differs,
@@ -15,7 +15,7 @@ The review covers this configuration:
 
 - RV32 `rv32imac`/`ilp32` on a single hart (one RISC-V hardware thread).
 - The service profile in `include/sys/profile.h`.
-- The 37 entries checked in [API support status](API_Support_Status.md),
+- The 38 entries checked in [API support status](API_Support_Status.md),
   cross-checked against their public declarations and their definitions.
   Findings about the shared declarations and the service profile apply to all
   of them.
@@ -30,7 +30,8 @@ shares
 The initial review was made on 2026-11-08 (JST). Follow-ups on 2026-11-09
 covered `EI`, and follow-ups on 2026-11-10 covered task exit, wait release,
 the zero delay and the interrupt profile. Follow-ups on 2026-11-11 covered
-the common public declarations and the time representation. The findings rest
+the common public declarations and the time representation. A 2026-11-15
+follow-up covers `CheckInt`. The findings rest
 on source inspection, compile probes and target observations recorded here; the
 [evidence gaps](#evidence-gaps) list what still needs evidence.
 
@@ -52,18 +53,21 @@ difference, the kernel was fixed on that date, and the entry now passes. The
 
 ## Current state
 
-- All 37 implemented entries are Checked. Some also carry a Defined choice or
+- All 38 implemented entries are Checked. Some also carry a Defined choice or
   an Evidence gap.
 - Seven differences that the review found are corrected. `EI` did not restore a
   saved disabled state (fixed 2026-11-09). On 2026-11-10 the kernel was fixed
   so that an ended task can no longer resume its old run, an ISR can release
   the task it interrupted, `tk_dly_tsk(0)` no longer yields, and the interrupt
-  profile flags match `EnableInt` and `DisableInt`. On 2026-11-11 the generated
+  profile flags announce the implemented `EnableInt` and `DisableInt` forms.
+  On 2026-11-11 the generated
   public header gained `SYSTIM`, `LOCAL`, `EXPORT` and `IMPORT`, and the kernel
-  gained `tk_set_utc` and `tk_get_utc` with `TK_SUPPORT_UTC` true.
+  gained `tk_set_utc` and `tk_get_utc` with `TK_SUPPORT_UTC` true. On 2026-11-15
+  the kernel added `CheckInt` for PLIC pending snapshots; the profile gap for
+  `ClearInt` and `EndOfInt` remains open.
 - One difference remains open. It concerns the service profile and applies
   across the inventory: the
-  [missing `ClearInt`, `EndOfInt` and `CheckInt` calls](#tk_support_intctrl-also-covers-calls-the-kernel-does-not-provide).
+  [missing `ClearInt` and `EndOfInt` calls](#tk_support_intctrl-also-covers-calls-the-kernel-does-not-provide).
 - Assembly task and external-interrupt entries use the documented
   [RV32 assembly contract](assembly-entry.md). The remaining evidence gaps
   concern interrupt nesting beyond two levels with the interrupt-stack margin,
@@ -182,6 +186,7 @@ and the [I/O access chapter](https://tron-forum.github.io/mtk3_spec_jp/io_port_m
 | `tk_ret_int` | Checked / Defined choice | `kernel/intctl.c`, `kernel/asm/rv32/start.S`, `interrupt`. Matching ASM entry/depth/stack and disabled MIE required, fatal invalid context, exactly-once completion and outermost delayed dispatch. The [assembly contract](assembly-entry.md) also defines the direct-return alternative. |
 | `EnableInt` | Checked (Difference corrected 2026-11-10) / Defined choice | `kernel/intctl.c`, `test/host/test_intctl.c`, `interrupt`. Setting the priority, enabling the source, and delivery of an interrupt that was already pending. A consumer written to the service profile compiles and sets the level ([history](spec-conformance-history.md#the-interrupt-profile-flags-disagreed-with-the-exported-calls)). |
 | `DisableInt` | Checked / Defined choice | `kernel/intctl.c`, `test/host/test_intctl.c`, `interrupt`. Masking a source, a handler disabling its own source, and completion of the source. `TK_SUPPORT_INTCTRL` now announces it. |
+| `CheckInt` | Checked / Defined choice | `kernel/intctl.c`, `test/host/test_intctl.c`, `interrupt`. Pending snapshots with disabled sources, repeated reads, and a claim observed from C and assembly handlers. |
 | `DI` | Checked | `include/sys/interrupt.h`, `wait-context`, an RV32 probe. Saves and clears MIE in one instruction and assigns the caller's variable. |
 | `EI` | Checked (Difference corrected 2026-11-09) | `include/sys/interrupt.h`, `interrupt-state` (`test/suites/interrupt_state.c`), `test/host/test_interrupt_state.c`. Restores the saved MIE state whatever MIE is when `EI` runs ([history](spec-conformance-history.md#ei-did-not-restore-a-saved-disabled-state)). |
 | `isDI` | Checked | `include/sys/interrupt.h`, `wait-context`, an RV32 probe. Tests the MIE bit of the saved value. |
@@ -207,14 +212,13 @@ one, see [compile the consumer snippets](#compile-the-consumer-snippets).
 ### TK_SUPPORT_INTCTRL also covers calls the kernel does not provide
 
 The specification lists `ClearInt`, `EndOfInt` and `CheckInt` under
-`TK_SUPPORT_INTCTRL`, alongside
-`EnableInt` and `DisableInt`. The kernel provides `EnableInt` with a level and
-`DisableInt`, but does not declare the first three calls. A consumer that
-calls them because `TK_SUPPORT_INTCTRL` is true therefore fails to compile.
-They are listed as not implemented in [API support
-status](API_Support_Status.md), and [interrupts](interrupts.md) explains why a
-handler does not need `EndOfInt` here. Implementing them was outside the
-2026-11-10 correction of the profile flags
+`TK_SUPPORT_INTCTRL`, alongside `EnableInt` and `DisableInt`. The kernel now
+declares and implements `CheckInt` as a non-destructive PLIC pending-bit
+snapshot. `ClearInt` and `EndOfInt` remain unavailable, so the profile still
+advertises those two calls without definitions. [Interrupts](interrupts.md)
+explains the pending snapshot and why a handler does not need `EndOfInt` here.
+Implementing the remaining calls was outside the 2026-11-10 correction of the
+profile flags
 ([history](spec-conformance-history.md#the-interrupt-profile-flags-disagreed-with-the-exported-calls)).
 See the specification's
 [EnableInt and service-profile section](https://tron-forum.github.io/mtk3_spec_jp/interrupt_management_functions_sm.html).

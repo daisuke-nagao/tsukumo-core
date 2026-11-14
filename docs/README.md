@@ -42,5 +42,6 @@ the results and the limits.
 | [Mailbox interrupt-disabled time](developer/notes/mailbox-di-budget.md) | How long does a mailbox send into a long queue keep interrupts disabled, and for how many messages does the budget hold? |
 | [Optimization and LTO validation](developer/notes/optimization-lto-validation.md) | Do the memory copy routines and mailbox links stay correct at every optimization level, with and without link-time optimization? |
 | [Semaphore order checks](developer/notes/semaphore-order-mutation.md) | Which wrong versions of the semaphore request-order rule do the tests catch? |
+| [Interrupt pending checks](developer/notes/checkint-validation.md) | How are non-destructive pending queries and their fault detection verified? |
 | [Assembly entry checks](developer/notes/assembly-entry-validation.md) | Which entry, return, completion and dispatch faults do the RV32 assembly tests detect? |
 | [Wake-up context checks](developer/notes/wakeup-context-mutation.md) | Which faults in the `tk_wup_tsk` context check do the tests detect? |

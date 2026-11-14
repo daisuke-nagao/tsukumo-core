@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add `CheckInt` to query a PLIC source's pending bit without claiming it
+  (see [interrupt behavior](docs/kernel/interrupts.md))
+
 - Support RV32 `TA_ASM` task and PLIC external-interrupt entries, including
   `tk_ret_int` and an inline direct-return macro
   (see [assembly entry conventions](docs/kernel/assembly-entry.md))

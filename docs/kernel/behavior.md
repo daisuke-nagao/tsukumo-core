@@ -147,10 +147,10 @@ This list is verified for a single-level handler only. Calls from a nested
 handler (one that interrupted another handler) need separate validation.
 
 [interrupts.md](interrupts.md) has the full table of calls and the
-specification references. It also covers how to define a handler with
-`tk_def_int`, `EnableInt` and `DisableInt` for the PLIC (the external interrupt
-controller), the interrupt stack that handlers run on, how much a task stack
-needs for a trap, and the rules for nested interrupts.
+specification references. It also covers PLIC handler registration with
+`tk_def_int`, source control with `EnableInt` and `DisableInt`, pending queries
+with `CheckInt`, the interrupt stack, task-stack space for traps and the rules
+for nested interrupts.
 
 ## System time (UTC)
 

@@ -28,6 +28,10 @@ _Static_assert(_Generic(&tk_get_utc, ER (*)(SYSTIM *): 1, default: 0),
                "tk_get_utc() must take a mutable SYSTIM pointer");
 _Static_assert(_Generic(&tk_ret_int, void (*)(void): 1, default: 0),
                "tk_ret_int must be a public nonreturning void API");
+_Static_assert(_Generic(&CheckInt, BOOL (*)(UINT): 1, default: 0),
+               "CheckInt must return BOOL and take a UINT");
+_Static_assert(TK_SUPPORT_INTCTRL == TRUE,
+               "the interrupt controller profile must remain enabled");
 #else
 #include <tk/typedef.h>
 #endif

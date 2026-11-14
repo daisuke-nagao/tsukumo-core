@@ -46,6 +46,7 @@ extern void test_asm_prepare_without_a_claim_is_a_no_op(void);
 extern void test_nested_asm_contexts_restore_each_claim_and_threshold(void);
 extern void test_a_source_beyond_the_table_is_switched_off_and_completed(void);
 extern void test_the_first_and_the_last_interrupt_number_have_a_handler(void);
+extern void test_check_int_reads_one_pending_word_without_claiming(void);
 extern void test_enabling_and_disabling_a_source_keeps_the_others(void);
 extern void
 test_a_driver_written_to_the_profile_enables_a_source_at_its_level(void);
@@ -381,6 +382,7 @@ int main(void) {
   RUN_TEST(test_nested_asm_contexts_restore_each_claim_and_threshold);
   RUN_TEST(test_a_source_beyond_the_table_is_switched_off_and_completed);
   RUN_TEST(test_the_first_and_the_last_interrupt_number_have_a_handler);
+  RUN_TEST(test_check_int_reads_one_pending_word_without_claiming);
   RUN_TEST(test_enabling_and_disabling_a_source_keeps_the_others);
   RUN_TEST(test_a_driver_written_to_the_profile_enables_a_source_at_its_level);
   RUN_TEST(test_a_bad_number_or_level_touches_no_register);

@@ -140,8 +140,10 @@ static BOOL source_is_pending(UINT src) {
 
 static volatile UINT s_hits;
 static volatile UINT s_last_intno;
+static volatile BOOL s_handler_pending;
 
 static void uart_handler(UINT intno) {
+  s_handler_pending = CheckInt(intno);
   out_b(UART_IER, 0);
   s_last_intno = intno;
   s_hits += 1;
@@ -150,6 +152,7 @@ static void uart_handler(UINT intno) {
 static volatile UINT s_second_hits;
 
 static void second_handler(UINT intno) {
+  s_handler_pending = CheckInt(intno);
   out_b(UART_IER, 0);
   s_last_intno = intno;
   s_second_hits += 1;
@@ -191,6 +194,7 @@ static const T_DINT s_second_dint = {.intatr = TA_HLNG,
 
 static void handler_runs_with_its_interrupt_number(void) {
   reset_counters();
+  s_handler_pending = TRUE;
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &s_uart_dint));
   EnableInt(UART_IRQ, PLIC_PRIORITIES);
   UW priority = in_w(PLIC_PRIORITY_REG(UART_IRQ));
@@ -206,6 +210,46 @@ static void handler_runs_with_its_interrupt_number(void) {
   TEST_ASSERT_TRUE_MESSAGE(fired_again, "the interrupt was not completed");
   TEST_ASSERT_EQUAL_UINT(2, s_hits);
   TEST_ASSERT_EQUAL_UINT(UART_IRQ, s_last_intno);
+  TEST_ASSERT_FALSE_MESSAGE(s_handler_pending,
+                            "a claimed source was still pending");
+}
+
+static void
+check_int_observes_disabled_pending_source_without_consuming_it(void) {
+  reset_counters();
+  s_handler_pending = TRUE;
+  DisableInt(UART_IRQ);
+  ER defined = tk_def_int(UART_IRQ, &s_uart_dint);
+  out_b(UART_IER, IER_THRE);
+  BOOL raised = WAIT_UNTIL(source_is_pending(UART_IRQ));
+  BOOL pending = CheckInt(UART_IRQ);
+  BOOL pending_again = CheckInt(UART_IRQ);
+  UW mstatus_before;
+  __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus_before));
+  __asm__ volatile("csrc mstatus, %0" : : "r"(MSTATUS_MIE_BIT) : "memory");
+  BOOL pending_with_mie_off = CheckInt(UART_IRQ);
+  EnableInt(UART_IRQ, 1);
+  BOOL enabled_pending_with_mie_off = CheckInt(UART_IRQ);
+  UW mstatus_after_check;
+  __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus_after_check));
+  __asm__ volatile("csrs mstatus, %0" : : "r"(MSTATUS_MIE_BIT) : "memory");
+  BOOL fired = WAIT_UNTIL(s_hits == 1);
+  if ((mstatus_before & MSTATUS_MIE_BIT) == 0) {
+    __asm__ volatile("csrc mstatus, %0" : : "r"(MSTATUS_MIE_BIT) : "memory");
+  }
+  clean_up();
+
+  TEST_ASSERT_EQUAL(E_OK, defined);
+  TEST_ASSERT_TRUE_MESSAGE(raised, "the disabled UART never became pending");
+  TEST_ASSERT_TRUE(pending);
+  TEST_ASSERT_TRUE(pending_again);
+  TEST_ASSERT_TRUE(pending_with_mie_off);
+  TEST_ASSERT_TRUE(enabled_pending_with_mie_off);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after_check & MSTATUS_MIE_BIT);
+  TEST_ASSERT_TRUE_MESSAGE(fired, "the enabled pending source was not served");
+  TEST_ASSERT_EQUAL_UINT(1, s_hits);
+  TEST_ASSERT_FALSE_MESSAGE(s_handler_pending,
+                            "a claimed source was still pending");
 }
 
 // What the handler found when it ran, and what the child saw when it woke.
@@ -1375,6 +1419,7 @@ volatile UW asm_irq_seen_mstatus;
 volatile UW asm_irq_seen_mie;
 volatile UW asm_irq_seen_s0;
 volatile UW asm_irq_seen_s2;
+volatile UW asm_irq_seen_pending;
 static volatile UINT s_asm_irq_hits;
 static volatile ER s_asm_irq_sig_er;
 static volatile ER s_asm_irq_child_er;
@@ -1398,6 +1443,7 @@ void asm_irq_callback(UINT intno, void *frame) {
   }
 
   out_b(UART_IER, 0);
+  asm_irq_seen_pending = CheckInt(intno);
   const UW *saved_frame = frame;
   asm_irq_seen_s0 = saved_frame[4];
   asm_irq_seen_s2 = saved_frame[14];
@@ -1462,6 +1508,7 @@ static void run_asm_irq_exit(BOOL direct) {
   asm_irq_seen_mie = 0;
   asm_irq_seen_s0 = 0;
   asm_irq_seen_s2 = 0;
+  asm_irq_seen_pending = 1;
   s_sem = tk_cre_sem(
       &(T_CSEM){.exinf = 0, .sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
   TEST_ASSERT_GREATER_THAN(E_OK, s_sem);
@@ -1507,6 +1554,7 @@ static void run_asm_irq_exit(BOOL direct) {
   TEST_ASSERT_EQUAL_UINT_MESSAGE(
       0, changed_again, "the second interrupted task's registers changed");
   TEST_ASSERT_EQUAL_UINT(UART_IRQ, asm_irq_seen_intno);
+  TEST_ASSERT_EQUAL_UINT(0, asm_irq_seen_pending);
   TEST_ASSERT_NOT_EQUAL(0, asm_irq_seen_frame);
   TEST_ASSERT_EQUAL_HEX32(0, asm_irq_seen_frame % 16);
   TEST_ASSERT_EQUAL_HEX32(0, asm_irq_seen_sp % 16);
@@ -1774,6 +1822,8 @@ static const test_case_t s_cases[] = {
      handler_runs_as_an_isr_and_its_wakeup_switches_at_the_trap_exit},
     {"a_disabled_source_waits_until_it_is_enabled",
      a_disabled_source_waits_until_it_is_enabled},
+    {"check_int_observes_disabled_pending_source_without_consuming_it",
+     check_int_observes_disabled_pending_source_without_consuming_it},
     {"a_new_definition_replaces_the_old_one",
      a_new_definition_replaces_the_old_one},
     {"without_a_handler_the_source_is_switched_off_and_served_once_defined",
