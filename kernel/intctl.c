@@ -15,6 +15,8 @@
   (PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET + 4 * (src))
 #define PLIC_ENABLE(src)                                                       \
   (PLIC_BASE_ADDRESS + PLIC_ENABLE_OFFSET + 4 * ((src) / 32))
+#define PLIC_PENDING(src)                                                      \
+  (PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET + 4 * ((src) / 32))
 #define PLIC_THRESHOLD (PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET)
 #define PLIC_CLAIM (PLIC_BASE_ADDRESS + PLIC_CLAIM_OFFSET)
 
@@ -215,6 +217,11 @@ void DisableInt(UINT intno) {
   DI(intsts);
   set_enabled(intno, FALSE);
   EI(intsts);
+}
+
+BOOL CheckInt(UINT intno) {
+  return is_intno(intno) &&
+         (in_w(PLIC_PENDING(intno)) & (1u << (intno % 32))) != 0;
 }
 
 // The system's default handler, for a source with no handler: it is switched

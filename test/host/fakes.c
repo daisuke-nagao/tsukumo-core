@@ -55,6 +55,8 @@ enum {
       4 * (PLIC_SOURCE_COUNT - 1),
   PLIC_ENABLE_FIRST = PLIC_BASE_ADDRESS + PLIC_ENABLE_OFFSET,
   PLIC_ENABLE_LAST = PLIC_ENABLE_FIRST + 4 * ((PLIC_SOURCE_COUNT - 1) / 32),
+  PLIC_PENDING_FIRST = PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET,
+  PLIC_PENDING_LAST = PLIC_PENDING_FIRST + 4 * ((PLIC_SOURCE_COUNT - 1) / 32),
   PLIC_THRESHOLD = PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET,
   PLIC_CLAIM = PLIC_BASE_ADDRESS + PLIC_CLAIM_OFFSET,
 };
@@ -141,6 +143,13 @@ UD host_in(INT port, UINT width) {
     }
     if (port >= PLIC_ENABLE_FIRST && port <= PLIC_ENABLE_LAST) {
       value = s_plic_enable[(port - PLIC_ENABLE_FIRST) / 4];
+      break;
+    }
+    if (port >= PLIC_PENDING_FIRST && port <= PLIC_PENDING_LAST) {
+      value = s_plic_claim != 0 &&
+                      PLIC_PENDING_FIRST + 4 * (s_plic_claim / 32) == port
+                  ? 1u << (s_plic_claim % 32)
+                  : 0;
       break;
     }
     TEST_FAIL_MESSAGE("the kernel read from an address the fake machine does "

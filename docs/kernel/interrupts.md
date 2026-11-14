@@ -24,8 +24,8 @@ The specification cited here is the official Japanese
   and nothing detects an overflow.
 - If the handler turns interrupts on, it must turn them off again before it
   returns.
-- `ClearInt()`, `EndOfInt()`, `CheckInt()` and `SetIntMode()` are not
-  provided.
+- `CheckInt()` reports a source's PLIC pending bit without claiming it.
+- `ClearInt()`, `EndOfInt()` and `SetIntMode()` are not provided.
 
 ## Disabling and restoring interrupts with DI and EI
 
@@ -133,6 +133,7 @@ does not exist.
 | `tk_def_int(intno, pk_dint)` | Defines the handler of `intno`, replacing an earlier one. `pk_dint == NULL` cancels the definition. |
 | `EnableInt(intno, level)` | Sets the PLIC priority of the source to `level` (1 to 7) and enables it. |
 | `DisableInt(intno)` | Disables the source. |
+| `CheckInt(intno)` | Returns whether the source's PLIC pending bit is set at the time of one pending-register read. |
 
 `TA_HLNG` selects a C function `void inthdr(UINT intno)`. `TA_ASM` selects
 an assembly entry with the [RV32 assembly contract](assembly-entry.md).
@@ -149,6 +150,14 @@ an assembly entry with the [RV32 assembly contract](assembly-entry.md).
 `EnableInt` and `DisableInt` have no error return, and the specification does
 not define a bad argument. In this kernel a bad `intno`, or a `level` outside
 1 to 7, changes nothing.
+
+`CheckInt` returns `FALSE` without reading a register for `intno == 0` or
+`intno >= CFN_MAX_INTNO`. For a valid source it reads its PLIC pending word
+once. The result is a snapshot of that bit: source enable, priority, threshold
+and handler registration do not affect it. A claimed source normally has its
+pending bit cleared, so `CheckInt` can return `FALSE` while its handler is
+running. The call does not claim or complete the source and does not change
+interrupt state.
 
 ### How the kernel runs a handler
 
@@ -295,14 +304,19 @@ priorities.
 
 ## Interrupt calls that are not provided
 
-The kernel does not provide `ClearInt`, `EndOfInt`, `CheckInt` or
-`SetIntMode`. In `include/sys/profile.h`, `TK_SUPPORT_INTCTRL` and
+The kernel provides `EnableInt`, `DisableInt` and `CheckInt`, but does not
+provide `ClearInt`, `EndOfInt` or `SetIntMode`. In `include/sys/profile.h`,
+`TK_SUPPORT_INTCTRL` and
 `TK_HAS_ENAINTLEVEL` are true for `EnableInt` with a level and for
-`DisableInt`. `TK_SUPPORT_INTCTRL` also covers `ClearInt`, `EndOfInt` and
-`CheckInt`, which are missing; the
-[specification review](spec-conformance-review.md) records this difference.
+`DisableInt`. `TK_SUPPORT_INTCTRL` also covers `ClearInt` and `EndOfInt`, which
+are missing; the [specification review](spec-conformance-review.md) records
+this difference.
 
 ## How the interrupt behavior is tested
+
+The [CheckInt validation record](../developer/notes/checkint-validation.md)
+records its host and real-ISR checks, public consumer linkage and fault
+experiments.
 
 Two kinds of test cover this document. QEMU suites run on the emulated RV32
 machine (see [run_qemu.md](../developer/notes/run_qemu.md)). PC unit tests

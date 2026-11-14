@@ -89,6 +89,145 @@ void test_the_first_and_the_last_interrupt_number_have_a_handler(void) {
   }
 }
 
+void test_check_int_reads_one_pending_word_without_claiming(void) {
+  enum { NO_CURRENT, TASK_CONTEXT, ISR_CONTEXT, CONTEXTS, MIE_STATES = 2 };
+  enum { MATRIX_SIZE = CONTEXTS * MIE_STATES };
+  BOOL results[MATRIX_SIZE], mie_preserved[MATRIX_SIZE];
+  UINT depths[MATRIX_SIZE], access_counts[MATRIX_SIZE];
+  host_access_t accesses[MATRIX_SIZE] = {0};
+  BOOL invalid_results[4];
+  UINT invalid_access_count;
+  BOOL enabled_pending;
+  BOOL enabled_source;
+  UINT enabled_access_count;
+  host_access_t enabled_access = {0};
+  const INT pending_port =
+      PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET + 4 * (31 / 32);
+  ID task = host_make_task(1);
+  if (task <= 0) {
+    host_reset();
+    TEST_ASSERT_GREATER_THAN(0, task);
+    return;
+  }
+
+  host_plic_set_enabled(31, FALSE);
+  host_plic_set_priority(31, 0);
+  host_plic_set_threshold(7);
+  host_plic_raise(1);
+  host_log_count = 0;
+  invalid_results[0] = CheckInt(0);
+  invalid_results[1] = CheckInt(CFN_MAX_INTNO);
+  invalid_results[2] = CheckInt(33);
+  invalid_results[3] = CheckInt(0xffffffffu);
+  invalid_access_count = host_log_count;
+
+  // Source 1 is the first valid number and can be pending without source 31.
+  host_log_count = 0;
+  BOOL first_pending = CheckInt(1);
+  UINT first_access_count = host_log_count;
+  host_access_t first_access =
+      host_log_count != 0 ? host_log[0] : (host_access_t){0};
+  host_log_count = 0;
+  BOOL other_source_pending = CheckInt(31);
+  UINT other_access_count = host_log_count;
+  host_access_t other_access =
+      host_log_count != 0 ? host_log[0] : (host_access_t){0};
+
+  host_plic_raise(31);
+  for (UINT context = 0; context < CONTEXTS; ++context) {
+    for (UINT mie = 0; mie < MIE_STATES; ++mie) {
+      UINT index = context * MIE_STATES + mie;
+      if (context == NO_CURRENT) {
+        current = next = NULL;
+      } else {
+        host_set_current(task);
+      }
+      tkmc_isr_depth = context == ISR_CONTEXT ? 1 : 0;
+      if (mie != 0) {
+        EI(0);
+      } else {
+        UINT intsts;
+        DI(intsts);
+        (void)intsts;
+      }
+
+      host_snapshot_t before;
+      host_take_snapshot(&before);
+      host_log_count = 0;
+      results[index] = CheckInt(31);
+      access_counts[index] = host_log_count;
+      if (host_log_count != 0) {
+        accesses[index] = host_log[0];
+      }
+      mie_preserved[index] = host_interrupts_enabled() == (mie != 0);
+      depths[index] = tkmc_isr_depth;
+      // Restore the fixture before any assertion can abort this test.
+      tkmc_isr_depth = 0;
+      EI(0);
+      host_assert_unchanged(&before, "CheckInt changed kernel state");
+    }
+  }
+
+  current = next = NULL;
+  host_plic_set_enabled(31, TRUE);
+  host_plic_set_priority(31, 1);
+  enabled_source = host_plic_is_enabled(31);
+  host_log_count = 0;
+  enabled_pending = CheckInt(31);
+  enabled_access_count = host_log_count;
+  if (host_log_count != 0) {
+    enabled_access = host_log[0];
+  }
+  UINT threshold = host_plic_threshold();
+  UINT claim_writes = host_write_count(host_plic_claim_port());
+  host_reset();
+
+  TEST_ASSERT_EQUAL_UINT(1, task);
+  TEST_ASSERT_EQUAL_UINT(0, invalid_access_count);
+  for (UINT i = 0; i < 4; ++i) {
+    TEST_ASSERT_FALSE(invalid_results[i]);
+  }
+  TEST_ASSERT_TRUE(first_pending);
+  TEST_ASSERT_EQUAL_UINT(1, first_access_count);
+  TEST_ASSERT_EQUAL_UINT(4, first_access.width);
+  TEST_ASSERT_EQUAL_UINT(PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET,
+                         first_access.port);
+  TEST_ASSERT_FALSE(first_access.is_write);
+  TEST_ASSERT_FALSE(other_source_pending);
+  TEST_ASSERT_EQUAL_UINT(1, other_access_count);
+  TEST_ASSERT_EQUAL_UINT(pending_port, other_access.port);
+  TEST_ASSERT_EQUAL_UINT(4, other_access.width);
+  TEST_ASSERT_FALSE(other_access.is_write);
+  for (UINT i = 0; i < MATRIX_SIZE; ++i) {
+    TEST_ASSERT_TRUE(results[i]);
+    TEST_ASSERT_TRUE(mie_preserved[i]);
+    TEST_ASSERT_EQUAL_UINT(i / MIE_STATES == ISR_CONTEXT ? 1 : 0, depths[i]);
+    TEST_ASSERT_EQUAL_UINT(1, access_counts[i]);
+    TEST_ASSERT_EQUAL_UINT(pending_port, accesses[i].port);
+    TEST_ASSERT_EQUAL_UINT(4, accesses[i].width);
+    TEST_ASSERT_FALSE(accesses[i].is_write);
+  }
+  TEST_ASSERT_TRUE(enabled_pending);
+  TEST_ASSERT_TRUE(enabled_source);
+  TEST_ASSERT_EQUAL_UINT(1, enabled_access_count);
+  TEST_ASSERT_EQUAL_UINT(pending_port, enabled_access.port);
+  TEST_ASSERT_EQUAL_UINT(4, enabled_access.width);
+  TEST_ASSERT_FALSE(enabled_access.is_write);
+  TEST_ASSERT_EQUAL_UINT(7, threshold);
+  TEST_ASSERT_EQUAL_UINT(0, claim_writes);
+
+  // Repeated pending reads leave the notification for the later claim.
+  host_plic_raise(31);
+  TEST_ASSERT_TRUE(CheckInt(31));
+  TEST_ASSERT_TRUE(CheckInt(31));
+  s_calls = 0;
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(31, &s_recording));
+  host_plic_set_enabled(31, TRUE);
+  tkmc_external_interrupt();
+  TEST_ASSERT_EQUAL_UINT(1, s_calls);
+  TEST_ASSERT_FALSE(CheckInt(31));
+}
+
 // The enable bits of 32 sources share a word: switching one on or off keeps the
 // others, in its own word and in the next.
 void test_enabling_and_disabling_a_source_keeps_the_others(void) {
