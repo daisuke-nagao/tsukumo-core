@@ -38,8 +38,22 @@ exits use the port's PLIC completion protocol.
 
 On 2026-11-15 the public API added `CheckInt(UINT)` as a non-destructive
 snapshot of the PLIC pending bit. It is available with enabled or disabled
-sources and does not change interrupt state. `ClearInt` and `EndOfInt` remain
-unavailable; see the [current review](spec-conformance-review.md).
+sources and does not change interrupt state. At that stage, `ClearInt` and
+`EndOfInt` were still unavailable.
+
+## Explicit interrupt completion
+
+The 2026-11-15 `EndOfInt(UINT)` addition completes the newest matching active
+claim and records its state until the normal C or ASM exit removes the
+context. Explicit completion and automatic exits share the per-claim state,
+including when a nested handler completes an enclosing claim. Repeated calls
+stop at the same completed record. The 32-byte RV32 context layout is retained.
+The [interrupt guide](interrupts.md#explicit-completion) describes the contract.
+The [validation record](../developer/notes/interrupt-completion-validation.md)
+records 174 host cases, all 106 CTests in each of six cross presets, 41 traced
+interrupt cases and four isolated faults with restoration checks.
+The [current review](spec-conformance-review.md) tracks the remaining
+`ClearInt` availability gap.
 
 ## Fixed differences
 

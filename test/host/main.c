@@ -61,6 +61,15 @@ extern void test_a_source_without_a_handler_does_not_raise_the_threshold(void);
 extern void test_enable_int_keeps_the_threshold_it_finds(void);
 extern void test_a_source_a_handler_switched_off_is_still_completed(void);
 extern void test_the_default_handler_completes_before_it_switches_off(void);
+extern void test_end_of_int_completes_once_before_a_handler_exits(void);
+extern void
+test_end_of_int_can_complete_an_outer_nested_claim_without_popping(void);
+extern void
+test_end_of_int_preserves_enabled_mie_and_current_independence(void);
+extern void
+test_end_of_int_invalid_inactive_and_unmatched_calls_do_no_mmio(void);
+extern void test_end_of_int_stops_at_a_completed_newest_matching_record(void);
+extern void test_prepare_clears_stale_completion_from_a_reused_record(void);
 extern void
 test_the_interrupt_calls_leave_interrupts_off_when_they_found_them_off(void);
 extern void
@@ -396,6 +405,12 @@ int main(void) {
   RUN_TEST(test_enable_int_keeps_the_threshold_it_finds);
   RUN_TEST(test_a_source_a_handler_switched_off_is_still_completed);
   RUN_TEST(test_the_default_handler_completes_before_it_switches_off);
+  RUN_TEST(test_end_of_int_completes_once_before_a_handler_exits);
+  RUN_TEST(test_end_of_int_can_complete_an_outer_nested_claim_without_popping);
+  RUN_TEST(test_end_of_int_preserves_enabled_mie_and_current_independence);
+  RUN_TEST(test_end_of_int_invalid_inactive_and_unmatched_calls_do_no_mmio);
+  RUN_TEST(test_end_of_int_stops_at_a_completed_newest_matching_record);
+  RUN_TEST(test_prepare_clears_stale_completion_from_a_reused_record);
   RUN_TEST(
       test_the_interrupt_calls_leave_interrupts_off_when_they_found_them_off);
   RUN_TEST(test_ei_restores_the_state_di_saved_whatever_the_state_before_it);

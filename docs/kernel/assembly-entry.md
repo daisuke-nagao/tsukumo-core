@@ -67,8 +67,10 @@ nesting. The timer and software trap paths rely on that exclusion when using
 the shared interrupt stack.
 
 Silence the device before exiting. Use `EnableInt` and `DisableInt` for source
-control. Leave PLIC threshold, claim/completion, context-chain and ISR-depth
-bookkeeping to the exit paths. A normal `ret` from an interrupt handler stops
+control. `EndOfInt(intno)` issues an optional explicit EOI through the C ABI.
+It returns to the handler with the caller's interrupt state and context intact.
+The exit paths coordinate that completion and own the PLIC threshold, context
+chain and ISR depth. A normal `ret` from an interrupt handler stops
 the kernel through the fatal-context path.
 
 ### Saved frame
@@ -91,8 +93,8 @@ frame address plus 128 bytes.
 ### Returning with delayed dispatch
 
 After restoring entry `sp` and disabling MIE, use `tail tk_ret_int`.
-`tk_ret_int` completes the current source, pops its context and restores the
-interrupted frame. At the outermost exit it services a pending dispatch
+`tk_ret_int` completes the current source when needed, pops its context and
+restores the interrupted frame. At the outermost exit it services a pending dispatch
 request before restoring the selected task. Nested exits resume the enclosing
 handler and defer dispatch to the outermost exit.
 
@@ -106,14 +108,19 @@ stop with interrupts disabled. It never returns to its caller.
 Include `<tk/asm/rv32/interrupt.h>` in a preprocessed `.S` file. After restoring
 entry `sp` and disabling MIE, expand `TKMC_RET_INT_ASM`. On a valid entry the
 macro performs the return inline, without a C exit call or a scheduler call.
-It restores the PLIC threshold, completes the source once, preserves a source
-disabled by the handler, pops the context, restores the saved registers and
+It restores the PLIC threshold, completes the source if EOI is still needed,
+preserves a source disabled by the handler, pops the context, restores the saved registers and
 outer interrupt masks, and executes `mret`. Invalid use takes the fatal-context
 path.
 
 A pending software-dispatch request remains pending. The CPU can take that
 software interrupt immediately after `mret`, before the interrupted task
 executes another instruction. Dispatch then occurs in the software trap.
+
+Both exits read the per-record completion flag, so `EndOfInt` followed by
+either exit issues one EOI per claim. The 32-byte context layout is retained.
+Call `EndOfInt` through the ordinary C ABI from an aligned call frame, then
+restore entry `sp` before the interrupt exit.
 
 Both exits restore machine privilege before `mret`. The public macro and
 kernel context layout are checked together by target-side static assertions.

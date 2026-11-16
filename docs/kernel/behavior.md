@@ -149,8 +149,8 @@ handler (one that interrupted another handler) need separate validation.
 [interrupts.md](interrupts.md) has the full table of calls and the
 specification references. It also covers PLIC handler registration with
 `tk_def_int`, source control with `EnableInt` and `DisableInt`, pending queries
-with `CheckInt`, the interrupt stack, task-stack space for traps and the rules
-for nested interrupts.
+with `CheckInt`, explicit completion with `EndOfInt`, the interrupt stack,
+task-stack space for traps and the rules for nested interrupts.
 
 ## System time (UTC)
 

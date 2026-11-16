@@ -563,3 +563,262 @@ void test_enable_int_keeps_the_threshold_it_finds(void) {
   EnableInt(QUIET_SOURCE, 2);
   TEST_ASSERT_EQUAL_UINT(3, host_plic_threshold());
 }
+
+void test_end_of_int_completes_once_before_a_handler_exits(void) {
+  _Alignas(16) UW frame[32] = {0};
+  tkmc_interrupt_context context;
+  UINT saved;
+  const T_DINT assembler = {.intatr = TA_ASM, .inthdr = (FP)counting_handler};
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(SOME_SOURCE, &assembler));
+  EnableInt(SOME_SOURCE, 3);
+  host_plic_set_threshold(2);
+  host_plic_raise(SOME_SOURCE);
+  DI(saved);
+  tkmc_isr_depth = 1;
+  tkmc_prepare_external_interrupt(&context, frame);
+  host_plic_set_enabled(SOME_SOURCE, FALSE);
+  host_plic_raise(INNER_SOURCE);
+  host_log_count = 0;
+
+  EndOfInt(SOME_SOURCE);
+  UINT immediate_writes = host_write_count(host_plic_claim_port());
+  UINT immediate_last = (UINT)host_last_write(host_plic_claim_port());
+  UINT claim_reads = 0;
+  for (UINT i = 0; i < host_log_count; ++i) {
+    claim_reads += host_log[i].port == (INT)host_plic_claim_port() &&
+                   !host_log[i].is_write;
+  }
+  BOOL disabled_restored = !host_plic_is_enabled(SOME_SOURCE);
+  BOOL other_pending = CheckInt(INNER_SOURCE);
+  EndOfInt(SOME_SOURCE);
+  UINT duplicate_writes = host_write_count(host_plic_claim_port());
+  BOOL mie_restored = !host_interrupts_enabled();
+  tkmc_finish_external_interrupt(&context);
+  UINT total_writes = host_write_count(host_plic_claim_port());
+  tkmc_isr_depth = 0;
+  EI(saved);
+
+  TEST_ASSERT_EQUAL_UINT(1, immediate_writes);
+  TEST_ASSERT_EQUAL_UINT(SOME_SOURCE, immediate_last);
+  TEST_ASSERT_EQUAL_UINT(0, claim_reads);
+  TEST_ASSERT_TRUE(disabled_restored);
+  TEST_ASSERT_TRUE(other_pending);
+  TEST_ASSERT_EQUAL_UINT(1, duplicate_writes);
+  TEST_ASSERT_EQUAL_UINT(1, total_writes);
+  TEST_ASSERT_TRUE(mie_restored);
+  TEST_ASSERT_EQUAL_UINT(0, host_plic_ignored_completions());
+  TEST_ASSERT_EQUAL_UINT(2, host_plic_threshold());
+  TEST_ASSERT_EQUAL_UINT(TKMC_INTERRUPT_KIND_ASM | TKMC_INTERRUPT_COMPLETED,
+                         context.kind);
+  TEST_ASSERT_TRUE(host_interrupts_enabled());
+}
+
+void test_end_of_int_can_complete_an_outer_nested_claim_without_popping(void) {
+  _Alignas(16) UW outer_frame[32] = {0};
+  _Alignas(16) UW inner_frame[32] = {0};
+  tkmc_interrupt_context outer, inner;
+  UINT saved;
+  const T_DINT assembler = {.intatr = TA_ASM, .inthdr = (FP)counting_handler};
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(OUTER_SOURCE, &assembler));
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(INNER_SOURCE, &assembler));
+  EnableInt(OUTER_SOURCE, 2);
+  EnableInt(INNER_SOURCE, 5);
+  host_plic_set_threshold(1);
+  DI(saved);
+  tkmc_isr_depth = 1;
+  host_plic_raise(OUTER_SOURCE);
+  tkmc_prepare_external_interrupt(&outer, outer_frame);
+  tkmc_isr_depth = 2;
+  host_plic_raise(INNER_SOURCE);
+  tkmc_prepare_external_interrupt(&inner, inner_frame);
+  host_log_count = 0;
+
+  EndOfInt(OUTER_SOURCE);
+  UINT writes_before_exit = host_write_count(host_plic_claim_port());
+  BOOL outer_completed = (outer.kind & TKMC_INTERRUPT_COMPLETED) != 0;
+  BOOL inner_untouched = (inner.kind & TKMC_INTERRUPT_COMPLETED) == 0;
+  BOOL chain_untouched = tkmc_active_interrupt_context == &inner &&
+                         inner.previous == &outer && tkmc_isr_depth == 2 &&
+                         host_plic_threshold() == 5;
+  tkmc_finish_external_interrupt(&inner);
+  tkmc_isr_depth = 1;
+  tkmc_finish_external_interrupt(&outer);
+  UINT writes_after_exit = host_write_count(host_plic_claim_port());
+  tkmc_isr_depth = 0;
+  EI(saved);
+
+  TEST_ASSERT_EQUAL_UINT(1, writes_before_exit);
+  TEST_ASSERT_EQUAL_UINT(2, writes_after_exit);
+  TEST_ASSERT_TRUE(outer_completed);
+  TEST_ASSERT_TRUE(inner_untouched);
+  TEST_ASSERT_TRUE(chain_untouched);
+  TEST_ASSERT_EQUAL_UINT(0, host_plic_ignored_completions());
+  TEST_ASSERT_EQUAL_UINT(1, host_plic_threshold());
+}
+
+void test_end_of_int_preserves_enabled_mie_and_current_independence(void) {
+  _Alignas(16) UW frame[32] = {0};
+  tkmc_interrupt_context context;
+  tkmc_interrupt_context other = {.intno = INNER_SOURCE,
+                                  .depth = 0,
+                                  .saved_threshold = 7,
+                                  .kind = TKMC_INTERRUPT_KIND_HLNG};
+  tkmc_interrupt_context other_before = other;
+  tkmc_interrupt_context expected;
+  const T_DINT assembler = {.intatr = TA_ASM, .inthdr = (FP)counting_handler};
+  const INT priority_port =
+      PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET + 4 * SOME_SOURCE;
+  const INT other_priority_port =
+      PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET + 4 * INNER_SOURCE;
+  host_plic_set_threshold(1);
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(SOME_SOURCE, &assembler));
+  EnableInt(SOME_SOURCE, 2);
+  EnableInt(INNER_SOURCE, 5);
+  tkmc_active_interrupt_context = &other;
+  host_plic_raise(SOME_SOURCE);
+  UINT saved;
+  DI(saved);
+  tkmc_isr_depth = 1;
+  tkmc_prepare_external_interrupt(&context, frame);
+  expected = context;
+  expected.kind |= TKMC_INTERRUPT_COMPLETED;
+  current = next = NULL;
+  EI(0);
+  host_plic_raise(INNER_SOURCE);
+  host_snapshot_t before;
+  host_take_snapshot(&before);
+  const UW priority_before = in_w(priority_port);
+  const UW other_priority_before = in_w(other_priority_port);
+  const UW threshold_before = host_plic_threshold();
+  host_log_count = 0;
+
+  EndOfInt(SOME_SOURCE);
+  UINT writes = host_write_count(host_plic_claim_port());
+  UINT claim_reads = 0;
+  for (UINT i = 0; i < host_log_count; ++i) {
+    claim_reads += host_log[i].port == (INT)host_plic_claim_port() &&
+                   !host_log[i].is_write;
+  }
+  host_assert_unchanged(&before,
+                        "EndOfInt changed task queues or dispatch state");
+  UINT depth_after_eoi = tkmc_isr_depth;
+  BOOL chain_preserved =
+      tkmc_active_interrupt_context == &context && context.previous == &other;
+  BOOL context_preserved =
+      context.previous == expected.previous &&
+      context.frame == expected.frame &&
+      context.entry_sp == expected.entry_sp &&
+      context.handler == expected.handler && context.depth == expected.depth &&
+      context.intno == expected.intno &&
+      context.saved_threshold == expected.saved_threshold &&
+      context.kind == expected.kind;
+  BOOL other_context_preserved =
+      other.previous == other_before.previous &&
+      other.frame == other_before.frame &&
+      other.entry_sp == other_before.entry_sp &&
+      other.handler == other_before.handler &&
+      other.depth == other_before.depth && other.intno == other_before.intno &&
+      other.saved_threshold == other_before.saved_threshold &&
+      other.kind == other_before.kind;
+  BOOL enabled_preserved =
+      host_plic_is_enabled(SOME_SOURCE) && host_plic_is_enabled(INNER_SOURCE);
+  BOOL priorities_preserved =
+      in_w(priority_port) == priority_before &&
+      in_w(other_priority_port) == other_priority_before;
+  BOOL threshold_preserved = host_plic_threshold() == threshold_before;
+  BOOL other_pending = CheckInt(INNER_SOURCE);
+  BOOL mie_restored = host_interrupts_enabled();
+  tkmc_finish_external_interrupt(&context);
+  tkmc_isr_depth = 0;
+  tkmc_active_interrupt_context = NULL;
+  current = next = NULL;
+  EI(saved);
+
+  TEST_ASSERT_EQUAL_UINT(1, writes);
+  TEST_ASSERT_EQUAL_UINT(0, claim_reads);
+  TEST_ASSERT_TRUE(context_preserved);
+  TEST_ASSERT_TRUE(other_context_preserved);
+  TEST_ASSERT_EQUAL_UINT(1, depth_after_eoi);
+  TEST_ASSERT_TRUE(chain_preserved);
+  TEST_ASSERT_TRUE(enabled_preserved);
+  TEST_ASSERT_TRUE(priorities_preserved);
+  TEST_ASSERT_TRUE(threshold_preserved);
+  TEST_ASSERT_TRUE(other_pending);
+  TEST_ASSERT_TRUE(mie_restored);
+  TEST_ASSERT_TRUE(host_interrupts_enabled());
+  TEST_ASSERT_EQUAL_UINT(TKMC_INTERRUPT_KIND_ASM | TKMC_INTERRUPT_COMPLETED,
+                         expected.kind);
+  TEST_ASSERT_EQUAL_UINT(0, host_plic_ignored_completions());
+}
+
+void test_end_of_int_invalid_inactive_and_unmatched_calls_do_no_mmio(void) {
+  _Alignas(16) UW frame[32] = {0};
+  tkmc_interrupt_context context;
+  UINT saved;
+  host_log_count = 0;
+  EndOfInt(0);
+  EndOfInt(CFN_MAX_INTNO);
+  EndOfInt(0xffffffffu);
+  EndOfInt(SOME_SOURCE);
+  UINT inactive_accesses = host_log_count;
+
+  const T_DINT assembler = {.intatr = TA_ASM, .inthdr = (FP)counting_handler};
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(SOME_SOURCE, &assembler));
+  EnableInt(SOME_SOURCE, 2);
+  host_plic_raise(SOME_SOURCE);
+  DI(saved);
+  tkmc_isr_depth = 1;
+  tkmc_prepare_external_interrupt(&context, frame);
+  host_log_count = 0;
+  EndOfInt(INNER_SOURCE);
+  UINT unmatched_accesses = host_log_count;
+  BOOL unmatched_not_completed = (context.kind & TKMC_INTERRUPT_COMPLETED) == 0;
+  tkmc_finish_external_interrupt(&context);
+  tkmc_isr_depth = 0;
+  EI(saved);
+
+  TEST_ASSERT_EQUAL_UINT(0, inactive_accesses);
+  TEST_ASSERT_EQUAL_UINT(0, unmatched_accesses);
+  TEST_ASSERT_TRUE(unmatched_not_completed);
+  TEST_ASSERT_EQUAL_UINT(1, host_write_count(host_plic_claim_port()));
+}
+
+void test_end_of_int_stops_at_a_completed_newest_matching_record(void) {
+  tkmc_interrupt_context older = {.intno = SOME_SOURCE,
+                                  .kind = TKMC_INTERRUPT_KIND_ASM};
+  tkmc_interrupt_context newer = {.previous = &older,
+                                  .intno = SOME_SOURCE,
+                                  .kind = TKMC_INTERRUPT_KIND_HLNG |
+                                          TKMC_INTERRUPT_COMPLETED};
+  tkmc_active_interrupt_context = &newer;
+  host_log_count = 0;
+  EndOfInt(SOME_SOURCE);
+  UINT accesses = host_log_count;
+  tkmc_active_interrupt_context = NULL;
+
+  TEST_ASSERT_EQUAL_UINT(0, accesses);
+  TEST_ASSERT_EQUAL_UINT(TKMC_INTERRUPT_KIND_ASM, older.kind);
+  TEST_ASSERT_EQUAL_UINT(TKMC_INTERRUPT_KIND_HLNG | TKMC_INTERRUPT_COMPLETED,
+                         newer.kind);
+}
+
+void test_prepare_clears_stale_completion_from_a_reused_record(void) {
+  _Alignas(16) UW frame[32] = {0};
+  tkmc_interrupt_context context = {.kind = TKMC_INTERRUPT_KIND_ASM |
+                                            TKMC_INTERRUPT_COMPLETED};
+  UINT saved;
+  const T_DINT assembler = {.intatr = TA_ASM, .inthdr = (FP)counting_handler};
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(SOME_SOURCE, &assembler));
+  EnableInt(SOME_SOURCE, 2);
+  host_plic_raise(SOME_SOURCE);
+  DI(saved);
+  tkmc_isr_depth = 1;
+  tkmc_prepare_external_interrupt(&context, frame);
+  BOOL cleared = context.kind == TKMC_INTERRUPT_KIND_ASM;
+  tkmc_finish_external_interrupt(&context);
+  tkmc_isr_depth = 0;
+  EI(saved);
+
+  TEST_ASSERT_TRUE(cleared);
+  TEST_ASSERT_EQUAL_UINT(1, host_write_count(host_plic_claim_port()));
+}

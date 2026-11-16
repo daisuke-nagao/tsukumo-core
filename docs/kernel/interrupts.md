@@ -18,14 +18,15 @@ The specification cited here is the official Japanese
   `void inthdr(UINT intno)` with the attribute `TA_HLNG`, then enable its
   source with `EnableInt(intno, level)`. Assembly entries use `TA_ASM` and
   the [assembly entry conventions](assembly-entry.md).
-- In the handler, make the device stop asserting the interrupt. Do not
-  complete the source: the kernel does that after the handler returns.
+- In the handler, make the device stop asserting the interrupt. Use
+  `EndOfInt(intno)` for explicit completion, or let the kernel complete the
+  source when the handler exits.
 - Keep the handler short. Every handler shares one 2048-byte interrupt stack,
   and nothing detects an overflow.
 - If the handler turns interrupts on, it must turn them off again before it
   returns.
 - `CheckInt()` reports a source's PLIC pending bit without claiming it.
-- `ClearInt()`, `EndOfInt()` and `SetIntMode()` are not provided.
+- `ClearInt()` and `SetIntMode()` are not provided.
 
 ## Disabling and restoring interrupts with DI and EI
 
@@ -133,6 +134,7 @@ does not exist.
 | `tk_def_int(intno, pk_dint)` | Defines the handler of `intno`, replacing an earlier one. `pk_dint == NULL` cancels the definition. |
 | `EnableInt(intno, level)` | Sets the PLIC priority of the source to `level` (1 to 7) and enables it. |
 | `DisableInt(intno)` | Disables the source. |
+| `EndOfInt(intno)` | Completes the newest matching active claim once, preserving its context until exit. |
 | `CheckInt(intno)` | Returns whether the source's PLIC pending bit is set at the time of one pending-register read. |
 
 `TA_HLNG` selects a C function `void inthdr(UINT intno)`. `TA_ASM` selects
@@ -165,13 +167,13 @@ A handler runs in the ISR state, on the interrupt stack (see
 [Interrupt stack](#interrupt-stack)), with interrupts disabled unless it turns
 them on (see [Nested interrupts](#nested-interrupts)).
 
-The kernel claims the source before it calls the handler and completes the
-source after a C handler returns or an assembly exit completes. Claiming tells the PLIC that the interrupt
-is being served, and completing lets the PLIC raise that source again. A
-handler does not complete its source, so `EndOfInt` is not provided.
+The kernel claims the source before it calls the handler. Completion lets the
+PLIC accept a new request from that source. `EndOfInt` can complete the claim
+during the handler. The normal C or assembly exit completes it automatically
+when explicit completion has not occurred.
 
-- A handler must silence its device. The kernel completes the source when the
-  handler returns, and a source that is still asserted is taken again at once.
+- A handler must silence its device. Completion permits a new request from a
+  source whose device condition is still asserted.
 - A handler should be short and use little stack. The interrupt stack is 2048
   bytes, shared by every function the trap calls, and nothing checks its depth.
 - A handler may call `DisableInt` on its own source to mask it until deferred
@@ -181,6 +183,30 @@ handler does not complete its source, so `EndOfInt` is not provided.
 - A task that a handler wakes runs at the outermost exit for `TA_HLNG` and
   `tk_ret_int`. A direct ASM return preserves the dispatch request for the
   subsequent software interrupt.
+
+### Explicit completion
+
+`void EndOfInt(UINT intno)` searches the active context chain from its head
+and uses the first record with that source number, including an enclosing
+handler's record. It issues EOI synchronously and marks that record completed.
+A repeated call stops at the same completed record. It preserves the source's
+enabled/disabled state and restores the caller's MIE state.
+
+Valid numbers are `1 <= intno < CFN_MAX_INTNO`. An invalid number, an inactive
+source or an already-completed matching record causes no controller access.
+The operation is available in task and ISR contexts and requires no current
+task. A task with no active matching claim simply returns.
+
+Complete the device's work before calling `EndOfInt`. EOI permits the gateway
+to report another request, so a device that continues asserting its condition
+can become pending again. Pending-source queries are described above.
+
+The context stays linked with its original depth and threshold until its real
+exit. C return, `tk_ret_int` and `TKMC_RET_INT_ASM` still restore threshold,
+remove the context and restore the frame. Each retains its dispatch policy.
+Their completion block runs only for a claim that needs EOI. The kernel also
+handles a source disabled by its handler by briefly enabling it for EOI and
+restoring its disabled state.
 
 ### Sources without a handler
 
@@ -304,15 +330,17 @@ priorities.
 
 ## Interrupt calls that are not provided
 
-The kernel provides `EnableInt`, `DisableInt` and `CheckInt`, but does not
-provide `ClearInt`, `EndOfInt` or `SetIntMode`. In `include/sys/profile.h`,
+The kernel provides `EnableInt`, `DisableInt`, `CheckInt` and `EndOfInt`.
+`ClearInt` and `SetIntMode` are unavailable. In `include/sys/profile.h`,
 `TK_SUPPORT_INTCTRL` and
 `TK_HAS_ENAINTLEVEL` are true for `EnableInt` with a level and for
-`DisableInt`. `TK_SUPPORT_INTCTRL` also covers `ClearInt` and `EndOfInt`, which
-are missing; the [specification review](spec-conformance-review.md) records
-this difference.
+`DisableInt`. `TK_SUPPORT_INTCTRL` also covers the missing `ClearInt` call.
+The [specification review](spec-conformance-review.md) records this difference.
 
 ## How the interrupt behavior is tested
+
+The [completion validation record](../developer/notes/interrupt-completion-validation.md)
+records explicit EOI cases, actual MMIO counts and isolated fault detection.
 
 The [CheckInt validation record](../developer/notes/checkint-validation.md)
 records its host and real-ISR checks, public consumer linkage and fault

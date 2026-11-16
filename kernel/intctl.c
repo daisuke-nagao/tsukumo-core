@@ -43,6 +43,15 @@ _Static_assert(TKMC_PLIC_THRESHOLD_OFFSET == PLIC_THRESHOLD_OFFSET,
                "public ASM PLIC threshold offset must match the RV32 port");
 _Static_assert(TKMC_PLIC_CLAIM_OFFSET == PLIC_CLAIM_OFFSET,
                "public ASM PLIC claim offset must match the RV32 port");
+_Static_assert((TKMC_INTERRUPT_KIND_NONE & ~TKMC_INTERRUPT_KIND_MASK) == 0 &&
+                   (TKMC_INTERRUPT_KIND_HLNG & ~TKMC_INTERRUPT_KIND_MASK) ==
+                       0 &&
+                   (TKMC_INTERRUPT_KIND_ASM & ~TKMC_INTERRUPT_KIND_MASK) == 0,
+               "interrupt kinds must fit the shared mask");
+_Static_assert((TKMC_INTERRUPT_KIND_MASK & TKMC_INTERRUPT_COMPLETED) == 0 &&
+                   (TKMC_INTERRUPT_COMPLETED &
+                    (TKMC_INTERRUPT_COMPLETED - 1)) == 0,
+               "interrupt completion flag must be a distinct single bit");
 
 #if defined(__riscv) && __riscv_xlen == 32
 _Static_assert(sizeof(tkmc_interrupt_context) == TKMC_IRQCTX_SIZE,
@@ -71,6 +80,9 @@ _Static_assert(__builtin_offsetof(tkmc_interrupt_context, saved_threshold) ==
 _Static_assert(__builtin_offsetof(tkmc_interrupt_context, kind) ==
                    TKMC_IRQCTX_KIND,
                "kind offset must match the assembly ABI");
+_Static_assert(TKMC_IRQCTX_KIND + sizeof(((tkmc_interrupt_context *)0)->kind) ==
+                   TKMC_IRQCTX_SIZE,
+               "kind field must end at the context ABI size");
 #endif
 
 static BOOL is_intno(UINT intno) { return intno >= 1 && intno < CFN_MAX_INTNO; }
@@ -103,7 +115,7 @@ void tkmc_prepare_external_interrupt(tkmc_interrupt_context *ctx, void *frame) {
   if (ctx->intno != 0) {
     if (is_intno(ctx->intno)) {
       ctx->handler = s_handlers[ctx->intno].handler;
-      ctx->kind = s_handlers[ctx->intno].kind;
+      ctx->kind = s_handlers[ctx->intno].kind & TKMC_INTERRUPT_KIND_MASK;
     }
     if (ctx->handler != NULL) {
       ctx->saved_threshold = in_w(PLIC_THRESHOLD);
@@ -114,9 +126,24 @@ void tkmc_prepare_external_interrupt(tkmc_interrupt_context *ctx, void *frame) {
   EI(intsts);
 }
 
-// The threshold precedes completion because the next PLIC claim must see the
-// priority of the enclosing handler. Complete once while enabled, then retain
-// the disabled state requested by DisableInt().
+// The caller keeps interrupts off while completion and the per-claim flag are
+// updated, so nested handlers cannot observe or complete the same claim.
+static void tkmc_complete_external_interrupt(tkmc_interrupt_context *ctx) {
+  if (ctx->kind & TKMC_INTERRUPT_COMPLETED) {
+    return;
+  }
+
+  BOOL stays_on = is_enabled(ctx->intno);
+  set_enabled(ctx->intno, TRUE);
+  out_w(PLIC_CLAIM, ctx->intno);
+  ctx->kind |= TKMC_INTERRUPT_COMPLETED;
+  if (!stays_on) {
+    set_enabled(ctx->intno, FALSE);
+  }
+}
+
+// The threshold precedes completion so the next PLIC claim sees the priority
+// of the enclosing handler. A default unhandled source remains disabled.
 void tkmc_finish_external_interrupt(tkmc_interrupt_context *ctx) {
   if (ctx->intno == 0) {
     return;
@@ -130,13 +157,28 @@ void tkmc_finish_external_interrupt(tkmc_interrupt_context *ctx) {
   if (ctx->handler != NULL) {
     out_w(PLIC_THRESHOLD, ctx->saved_threshold);
   }
-  BOOL stays_on = ctx->handler != NULL && is_enabled(ctx->intno);
-  set_enabled(ctx->intno, TRUE);
-  out_w(PLIC_CLAIM, ctx->intno);
-  if (!stays_on) {
+  tkmc_complete_external_interrupt(ctx);
+  if (ctx->handler == NULL) {
     set_enabled(ctx->intno, FALSE);
   }
   tkmc_active_interrupt_context = ctx->previous;
+  EI(intsts);
+}
+
+void EndOfInt(UINT intno) {
+  if (!is_intno(intno)) {
+    return;
+  }
+
+  UINT intsts;
+  DI(intsts);
+  for (tkmc_interrupt_context *ctx = tkmc_active_interrupt_context; ctx != NULL;
+       ctx = ctx->previous) {
+    if (ctx->intno == intno) {
+      tkmc_complete_external_interrupt(ctx);
+      break;
+    }
+  }
   EI(intsts);
 }
 
@@ -233,10 +275,10 @@ void tkmc_external_interrupt(void) {
   if (ctx.intno == 0) {
     return;
   }
-  if (ctx.kind == TKMC_INTERRUPT_KIND_ASM) {
+  if ((ctx.kind & TKMC_INTERRUPT_KIND_MASK) == TKMC_INTERRUPT_KIND_ASM) {
     tkmc_invalid_ret_int();
   }
-  if (ctx.kind == TKMC_INTERRUPT_KIND_HLNG) {
+  if ((ctx.kind & TKMC_INTERRUPT_KIND_MASK) == TKMC_INTERRUPT_KIND_HLNG) {
     ((void (*)(UINT))ctx.handler)(ctx.intno);
   }
   tkmc_finish_external_interrupt(&ctx);
@@ -250,7 +292,8 @@ __attribute__((__noreturn__)) void tkmc_ret_int_from_sp(void *entry_sp) {
   UINT intsts;
   DI(intsts);
   tkmc_interrupt_context *ctx = tkmc_active_interrupt_context;
-  if (!isDI(intsts) || ctx == NULL || ctx->kind != TKMC_INTERRUPT_KIND_ASM ||
+  if (!isDI(intsts) || ctx == NULL ||
+      (ctx->kind & TKMC_INTERRUPT_KIND_MASK) != TKMC_INTERRUPT_KIND_ASM ||
       ctx->depth != tkmc_isr_depth || ctx->entry_sp != entry_sp ||
       ctx->intno == 0 || ctx->frame == NULL || current == NULL) {
     tkmc_invalid_ret_int();
