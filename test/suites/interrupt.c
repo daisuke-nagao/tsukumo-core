@@ -9,6 +9,11 @@
 // transmitter-empty interrupt of the UART: it is raised by software (set the
 // bit in the interrupt enable register) and cleared by software (clear it
 // again), so no device has to be driven from outside.
+// ClearInt cases acknowledge the source device first (UART IER=0, or the RTC's
+// IRQ-enable/alarm/interrupt clear registers) so a still-asserted level cannot
+// immediately become pending again after the PLIC claim is completed.
+// QEMU virt keeps the PLIC pending bit latched after either device line falls;
+// the simultaneous-source case checks the RTC request survives the UART claim.
 //
 // The handler of every case turns the UART interrupt off first, which is what
 // a driver does to acknowledge it. Without that the source would stay asserted
@@ -559,6 +564,9 @@ static void a_bad_number_or_level_changes_nothing(void) {
   DisableInt(0);
   DisableInt(CFN_MAX_INTNO);
   DisableInt(0xffffffffu);
+  ClearInt(0);
+  ClearInt(CFN_MAX_INTNO);
+  ClearInt(0xffffffffu);
   UW priority = in_w(PLIC_PRIORITY_REG(UART_IRQ));
   BOOL enabled = source_is_enabled(UART_IRQ);
   UW priority_32 = in_w(PLIC_PRIORITY_REG(CFN_MAX_INTNO));
@@ -871,6 +879,381 @@ static void rtc_quiet(void) {
   out_w(RTC_CLEAR_INTERRUPT, 1);
 }
 
+static UW read_mstatus(void) {
+  UW mstatus;
+  __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus));
+  return mstatus;
+}
+
+static void set_mstatus_mie(BOOL enabled) {
+  if (enabled) {
+    __asm__ volatile("csrs mstatus, %0" : : "r"(MSTATUS_MIE_BIT) : "memory");
+  } else {
+    __asm__ volatile("csrc mstatus, %0" : : "r"(MSTATUS_MIE_BIT) : "memory");
+  }
+}
+
+// Busy-poll because these fixtures deliberately keep CPU interrupts off while
+// hardware latches the PLIC request.
+static BOOL wait_for_pending_without_switch(UINT intno) {
+  UW start = test_mtime();
+  while (!source_is_pending(intno) &&
+         (UW)(test_mtime() - start) < WAIT_MS * TEST_MTIME_PER_MS) {
+  }
+  return source_is_pending(intno);
+}
+
+static void clear_int_cleanup(void) {
+  out_b(UART_IER, 0);
+  rtc_quiet();
+  DisableInt(UART_IRQ);
+  DisableInt(RTC_IRQ);
+  if (source_is_pending(UART_IRQ)) {
+    ClearInt(UART_IRQ);
+  }
+  if (source_is_pending(RTC_IRQ)) {
+    ClearInt(RTC_IRQ);
+  }
+  tk_def_int(UART_IRQ, NULL);
+  tk_def_int(RTC_IRQ, NULL);
+}
+
+static volatile UINT s_clear_uart_hits;
+static volatile UINT s_clear_uart_depth_before, s_clear_uart_depth_after;
+static volatile BOOL s_clear_uart_pending_before, s_clear_uart_pending_after;
+static volatile UW s_clear_uart_mstatus_before, s_clear_uart_mstatus_after;
+static volatile UINT s_clear_completed_hits, s_clear_completed_end_calls;
+static volatile UINT s_clear_completed_last_intno, s_clear_completed_last_depth;
+static volatile UINT s_clear_completed_depth_before,
+    s_clear_completed_depth_after;
+static volatile BOOL s_clear_completed_pending_before;
+static volatile BOOL s_clear_completed_pending_after;
+static volatile UW s_clear_completed_mstatus_before,
+    s_clear_completed_mstatus_after;
+static volatile BOOL s_clear_outer_from_inner;
+static volatile UINT s_clear_outer_depth;
+static volatile BOOL s_clear_outer_pending_before, s_clear_outer_pending_after;
+static volatile UW s_clear_outer_threshold;
+
+static void clear_int_uart_handler(UINT intno) {
+  (void)intno;
+  ++s_clear_uart_hits;
+  s_clear_uart_depth_before = tkmc_isr_depth;
+  s_clear_uart_pending_before = CheckInt(UART_IRQ);
+  s_clear_uart_mstatus_before = read_mstatus();
+  ClearInt(UART_IRQ);
+  s_clear_uart_depth_after = tkmc_isr_depth;
+  s_clear_uart_pending_after = CheckInt(UART_IRQ);
+  s_clear_uart_mstatus_after = read_mstatus();
+  out_b(UART_IER, 0);
+}
+
+static void clear_int_completed_uart_handler(UINT intno) {
+  ++s_clear_completed_hits;
+  s_clear_completed_last_intno = intno;
+  s_clear_completed_last_depth = tkmc_isr_depth;
+  if (s_clear_completed_hits != 1) {
+    out_b(UART_IER, 0);
+    return;
+  }
+
+  out_b(UART_IER, 0);
+  EndOfInt(intno);
+  ++s_clear_completed_end_calls;
+  out_b(UART_IER, IER_THRE);
+  s_clear_completed_pending_before = wait_for_pending_without_switch(intno);
+  out_b(UART_IER, 0);
+  s_clear_completed_depth_before = tkmc_isr_depth;
+  s_clear_completed_mstatus_before = read_mstatus();
+  ClearInt(intno);
+  s_clear_completed_depth_after = tkmc_isr_depth;
+  s_clear_completed_pending_after = source_is_pending(intno);
+  s_clear_completed_mstatus_after = read_mstatus();
+}
+
+static void clear_int_rtc_handler(UINT intno) {
+  s_handler_pending = CheckInt(intno);
+  rtc_quiet();
+  s_last_intno = intno;
+  ++s_second_hits;
+}
+
+static const T_DINT s_clear_int_rtc_dint = {.intatr = TA_HLNG,
+                                            .inthdr = clear_int_rtc_handler};
+
+static void clear_int_discards_disabled_pending_uart(void) {
+  reset_counters();
+  ER defined = tk_def_int(UART_IRQ, &s_uart_dint);
+  EnableInt(UART_IRQ, 1);
+  DisableInt(UART_IRQ);
+  UW priority_before = in_w(PLIC_PRIORITY_REG(UART_IRQ));
+  UW mstatus_before = read_mstatus();
+  set_mstatus_mie(FALSE);
+  out_b(UART_IER, IER_THRE);
+  BOOL pending_before = wait_for_pending_without_switch(UART_IRQ);
+  out_b(UART_IER, 0);
+  ClearInt(UART_IRQ);
+  BOOL pending_after = source_is_pending(UART_IRQ);
+  BOOL enabled_after = source_is_enabled(UART_IRQ);
+  UW priority_after = in_w(PLIC_PRIORITY_REG(UART_IRQ));
+  UW mstatus_after = read_mstatus();
+  DisableInt(UART_IRQ);
+  set_mstatus_mie((mstatus_before & MSTATUS_MIE_BIT) != 0);
+  clear_int_cleanup();
+
+  TEST_ASSERT_EQUAL(E_OK, defined);
+  TEST_ASSERT_TRUE_MESSAGE(pending_before,
+                           "the disabled UART never became pending");
+  TEST_ASSERT_FALSE_MESSAGE(pending_after, "ClearInt() left the UART pending");
+  TEST_ASSERT_FALSE_MESSAGE(enabled_after,
+                            "ClearInt() enabled the disabled UART");
+  TEST_ASSERT_EQUAL_UINT32(priority_before, priority_after);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_UINT(0, s_hits);
+}
+
+static void clear_int_discards_enabled_pending_uart(void) {
+  reset_counters();
+  ER defined = tk_def_int(UART_IRQ, &s_uart_dint);
+  UW mstatus_before = read_mstatus();
+  set_mstatus_mie(FALSE);
+  EnableInt(UART_IRQ, 3);
+  out_b(UART_IER, IER_THRE);
+  BOOL pending_before = wait_for_pending_without_switch(UART_IRQ);
+  out_b(UART_IER, 0);
+  ClearInt(UART_IRQ);
+  BOOL pending_after = source_is_pending(UART_IRQ);
+  BOOL enabled_after = source_is_enabled(UART_IRQ);
+  UW priority_after = in_w(PLIC_PRIORITY_REG(UART_IRQ));
+  UW mstatus_after = read_mstatus();
+  set_mstatus_mie(TRUE);
+  tk_dly_tsk(POLL_TICKS);
+  UINT hits_after_restore = s_hits;
+  clear_int_cleanup();
+  set_mstatus_mie((mstatus_before & MSTATUS_MIE_BIT) != 0);
+
+  TEST_ASSERT_EQUAL(E_OK, defined);
+  TEST_ASSERT_TRUE_MESSAGE(pending_before,
+                           "the enabled UART never became pending");
+  TEST_ASSERT_FALSE_MESSAGE(pending_after, "ClearInt() left the UART pending");
+  TEST_ASSERT_TRUE_MESSAGE(enabled_after,
+                           "ClearInt() disabled the enabled UART");
+  TEST_ASSERT_EQUAL_UINT32(3, priority_after);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0, hits_after_restore,
+                                 "ClearInt() let the UART handler run");
+}
+
+static void clear_int_claims_a_pending_source_below_the_threshold(void) {
+  reset_counters();
+  ER defined = tk_def_int(UART_IRQ, &s_uart_dint);
+  UW mstatus_before = read_mstatus();
+  UW threshold_before = in_w(PLIC_THRESHOLD_REG);
+  set_mstatus_mie(FALSE);
+  out_w(PLIC_THRESHOLD_REG, 0);
+  EnableInt(UART_IRQ, 1);
+  out_w(PLIC_THRESHOLD_REG, 7);
+  out_b(UART_IER, IER_THRE);
+  BOOL pending_before = wait_for_pending_without_switch(UART_IRQ);
+  out_b(UART_IER, 0);
+  ClearInt(UART_IRQ);
+  BOOL pending_after = source_is_pending(UART_IRQ);
+  BOOL enabled_after = source_is_enabled(UART_IRQ);
+  UW threshold_after = in_w(PLIC_THRESHOLD_REG);
+  UINT hits_before_restore = s_hits;
+  DisableInt(UART_IRQ);
+  out_w(PLIC_THRESHOLD_REG, threshold_before);
+  set_mstatus_mie((mstatus_before & MSTATUS_MIE_BIT) != 0);
+  clear_int_cleanup();
+
+  TEST_ASSERT_EQUAL(E_OK, defined);
+  TEST_ASSERT_TRUE_MESSAGE(pending_before,
+                           "the below-threshold UART never became pending");
+  TEST_ASSERT_FALSE_MESSAGE(pending_after,
+                            "ClearInt() left the below-threshold UART pending");
+  TEST_ASSERT_TRUE(enabled_after);
+  TEST_ASSERT_EQUAL_UINT32(7, threshold_after);
+  TEST_ASSERT_EQUAL_UINT(0, hits_before_restore);
+}
+
+static void clear_int_discards_pending_uart_with_zero_priority(void) {
+  reset_counters();
+  ER defined = tk_def_int(UART_IRQ, &s_uart_dint);
+  UW mstatus_before = read_mstatus();
+  set_mstatus_mie(FALSE);
+  EnableInt(UART_IRQ, 3);
+  out_w(PLIC_PRIORITY_REG(UART_IRQ), 0);
+  out_b(UART_IER, IER_THRE);
+  BOOL pending_before = wait_for_pending_without_switch(UART_IRQ);
+  out_b(UART_IER, 0);
+  ClearInt(UART_IRQ);
+  BOOL pending_after = source_is_pending(UART_IRQ);
+  BOOL enabled_after = source_is_enabled(UART_IRQ);
+  UW priority_after = in_w(PLIC_PRIORITY_REG(UART_IRQ));
+  UW mstatus_after = read_mstatus();
+  set_mstatus_mie(TRUE);
+  tk_dly_tsk(POLL_TICKS);
+  UINT hits_after_restore = s_hits;
+  clear_int_cleanup();
+  set_mstatus_mie((mstatus_before & MSTATUS_MIE_BIT) != 0);
+
+  TEST_ASSERT_EQUAL(E_OK, defined);
+  TEST_ASSERT_TRUE_MESSAGE(pending_before,
+                           "the priority-0 UART never became pending");
+  TEST_ASSERT_FALSE_MESSAGE(pending_after, "ClearInt() left the UART pending");
+  TEST_ASSERT_TRUE_MESSAGE(enabled_after,
+                           "ClearInt() disabled the enabled UART");
+  TEST_ASSERT_EQUAL_UINT32(0, priority_after);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0, hits_after_restore,
+                                 "ClearInt() let the UART handler run");
+}
+
+static void clear_int_preserves_a_simultaneous_non_target_request(void) {
+  reset_counters();
+  s_handler_pending = TRUE;
+  ER uart_defined = tk_def_int(UART_IRQ, &s_uart_dint);
+  ER rtc_defined = tk_def_int(RTC_IRQ, &s_clear_int_rtc_dint);
+  UW mstatus_before = read_mstatus();
+  set_mstatus_mie(FALSE);
+  EnableInt(UART_IRQ, 3);
+  EnableInt(RTC_IRQ, 4);
+  UW threshold_before = in_w(PLIC_THRESHOLD_REG);
+  out_b(UART_IER, IER_THRE);
+  rtc_raise();
+  BOOL uart_pending_before = wait_for_pending_without_switch(UART_IRQ);
+  BOOL rtc_pending_before = wait_for_pending_without_switch(RTC_IRQ);
+  out_b(UART_IER, 0);
+  rtc_quiet();
+  ClearInt(UART_IRQ);
+  BOOL uart_pending_after = source_is_pending(UART_IRQ);
+  BOOL rtc_pending_after = source_is_pending(RTC_IRQ);
+  BOOL uart_enabled_after = source_is_enabled(UART_IRQ);
+  BOOL rtc_enabled_after = source_is_enabled(RTC_IRQ);
+  UW uart_priority_after = in_w(PLIC_PRIORITY_REG(UART_IRQ));
+  UW rtc_priority_after = in_w(PLIC_PRIORITY_REG(RTC_IRQ));
+  UW threshold_after = in_w(PLIC_THRESHOLD_REG);
+  UW mstatus_after = read_mstatus();
+  UINT uart_hits_before_restore = s_hits;
+  set_mstatus_mie(TRUE);
+  BOOL rtc_fired = WAIT_UNTIL(s_second_hits == 1);
+  UINT uart_hits_after_restore = s_hits;
+  UINT rtc_hits = s_second_hits;
+  UINT last_intno = s_last_intno;
+  BOOL handler_pending = s_handler_pending;
+  clear_int_cleanup();
+  set_mstatus_mie((mstatus_before & MSTATUS_MIE_BIT) != 0);
+
+  TEST_ASSERT_EQUAL(E_OK, uart_defined);
+  TEST_ASSERT_EQUAL(E_OK, rtc_defined);
+  TEST_ASSERT_TRUE_MESSAGE(uart_pending_before,
+                           "the UART never became pending");
+  TEST_ASSERT_TRUE_MESSAGE(rtc_pending_before, "the RTC never became pending");
+  TEST_ASSERT_FALSE_MESSAGE(uart_pending_after,
+                            "ClearInt() left its target pending");
+  TEST_ASSERT_TRUE_MESSAGE(rtc_pending_after,
+                           "ClearInt() consumed the non-target RTC request");
+  TEST_ASSERT_TRUE(uart_enabled_after);
+  TEST_ASSERT_TRUE(rtc_enabled_after);
+  TEST_ASSERT_EQUAL_UINT32(3, uart_priority_after);
+  TEST_ASSERT_EQUAL_UINT32(4, rtc_priority_after);
+  TEST_ASSERT_EQUAL_UINT32(threshold_before, threshold_after);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_UINT(0, uart_hits_before_restore);
+  TEST_ASSERT_TRUE_MESSAGE(rtc_fired,
+                           "the restored RTC request was not served");
+  TEST_ASSERT_EQUAL_UINT(0, uart_hits_after_restore);
+  TEST_ASSERT_EQUAL_UINT(1, rtc_hits);
+  TEST_ASSERT_EQUAL_UINT(RTC_IRQ, last_intno);
+  TEST_ASSERT_FALSE_MESSAGE(handler_pending,
+                            "the RTC handler saw its source still pending");
+}
+
+static void clear_int_with_no_pending_source_has_no_completion(void) {
+  reset_counters();
+  out_b(UART_IER, 0);
+  rtc_quiet();
+  DisableInt(UART_IRQ);
+  DisableInt(RTC_IRQ);
+  BOOL pending_before = source_is_pending(UART_IRQ);
+  ClearInt(UART_IRQ);
+  BOOL pending_after = source_is_pending(UART_IRQ);
+  clear_int_cleanup();
+
+  TEST_ASSERT_FALSE_MESSAGE(pending_before,
+                            "the UART was pending before ClearInt()");
+  TEST_ASSERT_FALSE_MESSAGE(pending_after, "ClearInt() created a pending UART");
+  TEST_ASSERT_EQUAL_UINT(0, s_hits);
+}
+
+static void clear_int_does_not_complete_an_active_uncompleted_claim(void) {
+  reset_counters();
+  s_clear_uart_hits = 0;
+  ER defined = tk_def_int(
+      UART_IRQ, &(T_DINT){.intatr = TA_HLNG, .inthdr = clear_int_uart_handler});
+  EnableInt(UART_IRQ, 3);
+  out_b(UART_IER, IER_THRE);
+  BOOL fired = WAIT_UNTIL(s_clear_uart_hits == 1);
+  UINT hits = s_clear_uart_hits;
+  UINT depth_before = s_clear_uart_depth_before;
+  UINT depth_after = s_clear_uart_depth_after;
+  BOOL pending_before = s_clear_uart_pending_before;
+  BOOL pending_after = s_clear_uart_pending_after;
+  UW mstatus_before = s_clear_uart_mstatus_before;
+  UW mstatus_after = s_clear_uart_mstatus_after;
+  clear_int_cleanup();
+
+  TEST_ASSERT_EQUAL(E_OK, defined);
+  TEST_ASSERT_TRUE_MESSAGE(fired, "the active UART handler did not run");
+  TEST_ASSERT_EQUAL_UINT(1, hits);
+  TEST_ASSERT_EQUAL_UINT(1, depth_before);
+  TEST_ASSERT_EQUAL_UINT(1, depth_after);
+  TEST_ASSERT_FALSE(pending_before);
+  TEST_ASSERT_FALSE(pending_after);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_before & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
+}
+
+static void clear_int_handles_a_new_pending_request_after_end_of_int(void) {
+  reset_counters();
+  s_clear_completed_hits = 0;
+  s_clear_completed_end_calls = 0;
+  s_clear_completed_last_intno = 0;
+  s_clear_completed_last_depth = 0;
+  ER defined = tk_def_int(
+      UART_IRQ,
+      &(T_DINT){.intatr = TA_HLNG, .inthdr = clear_int_completed_uart_handler});
+  EnableInt(UART_IRQ, 3);
+  out_b(UART_IER, IER_THRE);
+  BOOL fired = WAIT_UNTIL(s_clear_completed_hits >= 1);
+  UINT hits = s_clear_completed_hits;
+  UINT end_calls = s_clear_completed_end_calls;
+  UINT last_intno = s_clear_completed_last_intno;
+  UINT last_depth = s_clear_completed_last_depth;
+  UINT depth_before = s_clear_completed_depth_before;
+  UINT depth_after = s_clear_completed_depth_after;
+  BOOL pending_before = s_clear_completed_pending_before;
+  BOOL pending_after = s_clear_completed_pending_after;
+  UW mstatus_before = s_clear_completed_mstatus_before;
+  UW mstatus_after = s_clear_completed_mstatus_after;
+  clear_int_cleanup();
+
+  TEST_ASSERT_EQUAL(E_OK, defined);
+  TEST_ASSERT_TRUE_MESSAGE(fired, "the completed UART handler did not run");
+  TEST_ASSERT_EQUAL_UINT(1, hits);
+  TEST_ASSERT_EQUAL_UINT(1, end_calls);
+  TEST_ASSERT_EQUAL_UINT(UART_IRQ, last_intno);
+  TEST_ASSERT_EQUAL_UINT(1, last_depth);
+  TEST_ASSERT_TRUE_MESSAGE(pending_before,
+                           "the UART did not repend after EndOfInt()");
+  TEST_ASSERT_FALSE_MESSAGE(pending_after,
+                            "ClearInt() left the new UART request pending");
+  TEST_ASSERT_EQUAL_UINT(1, depth_before);
+  TEST_ASSERT_EQUAL_UINT(1, depth_after);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_before & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
+}
+
 enum { EV_OUTER_START = 1, EV_INNER, EV_OUTER_END, EV_CHILD, EV_MAX = 6 };
 static volatile UINT s_events[EV_MAX];
 static volatile UINT s_event_count;
@@ -924,6 +1307,13 @@ static UW read_mip(void) {
 static void nested_inner_handler(UINT intno) {
   (void)intno;
   rtc_quiet();
+  if (s_clear_outer_from_inner) {
+    s_clear_outer_pending_before = CheckInt(UART_IRQ);
+    ClearInt(UART_IRQ);
+    s_clear_outer_depth = tkmc_isr_depth;
+    s_clear_outer_pending_after = CheckInt(UART_IRQ);
+    s_clear_outer_threshold = in_w(PLIC_THRESHOLD_REG);
+  }
   if (s_endint_outer_on_inner) {
     EndOfInt(UART_IRQ);
   }
@@ -1089,6 +1479,36 @@ static void a_source_of_a_higher_priority_interrupts_a_handler(void) {
                                  "the threshold in the inner handler");
   TEST_ASSERT_EQUAL_UINT_MESSAGE(0, threshold_after,
                                  "the threshold was not given back");
+}
+
+static void
+clear_int_from_inner_handler_preserves_the_active_outer_claim(void) {
+  const nest_t nest = {
+      .rtc_level = HIGHER_LEVEL, .wait_for_inner = TRUE, .inner_wakes = FALSE};
+  nested_set_up(&nest);
+  paint_the_interrupt_stack();
+  s_clear_outer_from_inner = TRUE;
+  BOOL done = nested_run(3);
+  UINT used = interrupt_stack_high_water();
+  UINT threshold_after = in_w(PLIC_THRESHOLD_REG);
+  s_clear_outer_from_inner = FALSE;
+  nested_finish(FALSE);
+
+  TEST_ASSERT_TRUE_MESSAGE(done, "the nested handlers did not both run");
+  assert_the_trap_nested();
+  const UINT expected[] = {EV_OUTER_START, EV_INNER, EV_OUTER_END};
+  assert_events(expected, 3);
+  TEST_ASSERT_FALSE(s_clear_outer_pending_before);
+  TEST_ASSERT_FALSE(s_clear_outer_pending_after);
+  TEST_ASSERT_EQUAL_UINT(2, s_clear_outer_depth);
+  TEST_ASSERT_EQUAL_UINT(HIGHER_LEVEL, s_clear_outer_threshold);
+  TEST_ASSERT_EQUAL_UINT(0, threshold_after);
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT_MESSAGE(
+      NESTED_HIGH_WATER_MIN, used,
+      "ClearInt's nested trap frame was not measured");
+  TEST_ASSERT_LESS_OR_EQUAL_UINT_MESSAGE(
+      NESTED_HIGH_WATER_MAX, used,
+      "ClearInt's nested path used too much stack");
 }
 
 // The same level and a lower one: the RTC is pending but must not be served
@@ -1955,6 +2375,22 @@ static const test_case_t s_cases[] = {
      a_disabled_source_waits_until_it_is_enabled},
     {"check_int_observes_disabled_pending_source_without_consuming_it",
      check_int_observes_disabled_pending_source_without_consuming_it},
+    {"clear_int_discards_disabled_pending_uart",
+     clear_int_discards_disabled_pending_uart},
+    {"clear_int_discards_enabled_pending_uart",
+     clear_int_discards_enabled_pending_uart},
+    {"clear_int_claims_a_pending_source_below_the_threshold",
+     clear_int_claims_a_pending_source_below_the_threshold},
+    {"clear_int_discards_pending_uart_with_zero_priority",
+     clear_int_discards_pending_uart_with_zero_priority},
+    {"clear_int_preserves_a_simultaneous_non_target_request",
+     clear_int_preserves_a_simultaneous_non_target_request},
+    {"clear_int_with_no_pending_source_has_no_completion",
+     clear_int_with_no_pending_source_has_no_completion},
+    {"clear_int_does_not_complete_an_active_uncompleted_claim",
+     clear_int_does_not_complete_an_active_uncompleted_claim},
+    {"clear_int_handles_a_new_pending_request_after_end_of_int",
+     clear_int_handles_a_new_pending_request_after_end_of_int},
     {"a_new_definition_replaces_the_old_one",
      a_new_definition_replaces_the_old_one},
     {"without_a_handler_the_source_is_switched_off_and_served_once_defined",
@@ -1982,6 +2418,8 @@ static const test_case_t s_cases[] = {
      the_timer_waits_for_a_handler_that_has_interrupts_on},
     {"a_source_of_a_higher_priority_interrupts_a_handler",
      a_source_of_a_higher_priority_interrupts_a_handler},
+    {"clear_int_from_inner_handler_preserves_the_active_outer_claim",
+     clear_int_from_inner_handler_preserves_the_active_outer_claim},
     {"a_source_of_the_same_or_a_lower_priority_waits_for_the_handler",
      a_source_of_the_same_or_a_lower_priority_waits_for_the_handler},
     {"a_task_a_nested_handler_wakes_runs_after_the_outermost_handler",

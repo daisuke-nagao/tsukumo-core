@@ -26,7 +26,8 @@ The specification cited here is the official Japanese
 - If the handler turns interrupts on, it must turn them off again before it
   returns.
 - `CheckInt()` reports a source's PLIC pending bit without claiming it.
-- `ClearInt()` and `SetIntMode()` are not provided.
+- `ClearInt()` discards one pending controller request for a selected source.
+- `SetIntMode()` is unavailable.
 
 ## Disabling and restoring interrupts with DI and EI
 
@@ -135,6 +136,7 @@ does not exist.
 | `EnableInt(intno, level)` | Sets the PLIC priority of the source to `level` (1 to 7) and enables it. |
 | `DisableInt(intno)` | Disables the source. |
 | `EndOfInt(intno)` | Completes the newest matching active claim once, preserving its context until exit. |
+| `ClearInt(intno)` | Discards one pending request for the selected source and restores controller settings. |
 | `CheckInt(intno)` | Returns whether the source's PLIC pending bit is set at the time of one pending-register read. |
 
 `TA_HLNG` selects a C function `void inthdr(UINT intno)`. `TA_ASM` selects
@@ -160,6 +162,38 @@ and handler registration do not affect it. A claimed source normally has its
 pending bit cleared, so `CheckInt` can return `FALSE` while its handler is
 running. The call does not claim or complete the source and does not change
 interrupt state.
+
+### Clearing a pending request
+
+`ClearInt(UINT intno)` discards at most one pending request for the selected
+PLIC source. It is available in tasks and handlers, including with interrupts
+already disabled and without a current task. Invalid numbers, including 0
+and numbers at or above `CFN_MAX_INTNO`, return without MMIO.
+
+The call disables CPU interrupts, saves all context-0 source-enable words,
+and temporarily enables only the selected source. This covers all 96 PLIC
+source positions, including sources outside the kernel's handler table.
+If the selected priority is 0, it temporarily becomes 1. The threshold is
+temporarily set to 0 after isolation. A single claim read
+then consumes the selected pending request, if present. A nonzero claim is
+completed while its source is enabled. The priority, all enable words and
+the caller's MIE are restored before returning. After all enable words are
+restored, the call restores the saved threshold to refresh QEMU notification
+state, as `EnableInt` does. The caller's threshold value is restored and `mie`
+remains unchanged. Other sources keep their requests. The PLIC specification
+defines claim selection independently of threshold. The tested QEMU build
+filters claims by threshold, which requires the temporary zero value. MIE
+remains off throughout the isolated claim and controller restoration.
+
+The call preserves all active handler contexts and their completion flags,
+including when it clears a new request for a source whose earlier handler
+has called `EndOfInt`. It does not complete an outstanding handler claim or
+request dispatch. Later C and ASM exits retain their completion behavior.
+
+The driver clears the device's interrupt cause. A device whose cause remains
+asserted can request another interrupt after completion. A request that arrives
+before the one claim read can be discarded by this call. A later request can
+remain pending. The function returns after that single attempt.
 
 ### How the kernel runs a handler
 
@@ -217,7 +251,7 @@ would raise it again at once for as long as the device asserts it.
 ### EnableInt and a source that is already pending
 
 The specification says `EnableInt` generates the interrupt of a source that is
-already pending. QEMU 11.1.0 does not raise a source that was already pending
+already pending. The tested QEMU build does not raise a source that was already pending
 when its enable bit was set until the PLIC looks for a source again. Writing
 the PLIC threshold makes it look, so `EnableInt` also writes the threshold,
 with the value it already has.
@@ -330,14 +364,15 @@ priorities.
 
 ## Interrupt calls that are not provided
 
-The kernel provides `EnableInt`, `DisableInt`, `CheckInt` and `EndOfInt`.
-`ClearInt` and `SetIntMode` are unavailable. In `include/sys/profile.h`,
-`TK_SUPPORT_INTCTRL` and
-`TK_HAS_ENAINTLEVEL` are true for `EnableInt` with a level and for
-`DisableInt`. `TK_SUPPORT_INTCTRL` also covers the missing `ClearInt` call.
-The [specification review](spec-conformance-review.md) records this difference.
+The kernel provides `EnableInt`, `DisableInt`, `CheckInt`, `ClearInt` and
+`EndOfInt` under `TK_SUPPORT_INTCTRL`. `TK_HAS_ENAINTLEVEL` selects the
+priority argument to `EnableInt`. `SetIntMode` is unavailable and
+`TK_SUPPORT_INTMODE` is false.
 
 ## How the interrupt behavior is tested
+
+The [ClearInt validation record](../developer/notes/clearint-validation.md)
+records target isolation, controller-state restoration and fault detection.
 
 The [completion validation record](../developer/notes/interrupt-completion-validation.md)
 records explicit EOI cases, actual MMIO counts and isolated fault detection.

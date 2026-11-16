@@ -121,5 +121,5 @@ trace test. Restore the production file before rebuilding and rerunning.
 
 The evidence covers the configured source range and two-level QEMU nesting.
 Physical devices and deeper nesting require platform-specific validation.
-The [specification review](../../kernel/spec-conformance-review.md) tracks the
-remaining `ClearInt` availability gap.
+The [ClearInt validation record](clearint-validation.md) covers the later
+pending-clear API and its interaction with active completion state.

@@ -240,13 +240,13 @@ void EnableInt(UINT intno, INT level) {
   DI(intsts);
   out_w(PLIC_PRIORITY(intno), (UW)level);
   set_enabled(intno, TRUE);
-  // QEMU 11.1.0 does not raise a source that was already pending when its
-  // enable bit is set, which the specification requires of EnableInt() ("an
-  // interrupt is generated"): the PLIC looks for a source to raise only when a
-  // line or the threshold changes. Writing the threshold makes it look. The
-  // value it has is written, not 0: a handler that has interrupts on runs with
-  // the threshold at the priority of its source (see below), and a call from
-  // it must not let the sources of a lower priority in.
+  // The tested QEMU 9.2.50 custom build does not raise a source that was
+  // already pending when its enable bit is set, which the specification
+  // requires of EnableInt() ("an interrupt is generated"): the PLIC looks for
+  // a source to raise only when a line or the threshold changes. Writing the
+  // threshold makes it look. The value it has is written, not 0: a handler
+  // that has interrupts on runs with the threshold at its source priority (see
+  // below), and a call from it must not let lower-priority sources in.
   out_w(PLIC_THRESHOLD, in_w(PLIC_THRESHOLD));
   EI(intsts);
 }
@@ -264,6 +264,48 @@ void DisableInt(UINT intno) {
 BOOL CheckInt(UINT intno) {
   return is_intno(intno) &&
          (in_w(PLIC_PENDING(intno)) & (1u << (intno % 32))) != 0;
+}
+
+void ClearInt(UINT intno) {
+  if (!is_intno(intno)) {
+    return;
+  }
+
+  UINT intsts;
+  DI(intsts);
+
+  UW saved_enable[(PLIC_SOURCE_COUNT + 31) / 32];
+  for (UINT word = 0; word < (PLIC_SOURCE_COUNT + 31) / 32; ++word) {
+    saved_enable[word] = in_w(PLIC_ENABLE(32 * word));
+  }
+  UW priority = in_w(PLIC_PRIORITY(intno));
+  UW threshold = in_w(PLIC_THRESHOLD);
+
+  // Isolate every source so the claim cannot consume another pending IRQ.
+  for (UINT word = 0; word < (PLIC_SOURCE_COUNT + 31) / 32; ++word) {
+    out_w(PLIC_ENABLE(32 * word), 0);
+  }
+  if (priority == 0) {
+    out_w(PLIC_PRIORITY(intno), 1);
+  }
+  out_w(PLIC_ENABLE(intno), 1u << (intno % 32));
+
+  // The tested QEMU build filters claims by threshold, so expose the target.
+  out_w(PLIC_THRESHOLD, 0);
+  UINT claimed = in_w(PLIC_CLAIM);
+  if (claimed == intno) {
+    out_w(PLIC_CLAIM, claimed);
+  }
+
+  if (priority == 0) {
+    out_w(PLIC_PRIORITY(intno), priority);
+  }
+  for (UINT word = 0; word < (PLIC_SOURCE_COUNT + 31) / 32; ++word) {
+    out_w(PLIC_ENABLE(32 * word), saved_enable[word]);
+  }
+  // Restoring the threshold also refreshes QEMU's pending-source delivery.
+  out_w(PLIC_THRESHOLD, threshold);
+  EI(intsts);
 }
 
 // The system's default handler, for a source with no handler: it is switched

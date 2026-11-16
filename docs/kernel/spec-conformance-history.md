@@ -52,8 +52,25 @@ The [interrupt guide](interrupts.md#explicit-completion) describes the contract.
 The [validation record](../developer/notes/interrupt-completion-validation.md)
 records 174 host cases, all 106 CTests in each of six cross presets, 41 traced
 interrupt cases and four isolated faults with restoration checks.
-The [current review](spec-conformance-review.md) tracks the remaining
-`ClearInt` availability gap.
+At that stage, `ClearInt` remained unavailable.
+
+## Selected pending-request clearing
+
+On 2026-11-17 `ClearInt(UINT)` completes the interrupt-controller API group.
+It temporarily isolates the target across every context-0 enable word and
+uses one claim followed by one completion if a request was obtained.
+Priority zero is temporarily raised to allow claiming. The tested QEMU build
+also needs threshold zero during the isolated claim. The saved threshold is
+restored after all enable words to refresh pending-source delivery. All settings are
+restored, active handler claims keep their ownership and completion state,
+and other sources retain their pending requests. The device driver clears
+the underlying cause. A later request may remain pending.
+The [contract](interrupts.md#clearing-a-pending-request) and
+[validation record](../developer/notes/clearint-validation.md) give the
+public behavior and its verification limits.
+The update passed 180 host cases and three public consumers, all 106 CTests
+in each of six cross presets, 50 traced interrupt cases and five isolated
+faults with successful restoration checks.
 
 ## Fixed differences
 
@@ -286,9 +303,8 @@ Since 2026-11-10, `TK_SUPPORT_INTCTRL` and `TK_HAS_ENAINTLEVEL` are true. They
 match the exported `EnableInt(intno, level)`, whose level is the PLIC priority
 (1 to 7, see [interrupts](interrupts.md)), and `DisableInt(intno)`. The snippet
 above now compiles and takes the two-argument branch. At that point,
-`ClearInt`, `EndOfInt` and `CheckInt` were still missing, an
-[open difference](spec-conformance-review.md#tk_support_intctrl-also-covers-calls-the-kernel-does-not-provide)
-in the review.
+`ClearInt`, `EndOfInt` and `CheckInt` were still missing. The later additions
+complete the [interrupt-controller profile](spec-conformance-review.md#interrupt-controller-profile).
 
 The PC unit test `test_a_driver_written_to_the_profile_enables_a_source_at_its_level`
 in `test/host/test_intctl.c` follows the same pattern and checks the priority it

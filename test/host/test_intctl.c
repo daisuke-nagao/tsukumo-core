@@ -9,6 +9,8 @@
 // handlers. The rest of the interrupt API is tested on QEMU
 // (test/suites/interrupt.c), where a real device raises the source.
 
+#include <string.h>
+
 #include <tk/tkernel.h>
 #include <unity.h>
 
@@ -52,6 +54,7 @@ void test_a_source_beyond_the_table_is_switched_off_and_completed(void) {
     for (UINT other = 1; other < PLIC_SOURCE_COUNT; ++other) {
       host_plic_set_enabled(other, TRUE);
     }
+    host_plic_set_priority(src, 1);
     host_log_count = 0; // One claim leaves a few entries; the log is small.
     host_plic_raise(src);
     tkmc_external_interrupt();
@@ -74,6 +77,502 @@ static void recording_handler(UINT intno) {
 static const T_DINT s_recording = {.intatr = TA_HLNG,
                                    .inthdr = (FP)recording_handler};
 
+static UINT plic_access_count(INT port, BOOL is_write) {
+  UINT count = 0;
+  for (UINT i = 0; i < host_log_count; ++i) {
+    count += host_log[i].port == port && host_log[i].is_write == is_write;
+  }
+  return count;
+}
+
+static INT plic_priority_port(UINT src) {
+  return PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET + 4 * src;
+}
+
+static BOOL plic_threshold_sequence_is_safe(UINT target, UW priority,
+                                            UW restored_threshold) {
+  enum { ENABLE_WORDS = (PLIC_SOURCE_COUNT + 31) / 32 };
+  const INT enable_first = PLIC_BASE_ADDRESS + PLIC_ENABLE_OFFSET;
+  const INT enable_last = enable_first + 4 * ((PLIC_SOURCE_COUNT - 1) / 32);
+  const INT threshold_port = PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET;
+  INT threshold_writes[2] = {-1, -1};
+  INT claim_read = -1;
+  INT claim_write = -1;
+  INT last_enable_write = -1;
+  INT last_priority_write = -1;
+  BOOL threshold_writes_mie_off = TRUE;
+  UW enable_words[ENABLE_WORDS] = {0};
+  BOOL enable_words_written[ENABLE_WORDS] = {FALSE};
+  UINT threshold_write_count = 0;
+  for (UINT i = 0; i < host_log_count; ++i) {
+    const host_access_t access = host_log[i];
+    if (access.is_write && access.port >= enable_first &&
+        access.port <= enable_last) {
+      last_enable_write = (INT)i;
+      UINT word = (access.port - enable_first) / 4;
+      enable_words[word] = (UW)access.value;
+      enable_words_written[word] = TRUE;
+    }
+    if (access.is_write && access.port == threshold_port) {
+      if (threshold_write_count < 2) {
+        threshold_writes[threshold_write_count] = (INT)i;
+      }
+      threshold_write_count += 1;
+      threshold_writes_mie_off &= !access.interrupts_enabled;
+    }
+    if (access.port == (INT)host_plic_claim_port()) {
+      if (access.is_write) {
+        claim_write = (INT)i;
+      } else {
+        claim_read = (INT)i;
+        if (threshold_writes[0] >= 0) {
+          BOOL target_only = TRUE;
+          for (UINT word = 0; word < ENABLE_WORDS; ++word) {
+            UW expected = word == target / 32 ? 1u << (target % 32) : 0;
+            target_only &=
+                enable_words_written[word] && enable_words[word] == expected;
+          }
+          if (!target_only) {
+            return FALSE;
+          }
+        }
+      }
+    }
+    if (access.is_write && access.port == plic_priority_port(target)) {
+      last_priority_write = (INT)i;
+    }
+  }
+  if (threshold_write_count != 2 || threshold_writes[0] < 0 ||
+      threshold_writes[1] < 0 || claim_read < 0 || claim_write < 0 ||
+      threshold_writes[0] >= claim_read || claim_read >= claim_write ||
+      claim_write >= threshold_writes[1] || last_enable_write < 0 ||
+      last_enable_write >= threshold_writes[1] || !threshold_writes_mie_off ||
+      host_log[claim_read].interrupts_enabled ||
+      host_log[threshold_writes[0]].value != 0 ||
+      host_log[threshold_writes[1]].value != restored_threshold) {
+    return FALSE;
+  }
+  if (priority == 0 && (last_priority_write < claim_write ||
+                        last_priority_write >= threshold_writes[1] ||
+                        host_log[last_priority_write].value != priority)) {
+    return FALSE;
+  }
+  for (INT i = threshold_writes[0] + 1; i < claim_read; ++i) {
+    if (host_log[i].is_write && host_log[i].port >= enable_first &&
+        host_log[i].port <= enable_last) {
+      return FALSE;
+    }
+  }
+  return TRUE;
+}
+
+static BOOL plic_source_pending(UINT src) {
+  if (src >= PLIC_SOURCE_COUNT) {
+    return FALSE;
+  }
+  INT port = PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET + 4 * (src / 32);
+  return (in_w(port) & (1u << (src % 32))) != 0;
+}
+
+static BOOL plic_pending_was_written(void) {
+  const INT first = PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET;
+  const INT last = first + 4 * ((PLIC_SOURCE_COUNT - 1) / 32);
+  for (UINT i = 0; i < host_log_count; ++i) {
+    if (host_log[i].is_write && host_log[i].port >= first &&
+        host_log[i].port <= last) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+void test_host_plic_claims_enabled_pending_sources_by_priority_then_id(void) {
+  const UINT highest = 70, tied_small = 33, tied_large = 40, lowest = 10;
+  const UINT disabled = 11, zero_priority = 12;
+  host_plic_set_enabled(highest, TRUE);
+  host_plic_set_enabled(tied_small, TRUE);
+  host_plic_set_enabled(tied_large, TRUE);
+  host_plic_set_enabled(lowest, TRUE);
+  host_plic_set_enabled(zero_priority, TRUE);
+  host_plic_set_priority(highest, 7);
+  host_plic_set_priority(tied_small, 3);
+  host_plic_set_priority(tied_large, 3);
+  host_plic_set_priority(lowest, 1);
+  host_plic_set_priority(disabled, 7);
+  host_plic_set_priority(zero_priority, 0);
+  host_plic_set_threshold(7);
+  host_plic_raise(highest);
+  host_plic_raise(tied_small);
+  host_plic_raise(tied_large);
+  host_plic_raise(lowest);
+  host_plic_raise(disabled);
+  host_plic_raise(zero_priority);
+
+  UINT first = in_w(host_plic_claim_port());
+  host_plic_raise(highest);
+  BOOL claimed_source_stayed_not_pending = !plic_source_pending(highest);
+  out_w(host_plic_claim_port(), highest);
+  host_plic_raise(highest);
+  BOOL reasserted_after_completion = plic_source_pending(highest);
+  UINT second = in_w(host_plic_claim_port());
+  out_w(host_plic_claim_port(), second);
+  UINT third = in_w(host_plic_claim_port());
+  out_w(host_plic_claim_port(), third);
+  UINT fourth = in_w(host_plic_claim_port());
+  out_w(host_plic_claim_port(), fourth);
+  UINT fifth = in_w(host_plic_claim_port());
+  out_w(host_plic_claim_port(), fifth);
+  UINT empty = in_w(host_plic_claim_port());
+
+  TEST_ASSERT_EQUAL_UINT(highest, first);
+  TEST_ASSERT_TRUE(claimed_source_stayed_not_pending);
+  TEST_ASSERT_TRUE(reasserted_after_completion);
+  TEST_ASSERT_EQUAL_UINT(highest, second);
+  TEST_ASSERT_EQUAL_UINT(tied_small, third);
+  TEST_ASSERT_EQUAL_UINT(tied_large, fourth);
+  TEST_ASSERT_EQUAL_UINT(lowest, fifth);
+  TEST_ASSERT_EQUAL_UINT(0, empty);
+  TEST_ASSERT_TRUE(CheckInt(disabled));
+  TEST_ASSERT_TRUE(CheckInt(zero_priority));
+  TEST_ASSERT_EQUAL_UINT(0, host_plic_ignored_completions());
+}
+
+void test_host_plic_disabled_completion_keeps_the_claim_until_reenabled(void) {
+  const UINT src = 30;
+  host_plic_set_enabled(src, TRUE);
+  host_plic_set_priority(src, 3);
+  host_plic_raise(src);
+  UINT claimed = in_w(host_plic_claim_port());
+  host_plic_set_enabled(src, FALSE);
+  out_w(host_plic_claim_port(), src);
+  host_plic_raise(src);
+  BOOL still_claimed = !CheckInt(src);
+  UINT ignored_completion = host_plic_ignored_completions();
+  host_plic_set_enabled(src, TRUE);
+  out_w(host_plic_claim_port(), src);
+  host_plic_raise(src);
+  BOOL released = CheckInt(src);
+  UINT reclaimed = in_w(host_plic_claim_port());
+  out_w(host_plic_claim_port(), reclaimed);
+
+  TEST_ASSERT_EQUAL_UINT(src, claimed);
+  TEST_ASSERT_TRUE(still_claimed);
+  TEST_ASSERT_TRUE(released);
+  TEST_ASSERT_EQUAL_UINT(src, reclaimed);
+  TEST_ASSERT_EQUAL_UINT(1, ignored_completion);
+}
+
+void test_clear_int_invalid_numbers_do_no_mmio_and_keep_mie(void) {
+  for (UINT mie = 0; mie < 2; ++mie) {
+    UINT saved = 0;
+    if (mie != 0) {
+      EI(0);
+    } else {
+      DI(saved);
+    }
+    host_log_count = 0;
+    ClearInt(0);
+    ClearInt(CFN_MAX_INTNO);
+    ClearInt(~(UINT)0);
+    UINT accesses = host_log_count;
+    BOOL mie_preserved = host_interrupts_enabled() == (mie != 0);
+    EI(saved);
+
+    TEST_ASSERT_EQUAL_UINT(0, accesses);
+    TEST_ASSERT_TRUE(mie_preserved);
+  }
+}
+
+void test_clear_int_without_pending_never_completes_and_restores_configuration(
+    void) {
+  static const UW priorities[] = {0, 1, 7};
+  static const UW thresholds[] = {0, 7};
+  for (UINT registered = 0; registered < 2; ++registered) {
+    for (UINT enabled = 0; enabled < 2; ++enabled) {
+      for (UINT p = 0; p < sizeof(priorities) / sizeof(priorities[0]); ++p) {
+        for (UINT t = 0; t < sizeof(thresholds) / sizeof(thresholds[0]); ++t) {
+          for (UINT mie = 0; mie < 2; ++mie) {
+            host_reset();
+            if (registered != 0) {
+              TEST_ASSERT_EQUAL(E_OK, tk_def_int(SOME_SOURCE, &s_recording));
+            }
+            host_plic_set_enabled(SOME_SOURCE, enabled != 0);
+            host_plic_set_priority(SOME_SOURCE, priorities[p]);
+            host_plic_set_threshold(thresholds[t]);
+            UINT saved = 0;
+            if (mie != 0) {
+              EI(0);
+            } else {
+              DI(saved);
+            }
+
+            host_log_count = 0;
+            ClearInt(SOME_SOURCE);
+            UINT first_reads = plic_access_count(host_plic_claim_port(), FALSE);
+            UINT first_writes = plic_access_count(host_plic_claim_port(), TRUE);
+            BOOL first_read_zero = FALSE;
+            for (UINT i = 0; i < host_log_count; ++i) {
+              if (host_log[i].port == (INT)host_plic_claim_port() &&
+                  !host_log[i].is_write) {
+                first_read_zero = host_log[i].value == 0;
+              }
+            }
+            BOOL first_no_pending_write = !plic_pending_was_written();
+            BOOL first_mie_preserved = host_interrupts_enabled() == (mie != 0);
+
+            host_log_count = 0;
+            ClearInt(SOME_SOURCE);
+            UINT second_reads =
+                plic_access_count(host_plic_claim_port(), FALSE);
+            UINT second_writes =
+                plic_access_count(host_plic_claim_port(), TRUE);
+            BOOL second_read_zero = FALSE;
+            for (UINT i = 0; i < host_log_count; ++i) {
+              if (host_log[i].port == (INT)host_plic_claim_port() &&
+                  !host_log[i].is_write) {
+                second_read_zero = host_log[i].value == 0;
+              }
+            }
+            BOOL second_no_pending_write = !plic_pending_was_written();
+            BOOL config_preserved =
+                host_plic_is_enabled(SOME_SOURCE) == (enabled != 0) &&
+                in_w(plic_priority_port(SOME_SOURCE)) == priorities[p] &&
+                host_plic_threshold() == thresholds[t] &&
+                !CheckInt(SOME_SOURCE);
+            BOOL second_mie_preserved = host_interrupts_enabled() == (mie != 0);
+            UINT ignored_completions = host_plic_ignored_completions();
+            EI(saved);
+
+            TEST_ASSERT_EQUAL_UINT(1, first_reads);
+            TEST_ASSERT_EQUAL_UINT(0, first_writes);
+            TEST_ASSERT_TRUE(first_read_zero);
+            TEST_ASSERT_TRUE(first_no_pending_write);
+            TEST_ASSERT_TRUE(first_mie_preserved);
+            TEST_ASSERT_EQUAL_UINT(1, second_reads);
+            TEST_ASSERT_EQUAL_UINT(0, second_writes);
+            TEST_ASSERT_TRUE(second_read_zero);
+            TEST_ASSERT_TRUE(second_no_pending_write);
+            TEST_ASSERT_TRUE(second_mie_preserved);
+            TEST_ASSERT_TRUE(config_preserved);
+            TEST_ASSERT_EQUAL_UINT(0, ignored_completions);
+          }
+        }
+      }
+    }
+  }
+}
+
+void test_clear_int_claims_only_its_pending_source_and_preserves_all_words(
+    void) {
+  static const UW priorities[] = {0, 1, 7};
+  static const UW thresholds[] = {0, 7};
+  for (UINT registered = 0; registered < 2; ++registered) {
+    for (UINT enabled = 0; enabled < 2; ++enabled) {
+      for (UINT p = 0; p < sizeof(priorities) / sizeof(priorities[0]); ++p) {
+        for (UINT t = 0; t < sizeof(thresholds) / sizeof(thresholds[0]); ++t) {
+          for (UINT mie = 0; mie < 2; ++mie) {
+            host_reset();
+            if (registered != 0) {
+              TEST_ASSERT_EQUAL(E_OK, tk_def_int(SOME_SOURCE, &s_recording));
+            }
+            const UINT smaller = 1, other_word = 40, last_word = 70;
+            UW priority_before[PLIC_SOURCE_COUNT] = {0};
+            BOOL enabled_before[PLIC_SOURCE_COUNT] = {0};
+            host_plic_set_enabled(SOME_SOURCE, enabled != 0);
+            host_plic_set_priority(SOME_SOURCE, priorities[p]);
+            host_plic_set_enabled(smaller, TRUE);
+            host_plic_set_priority(smaller, 7);
+            host_plic_set_enabled(other_word, TRUE);
+            host_plic_set_priority(other_word, 1);
+            host_plic_set_enabled(last_word, TRUE);
+            host_plic_set_priority(last_word, 7);
+            host_plic_set_threshold(thresholds[t]);
+            host_plic_raise(SOME_SOURCE);
+            host_plic_raise(smaller);
+            host_plic_raise(other_word);
+            host_plic_raise(last_word);
+            for (UINT src = 1; src < PLIC_SOURCE_COUNT; ++src) {
+              enabled_before[src] = host_plic_is_enabled(src);
+              priority_before[src] = in_w(plic_priority_port(src));
+            }
+
+            UINT saved = 0;
+            if (mie != 0) {
+              EI(0);
+            } else {
+              DI(saved);
+            }
+            host_snapshot_t before;
+            host_take_snapshot(&before);
+            host_log_count = 0;
+            ClearInt(SOME_SOURCE);
+            UINT claim_reads = plic_access_count(host_plic_claim_port(), FALSE);
+            UINT eoi_writes = plic_access_count(host_plic_claim_port(), TRUE);
+            UINT eoi_source =
+                eoi_writes != 0 ? (UINT)host_last_write(host_plic_claim_port())
+                                : 0;
+            UINT ignored_completions = host_plic_ignored_completions();
+            BOOL no_pending_write = !plic_pending_was_written();
+            const INT threshold_port =
+                PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET;
+            BOOL threshold_sequence_safe =
+                plic_access_count(threshold_port, TRUE) == 2 &&
+                plic_threshold_sequence_is_safe(SOME_SOURCE, priorities[p],
+                                                thresholds[t]);
+            BOOL mie_preserved = host_interrupts_enabled() == (mie != 0);
+            BOOL target_cleared = !plic_source_pending(SOME_SOURCE);
+            BOOL competitors_pending = plic_source_pending(smaller) &&
+                                       plic_source_pending(other_word) &&
+                                       plic_source_pending(last_word);
+            BOOL config_preserved = host_plic_threshold() == thresholds[t];
+            for (UINT src = 1; src < PLIC_SOURCE_COUNT; ++src) {
+              config_preserved &=
+                  host_plic_is_enabled(src) == enabled_before[src];
+              config_preserved &=
+                  in_w(plic_priority_port(src)) == priority_before[src];
+            }
+            BOOL all_competitors_claimed_in_order = TRUE;
+            const UINT claim_order[] = {smaller, last_word, other_word};
+            for (UINT i = 0; i < sizeof(claim_order) / sizeof(claim_order[0]);
+                 ++i) {
+              UINT claimed = in_w(host_plic_claim_port());
+              all_competitors_claimed_in_order &= claimed == claim_order[i];
+              out_w(host_plic_claim_port(), claimed);
+            }
+            UINT no_more_claims = in_w(host_plic_claim_port());
+            BOOL no_other_pending = !plic_source_pending(smaller) &&
+                                    !plic_source_pending(other_word) &&
+                                    !plic_source_pending(last_word);
+            BOOL current_mie_preserved =
+                host_interrupts_enabled() == (mie != 0);
+            host_assert_unchanged(&before,
+                                  "ClearInt changed queues or dispatch");
+            EI(saved);
+
+            TEST_ASSERT_EQUAL_UINT(1, claim_reads);
+            TEST_ASSERT_EQUAL_UINT(1, eoi_writes);
+            TEST_ASSERT_EQUAL_UINT(SOME_SOURCE, eoi_source);
+            TEST_ASSERT_TRUE(no_pending_write);
+            TEST_ASSERT_TRUE(threshold_sequence_safe);
+            TEST_ASSERT_TRUE(mie_preserved);
+            TEST_ASSERT_TRUE(current_mie_preserved);
+            TEST_ASSERT_TRUE(target_cleared);
+            TEST_ASSERT_TRUE(competitors_pending);
+            TEST_ASSERT_TRUE(config_preserved);
+            TEST_ASSERT_TRUE(all_competitors_claimed_in_order);
+            TEST_ASSERT_EQUAL_UINT(0, no_more_claims);
+            TEST_ASSERT_TRUE(no_other_pending);
+            TEST_ASSERT_EQUAL_UINT(0, ignored_completions);
+          }
+        }
+      }
+    }
+  }
+}
+
+void test_clear_int_in_a_nested_handler_preserves_outer_claim_and_record(void) {
+  _Alignas(16) UW outer_frame[32] = {0};
+  _Alignas(16) UW inner_frame[32] = {0};
+  tkmc_interrupt_context outer, inner;
+  const T_DINT assembler = {.intatr = TA_ASM, .inthdr = (FP)counting_handler};
+  ID task = host_make_task(1);
+  host_set_current(task);
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(OUTER_SOURCE, &assembler));
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(INNER_SOURCE, &assembler));
+  EnableInt(OUTER_SOURCE, 2);
+  EnableInt(INNER_SOURCE, 5);
+  host_plic_set_threshold(1);
+  UINT saved;
+  DI(saved);
+
+  tkmc_isr_depth = 1;
+  host_plic_raise(OUTER_SOURCE);
+  tkmc_prepare_external_interrupt(&outer, outer_frame);
+  tkmc_isr_depth = 2;
+  host_plic_raise(INNER_SOURCE);
+  tkmc_prepare_external_interrupt(&inner, inner_frame);
+  tkmc_interrupt_context outer_before = outer;
+  tkmc_interrupt_context inner_before = inner;
+  host_snapshot_t queues_before;
+  host_log_count = 0;
+  host_take_snapshot(&queues_before);
+
+  ClearInt(OUTER_SOURCE);
+  UINT outstanding_claim_reads =
+      plic_access_count(host_plic_claim_port(), FALSE);
+  UINT outstanding_eois = plic_access_count(host_plic_claim_port(), TRUE);
+  BOOL outstanding_record_unchanged =
+      memcmp(&outer, &outer_before, sizeof(outer)) == 0 &&
+      memcmp(&inner, &inner_before, sizeof(inner)) == 0 &&
+      tkmc_active_interrupt_context == &inner && tkmc_isr_depth == 2 &&
+      host_plic_threshold() == 5;
+  host_plic_raise(OUTER_SOURCE);
+  BOOL gateway_held_until_completion = !CheckInt(OUTER_SOURCE);
+  EndOfInt(OUTER_SOURCE);
+  UINT end_of_int_eois = plic_access_count(host_plic_claim_port(), TRUE);
+  BOOL end_of_int_completed_outer =
+      (outer.kind & TKMC_INTERRUPT_COMPLETED) != 0 &&
+      (inner.kind & TKMC_INTERRUPT_COMPLETED) == 0;
+  host_plic_raise(OUTER_SOURCE);
+  BOOL new_request_is_pending = CheckInt(OUTER_SOURCE);
+  outer_before = outer;
+  inner_before = inner;
+  host_log_count = 0;
+
+  ClearInt(OUTER_SOURCE);
+  UINT new_claim_reads = plic_access_count(host_plic_claim_port(), FALSE);
+  UINT new_eois = plic_access_count(host_plic_claim_port(), TRUE);
+  UINT new_eoi_source =
+      new_eois != 0 ? (UINT)host_last_write(host_plic_claim_port()) : 0;
+  BOOL new_request_cleared = !CheckInt(OUTER_SOURCE);
+  BOOL nested_chain_unchanged =
+      memcmp(&outer, &outer_before, sizeof(outer)) == 0 &&
+      memcmp(&inner, &inner_before, sizeof(inner)) == 0 &&
+      tkmc_active_interrupt_context == &inner && inner.previous == &outer &&
+      tkmc_isr_depth == 2 && host_plic_threshold() == 5;
+  BOOL mie_preserved = !host_interrupts_enabled();
+  BOOL source_states_preserved = host_plic_is_enabled(OUTER_SOURCE) &&
+                                 host_plic_is_enabled(INNER_SOURCE) &&
+                                 in_w(plic_priority_port(OUTER_SOURCE)) == 2 &&
+                                 in_w(plic_priority_port(INNER_SOURCE)) == 5;
+  BOOL no_pending_write = !plic_pending_was_written();
+  UINT ignored_completions = host_plic_ignored_completions();
+
+  tkmc_finish_external_interrupt(&inner);
+  tkmc_isr_depth = 1;
+  tkmc_finish_external_interrupt(&outer);
+  UINT total_eois =
+      end_of_int_eois + plic_access_count(host_plic_claim_port(), TRUE);
+  BOOL restored_threshold = host_plic_threshold() == 1;
+  BOOL restored_chain = tkmc_active_interrupt_context == NULL;
+  tkmc_isr_depth = 0;
+  EI(saved);
+  host_assert_unchanged(&queues_before,
+                        "nested ClearInt changed queues or dispatch");
+
+  TEST_ASSERT_EQUAL_UINT(1, task);
+  TEST_ASSERT_EQUAL_UINT(1, end_of_int_eois);
+  TEST_ASSERT_EQUAL_UINT(1, outstanding_claim_reads);
+  TEST_ASSERT_EQUAL_UINT(0, outstanding_eois);
+  TEST_ASSERT_TRUE(outstanding_record_unchanged);
+  TEST_ASSERT_TRUE(gateway_held_until_completion);
+  TEST_ASSERT_TRUE(end_of_int_completed_outer);
+  TEST_ASSERT_TRUE(new_request_is_pending);
+  TEST_ASSERT_EQUAL_UINT(1, new_claim_reads);
+  TEST_ASSERT_EQUAL_UINT(1, new_eois);
+  TEST_ASSERT_EQUAL_UINT(OUTER_SOURCE, new_eoi_source);
+  TEST_ASSERT_TRUE(new_request_cleared);
+  TEST_ASSERT_TRUE(nested_chain_unchanged);
+  TEST_ASSERT_TRUE(mie_preserved);
+  TEST_ASSERT_TRUE(source_states_preserved);
+  TEST_ASSERT_TRUE(no_pending_write);
+  TEST_ASSERT_EQUAL_UINT(0, ignored_completions);
+  TEST_ASSERT_EQUAL_UINT(3, total_eois);
+  TEST_ASSERT_TRUE(restored_threshold);
+  TEST_ASSERT_TRUE(restored_chain);
+  TEST_ASSERT_TRUE(host_interrupts_enabled());
+}
+
 // The first and the last number of the table are served like any other, and
 // with their own number.
 void test_the_first_and_the_last_interrupt_number_have_a_handler(void) {
@@ -82,6 +581,7 @@ void test_the_first_and_the_last_interrupt_number_have_a_handler(void) {
     s_calls = 0;
     s_last_intno = 0;
     TEST_ASSERT_EQUAL(E_OK, tk_def_int(edges[i], &s_recording));
+    EnableInt(edges[i], 1);
     host_plic_raise(edges[i]);
     tkmc_external_interrupt();
     TEST_ASSERT_EQUAL_UINT(1, s_calls);
@@ -222,7 +722,7 @@ void test_check_int_reads_one_pending_word_without_claiming(void) {
   TEST_ASSERT_TRUE(CheckInt(31));
   s_calls = 0;
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(31, &s_recording));
-  host_plic_set_enabled(31, TRUE);
+  EnableInt(31, 1);
   tkmc_external_interrupt();
   TEST_ASSERT_EQUAL_UINT(1, s_calls);
   TEST_ASSERT_FALSE(CheckInt(31));
@@ -301,6 +801,7 @@ void test_a_refused_definition_leaves_the_old_one_in_place(void) {
   TEST_ASSERT_EQUAL(E_PAR, tk_def_int(0xffffffffu, NULL));
   TEST_ASSERT_EQUAL(E_PAR, tk_def_int(SOME_SOURCE, &no_handler));
   TEST_ASSERT_EQUAL(E_RSATR, tk_def_int(SOME_SOURCE, &unknown_attribute));
+  EnableInt(SOME_SOURCE, 1);
   host_plic_raise(SOME_SOURCE);
   tkmc_external_interrupt();
   TEST_ASSERT_EQUAL_UINT(1, s_calls);
@@ -413,6 +914,7 @@ void test_a_handler_cannot_be_defined_in_the_isr_state(void) {
     TEST_ASSERT_EQUAL(E_CTX, tk_def_int(SOME_SOURCE, &s_recording));
   }
   tkmc_isr_depth = 0;
+  EnableInt(SOME_SOURCE, 1);
   host_plic_raise(SOME_SOURCE);
   s_calls = 0;
   tkmc_external_interrupt();
@@ -447,7 +949,7 @@ void test_a_source_a_handler_switched_off_is_still_completed(void) {
 // A source that the default handler switches off is completed while it is
 // still enabled, for the same reason.
 void test_the_default_handler_completes_before_it_switches_off(void) {
-  host_plic_set_enabled(SOME_SOURCE, TRUE);
+  EnableInt(SOME_SOURCE, 1);
   host_plic_raise(SOME_SOURCE);
   tkmc_external_interrupt();
   TEST_ASSERT_FALSE(host_plic_is_enabled(SOME_SOURCE));

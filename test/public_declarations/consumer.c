@@ -32,6 +32,8 @@ _Static_assert(_Generic(&CheckInt, BOOL (*)(UINT): 1, default: 0),
                "CheckInt must return BOOL and take a UINT");
 _Static_assert(_Generic(&EndOfInt, void (*)(UINT): 1, default: 0),
                "EndOfInt must return void and take a UINT");
+_Static_assert(_Generic(&ClearInt, void (*)(UINT): 1, default: 0),
+               "ClearInt must return void and take a UINT");
 _Static_assert(TK_SUPPORT_INTCTRL == TRUE,
                "the interrupt controller profile must remain enabled");
 #else

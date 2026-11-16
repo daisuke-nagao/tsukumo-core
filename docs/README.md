@@ -43,6 +43,7 @@ the results and the limits.
 | [Optimization and LTO validation](developer/notes/optimization-lto-validation.md) | Do the memory copy routines and mailbox links stay correct at every optimization level, with and without link-time optimization? |
 | [Semaphore order checks](developer/notes/semaphore-order-mutation.md) | Which wrong versions of the semaphore request-order rule do the tests catch? |
 | [Interrupt completion checks](developer/notes/interrupt-completion-validation.md) | How do explicit and automatic interrupt exits produce one EOI per claim? |
+| [Pending clear checks](developer/notes/clearint-validation.md) | How does ClearInt discard the selected pending request while preserving other sources and active claims? |
 | [Interrupt pending checks](developer/notes/checkint-validation.md) | How are non-destructive pending queries and their fault detection verified? |
 | [Assembly entry checks](developer/notes/assembly-entry-validation.md) | Which entry, return, completion and dispatch faults do the RV32 assembly tests detect? |
 | [Wake-up context checks](developer/notes/wakeup-context-mutation.md) | Which faults in the `tk_wup_tsk` context check do the tests detect? |

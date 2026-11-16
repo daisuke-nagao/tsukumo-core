@@ -41,6 +41,17 @@ test_a_null_flag_output_is_checked_before_the_single_waiter_rule(void);
 extern void test_a_priority_mailbox_delivers_by_priority_then_arrival(void);
 extern void
 test_a_claim_of_no_source_calls_no_handler_and_completes_nothing(void);
+extern void
+test_host_plic_claims_enabled_pending_sources_by_priority_then_id(void);
+extern void
+test_host_plic_disabled_completion_keeps_the_claim_until_reenabled(void);
+extern void test_clear_int_invalid_numbers_do_no_mmio_and_keep_mie(void);
+extern void
+test_clear_int_without_pending_never_completes_and_restores_configuration(void);
+extern void
+test_clear_int_claims_only_its_pending_source_and_preserves_all_words(void);
+extern void
+test_clear_int_in_a_nested_handler_preserves_outer_claim_and_record(void);
 extern void test_asm_interrupt_uses_the_raw_prepare_finish_path(void);
 extern void test_asm_prepare_without_a_claim_is_a_no_op(void);
 extern void test_nested_asm_contexts_restore_each_claim_and_threshold(void);
@@ -386,6 +397,14 @@ int main(void) {
   RUN_TEST(test_a_null_flag_output_is_checked_after_id_before_existence);
   RUN_TEST(test_a_null_flag_output_is_checked_before_the_single_waiter_rule);
   RUN_TEST(test_a_claim_of_no_source_calls_no_handler_and_completes_nothing);
+  RUN_TEST(test_host_plic_claims_enabled_pending_sources_by_priority_then_id);
+  RUN_TEST(test_host_plic_disabled_completion_keeps_the_claim_until_reenabled);
+  RUN_TEST(test_clear_int_invalid_numbers_do_no_mmio_and_keep_mie);
+  RUN_TEST(
+      test_clear_int_without_pending_never_completes_and_restores_configuration);
+  RUN_TEST(
+      test_clear_int_claims_only_its_pending_source_and_preserves_all_words);
+  RUN_TEST(test_clear_int_in_a_nested_handler_preserves_outer_claim_and_record);
   RUN_TEST(test_asm_interrupt_uses_the_raw_prepare_finish_path);
   RUN_TEST(test_asm_prepare_without_a_claim_is_a_no_op);
   RUN_TEST(test_nested_asm_contexts_restore_each_claim_and_threshold);

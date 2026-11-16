@@ -131,6 +131,7 @@ extern void EnableInt(UINT intno, INT level);
 extern void DisableInt(UINT intno);
 extern BOOL CheckInt(UINT intno);
 extern void EndOfInt(UINT intno);
+extern void ClearInt(UINT intno);
 
 typedef struct T_CFLG {
   void *exinf;  /* Extended Information */
