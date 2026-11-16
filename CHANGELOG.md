@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add `EndOfInt` for explicit PLIC completion, coordinated with high-level and
+  assembly interrupt exits
+  (see [interrupt completion](docs/kernel/interrupts.md#explicit-completion))
+
 - Add `CheckInt` to query a PLIC source's pending bit without claiming it
   (see [interrupt behavior](docs/kernel/interrupts.md))
 

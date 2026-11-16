@@ -21,6 +21,8 @@
 #define TKMC_INTERRUPT_KIND_NONE 0
 #define TKMC_INTERRUPT_KIND_HLNG 1
 #define TKMC_INTERRUPT_KIND_ASM 2
+#define TKMC_INTERRUPT_KIND_MASK 3
+#define TKMC_INTERRUPT_COMPLETED 4
 
 /* The RV32 PLIC; C checks these literals against address.h. */
 #define TKMC_PLIC_BASE_ADDRESS 0x0c000000
@@ -38,6 +40,7 @@
   beqz t0, 9f
 
   lw t1, TKMC_IRQCTX_KIND(t0)
+  andi t1, t1, TKMC_INTERRUPT_KIND_MASK
   li t2, TKMC_INTERRUPT_KIND_ASM
   bne t1, t2, 9f
   lw t1, TKMC_IRQCTX_DEPTH(t0)
@@ -62,7 +65,10 @@
   li t2, TKMC_PLIC_BASE_ADDRESS + TKMC_PLIC_THRESHOLD_OFFSET
   sw t1, 0(t2)
 
-  /* Complete while enabled, then restore the handler's disabled state. */
+  /* Complete once while enabled, then restore the handler's source state. */
+  lw t1, TKMC_IRQCTX_KIND(t0)
+  andi t1, t1, TKMC_INTERRUPT_COMPLETED
+  bnez t1, 8f
   lw t2, TKMC_IRQCTX_INTNO(t0)
   srli t3, t2, 5
   slli t3, t3, 2
@@ -76,6 +82,9 @@
   sw t6, 0(t3)
   li t6, TKMC_PLIC_BASE_ADDRESS + TKMC_PLIC_CLAIM_OFFSET
   sw t2, 0(t6)
+  lw t1, TKMC_IRQCTX_KIND(t0)
+  ori t1, t1, TKMC_INTERRUPT_COMPLETED
+  sw t1, TKMC_IRQCTX_KIND(t0)
   and t6, t4, t5
   bnez t6, 8f
   not t5, t5

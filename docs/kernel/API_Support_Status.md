@@ -7,7 +7,7 @@ box (`[ ]`) means it does not.
 
 The list says nothing about how closely an API follows the specification. The
 [specification conformance review](spec-conformance-review.md) checks each of
-the 38 provided APIs against the official
+the 39 provided APIs against the official
 [μT-Kernel 3.0 specification Ver.3.00.01](https://tron-forum.github.io/mtk3_spec_jp/index.html)
 and records the differences, the implementation choices and the gaps in the
 evidence.
@@ -22,8 +22,8 @@ management).
 | --- | --- | --- |
 | μT-Kernel/OS | 24 | 113 |
 | μT-Kernel/DS | 0 | 48 |
-| μT-Kernel/SM | 14 | 75 |
-| Total | 38 | 236 |
+| μT-Kernel/SM | 15 | 75 |
+| Total | 39 | 236 |
 
 ## μT-Kernel/OS API
 
@@ -208,7 +208,7 @@ management).
 * [x] `DisableInt` - Disable interrupt
 * [x] `EI` - Enable external interrupt
 * [x] `EnableInt` - Enable interrupt
-* [ ] `EndOfInt` - Issue EOI to interrupt controller
+* [x] `EndOfInt` - Issue EOI to interrupt controller
 * [ ] `eventfn` - Event function
 * [ ] `execfn` - Start processing function
 * [ ] `GetCpuIntLevel` - Get CPU internal interrupt mask level

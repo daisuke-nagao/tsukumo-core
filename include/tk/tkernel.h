@@ -130,6 +130,7 @@ extern __attribute__((__noreturn__)) void tk_ret_int(void);
 extern void EnableInt(UINT intno, INT level);
 extern void DisableInt(UINT intno);
 extern BOOL CheckInt(UINT intno);
+extern void EndOfInt(UINT intno);
 
 typedef struct T_CFLG {
   void *exinf;  /* Extended Information */

@@ -141,6 +141,10 @@ static BOOL source_is_pending(UINT src) {
 static volatile UINT s_hits;
 static volatile UINT s_last_intno;
 static volatile BOOL s_handler_pending;
+static volatile UINT s_endint_hlng_hits;
+static volatile UINT s_endint_hlng_calls;
+static volatile BOOL s_endint_hlng_retrigger;
+static UW read_mie(void);
 
 static void uart_handler(UINT intno) {
   s_handler_pending = CheckInt(intno);
@@ -156,6 +160,29 @@ static void second_handler(UINT intno) {
   out_b(UART_IER, 0);
   s_last_intno = intno;
   s_second_hits += 1;
+}
+
+static void endint_hlng_handler(UINT intno) {
+  ++s_endint_hlng_hits;
+  if (s_endint_hlng_retrigger) {
+    if (s_endint_hlng_hits == 1) {
+      EndOfInt(intno);
+      ++s_endint_hlng_calls;
+      out_b(UART_IER, 0);
+      out_b(UART_IER, IER_THRE);
+    } else {
+      out_b(UART_IER, 0);
+    }
+    return;
+  } else {
+    DisableInt(intno);
+    EndOfInt(intno);
+    ++s_endint_hlng_calls;
+    EndOfInt(intno);
+    ++s_endint_hlng_calls;
+  }
+  out_b(UART_IER, 0);
+  s_last_intno = intno;
 }
 
 // Polls, in task context with the idle task running in between, until the
@@ -212,6 +239,55 @@ static void handler_runs_with_its_interrupt_number(void) {
   TEST_ASSERT_EQUAL_UINT(UART_IRQ, s_last_intno);
   TEST_ASSERT_FALSE_MESSAGE(s_handler_pending,
                             "a claimed source was still pending");
+}
+
+static void end_of_int_hlng_is_idempotent_with_a_disabled_source(void) {
+  s_endint_hlng_hits = 0;
+  s_endint_hlng_calls = 0;
+  s_endint_hlng_retrigger = FALSE;
+  const T_DINT dint = {.intatr = TA_HLNG, .inthdr = endint_hlng_handler};
+  ER defined = tk_def_int(UART_IRQ, &dint);
+  EnableInt(UART_IRQ, 3);
+  out_b(UART_IER, IER_THRE);
+  BOOL fired = WAIT_UNTIL(s_endint_hlng_hits == 1);
+  BOOL disabled_after_end = !source_is_enabled(UART_IRQ);
+  UINT depth_after_end = tkmc_isr_depth;
+  UINT threshold_after_end = in_w(PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET);
+  UW mie_after_end = read_mie();
+  clean_up();
+  s_endint_hlng_retrigger = FALSE;
+
+  TEST_ASSERT_EQUAL(E_OK, defined);
+  TEST_ASSERT_TRUE_MESSAGE(fired,
+                           "the explicit-completion handler did not run");
+  TEST_ASSERT_EQUAL_UINT(2, s_endint_hlng_calls);
+  TEST_ASSERT_TRUE(disabled_after_end);
+  TEST_ASSERT_EQUAL_UINT(0, depth_after_end);
+  TEST_ASSERT_EQUAL_UINT(0, threshold_after_end);
+  TEST_ASSERT_EQUAL_HEX32((1u << 7) | (1u << 3),
+                          mie_after_end & ((1u << 7) | (1u << 3)));
+}
+
+static void end_of_int_allows_a_still_asserted_source_to_be_raised_again(void) {
+  s_endint_hlng_hits = 0;
+  s_endint_hlng_calls = 0;
+  s_endint_hlng_retrigger = TRUE;
+  const T_DINT dint = {.intatr = TA_HLNG, .inthdr = endint_hlng_handler};
+  ER defined = tk_def_int(UART_IRQ, &dint);
+  EnableInt(UART_IRQ, 3);
+  out_b(UART_IER, IER_THRE);
+  BOOL fired_twice = WAIT_UNTIL(s_endint_hlng_hits >= 2);
+  UINT hits = s_endint_hlng_hits;
+  UINT depth_after_end = tkmc_isr_depth;
+  clean_up();
+  s_endint_hlng_retrigger = FALSE;
+
+  TEST_ASSERT_EQUAL(E_OK, defined);
+  TEST_ASSERT_TRUE_MESSAGE(fired_twice,
+                           "completion did not let the asserted source retry");
+  TEST_ASSERT_EQUAL_UINT(2, hits);
+  TEST_ASSERT_EQUAL_UINT(1, s_endint_hlng_calls);
+  TEST_ASSERT_EQUAL_UINT(0, depth_after_end);
 }
 
 static void
@@ -812,6 +888,7 @@ static volatile UW s_outer_mie, s_outer_threshold, s_inner_threshold;
 static volatile UINT s_timer_calls_in, s_timer_calls_out;
 static volatile BOOL s_inner_ran;
 static BOOL s_track_mixed_cause;
+static BOOL s_endint_outer_on_inner;
 static UINT s_mixed_external_start, s_mixed_software_start;
 // Seen from the outer handler while it waits: the RTC pending in the PLIC, and
 // the timer's pending bit in mip after the wait.
@@ -847,6 +924,9 @@ static UW read_mip(void) {
 static void nested_inner_handler(UINT intno) {
   (void)intno;
   rtc_quiet();
+  if (s_endint_outer_on_inner) {
+    EndOfInt(UART_IRQ);
+  }
   event(EV_INNER);
   s_inner_depth = tkmc_isr_depth;
   s_inner_sp = current_sp();
@@ -1421,6 +1501,8 @@ volatile UW asm_irq_seen_s0;
 volatile UW asm_irq_seen_s2;
 volatile UW asm_irq_seen_pending;
 static volatile UINT s_asm_irq_hits;
+static volatile UINT s_asm_irq_manual_eoi_calls;
+static volatile UINT s_asm_irq_eoi_api_calls;
 static volatile ER s_asm_irq_sig_er;
 static volatile ER s_asm_irq_child_er;
 static BOOL s_asm_irq_disable_source;
@@ -1431,6 +1513,9 @@ void asm_irq_callback(UINT intno, void *frame) {
   ++s_asm_irq_hits;
   if (intno == RTC_IRQ) {
     rtc_quiet();
+    if (s_endint_outer_on_inner) {
+      EndOfInt(UART_IRQ);
+    }
     event(EV_INNER);
     s_inner_depth = tkmc_isr_depth;
     s_inner_sp = current_sp();
@@ -1479,6 +1564,10 @@ void asm_irq_callback(UINT intno, void *frame) {
   if (s_asm_irq_disable_source) {
     DisableInt(intno);
   }
+  for (UINT i = 0; i < s_asm_irq_manual_eoi_calls; ++i) {
+    EndOfInt(intno);
+    ++s_asm_irq_eoi_api_calls;
+  }
   if (s_asm_irq_wake_child) {
     s_asm_irq_sig_er = tk_sig_sem(s_sem, 1);
   }
@@ -1492,10 +1581,12 @@ static void asm_irq_child_with_timeout(void *arg) {
   test_checkpoint();
 }
 
-static void run_asm_irq_exit(BOOL direct) {
+static void run_asm_irq_exit(BOOL direct, UINT manual_eoi_calls) {
   reset_counters();
   s_flag = 0;
   s_asm_irq_hits = 0;
+  s_asm_irq_manual_eoi_calls = manual_eoi_calls;
+  s_asm_irq_eoi_api_calls = 0;
   s_asm_irq_sig_er = E_SYS;
   s_asm_irq_child_er = E_SYS;
   s_child_cause = 0;
@@ -1549,6 +1640,7 @@ static void run_asm_irq_exit(BOOL direct) {
   TEST_ASSERT_EQUAL(E_OK, defined);
   TEST_ASSERT_EQUAL(E_OK, deleted);
   TEST_ASSERT_EQUAL_UINT(2, s_asm_irq_hits);
+  TEST_ASSERT_EQUAL_UINT(2 * manual_eoi_calls, s_asm_irq_eoi_api_calls);
   TEST_ASSERT_EQUAL_UINT_MESSAGE(0, changed,
                                  "the interrupted task's registers changed");
   TEST_ASSERT_EQUAL_UINT_MESSAGE(
@@ -1627,6 +1719,7 @@ static void run_mixed_nested_entries(BOOL asm_outer, BOOL direct_asm_inner) {
   BOOL external_schedule_ok = s_schedule_ok[TRAP_EXTERNAL];
   nested_finish(TRUE);
   s_track_mixed_cause = FALSE;
+  s_endint_outer_on_inner = FALSE;
 
   TEST_ASSERT_TRUE_MESSAGE(done, "the mixed handlers and child did not run");
   TEST_ASSERT_GREATER_OR_EQUAL_UINT_MESSAGE(
@@ -1655,24 +1748,58 @@ static void run_mixed_nested_entries(BOOL asm_outer, BOOL direct_asm_inner) {
 }
 
 static void asm_outer_and_hlng_inner_dispatch_at_the_outer_exit(void) {
+  s_endint_outer_on_inner = FALSE;
   run_mixed_nested_entries(TRUE, FALSE);
 }
 
 static void hlng_outer_and_asm_inner_direct_return_defers_dispatch(void) {
+  s_endint_outer_on_inner = FALSE;
   run_mixed_nested_entries(FALSE, TRUE);
 }
 
 static void hlng_outer_and_asm_inner_tk_ret_int_defers_dispatch(void) {
+  s_endint_outer_on_inner = FALSE;
   run_mixed_nested_entries(FALSE, FALSE);
+}
+
+static void asm_outer_hlng_inner_end_outer_before_inner_exit(void) {
+  s_endint_outer_on_inner = TRUE;
+  run_mixed_nested_entries(TRUE, FALSE);
+}
+
+static void hlng_outer_asm_inner_end_outer_before_inner_exit(void) {
+  s_endint_outer_on_inner = TRUE;
+  run_mixed_nested_entries(FALSE, TRUE);
+}
+
+static void hlng_outer_asm_inner_tk_ret_int_end_outer_before_inner_exit(void) {
+  s_endint_outer_on_inner = TRUE;
+  run_mixed_nested_entries(FALSE, FALSE);
+}
+
+static void end_of_int_from_tk_ret_int_is_idempotent(void) {
+  run_asm_irq_exit(FALSE, 2);
+}
+
+static void end_of_int_from_direct_return_is_idempotent(void) {
+  run_asm_irq_exit(TRUE, 2);
+}
+
+static void end_of_int_from_tk_ret_int_single_call(void) {
+  run_asm_irq_exit(FALSE, 1);
+}
+
+static void end_of_int_from_direct_return_single_call(void) {
+  run_asm_irq_exit(TRUE, 1);
 }
 
 static void
 asm_tk_ret_int_restores_frame_and_dispatches_in_external_trap(void) {
-  run_asm_irq_exit(FALSE);
+  run_asm_irq_exit(FALSE, 0);
 }
 
 static void asm_direct_return_restores_frame_and_leaves_dispatch_pending(void) {
-  run_asm_irq_exit(TRUE);
+  run_asm_irq_exit(TRUE, 0);
 }
 
 static void dummy_task(INT stacd, void *exinf) {
@@ -1818,6 +1945,10 @@ __attribute__((__noreturn__)) void tkmc_context_panic(tkmc_context_api api) {
 static const test_case_t s_cases[] = {
     {"handler_runs_with_its_interrupt_number",
      handler_runs_with_its_interrupt_number},
+    {"end_of_int_hlng_is_idempotent_with_a_disabled_source",
+     end_of_int_hlng_is_idempotent_with_a_disabled_source},
+    {"end_of_int_allows_a_still_asserted_source_to_be_raised_again",
+     end_of_int_allows_a_still_asserted_source_to_be_raised_again},
     {"handler_runs_as_an_isr_and_its_wakeup_switches_at_the_trap_exit",
      handler_runs_as_an_isr_and_its_wakeup_switches_at_the_trap_exit},
     {"a_disabled_source_waits_until_it_is_enabled",
@@ -1875,6 +2006,20 @@ static const test_case_t s_cases[] = {
      hlng_outer_and_asm_inner_direct_return_defers_dispatch},
     {"hlng_outer_and_asm_inner_tk_ret_int_defers_dispatch",
      hlng_outer_and_asm_inner_tk_ret_int_defers_dispatch},
+    {"asm_outer_hlng_inner_end_outer_before_inner_exit",
+     asm_outer_hlng_inner_end_outer_before_inner_exit},
+    {"hlng_outer_asm_inner_end_outer_before_inner_exit",
+     hlng_outer_asm_inner_end_outer_before_inner_exit},
+    {"hlng_outer_asm_inner_tk_ret_int_end_outer_before_inner_exit",
+     hlng_outer_asm_inner_tk_ret_int_end_outer_before_inner_exit},
+    {"end_of_int_from_tk_ret_int_is_idempotent",
+     end_of_int_from_tk_ret_int_is_idempotent},
+    {"end_of_int_from_direct_return_is_idempotent",
+     end_of_int_from_direct_return_is_idempotent},
+    {"end_of_int_from_tk_ret_int_single_call",
+     end_of_int_from_tk_ret_int_single_call},
+    {"end_of_int_from_direct_return_single_call",
+     end_of_int_from_direct_return_single_call},
     // Last: they take every TCB for a while, and a failure that left them
     // taken would fail every case after it.
     {"a_task_restarted_by_an_isr_right_after_tk_ext_tsk_starts_anew",

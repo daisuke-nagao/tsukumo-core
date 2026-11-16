@@ -299,6 +299,7 @@ external_interrupt:
   lw t0, TKMC_IRQCTX_INTNO(sp)
   beqz t0, .Lexternal_epilog
   lw t1, TKMC_IRQCTX_KIND(sp)
+  andi t1, t1, TKMC_INTERRUPT_KIND_MASK
   beqz t1, .Lexternal_default
   li t2, TKMC_INTERRUPT_KIND_HLNG
   beq t1, t2, .Lexternal_hlng

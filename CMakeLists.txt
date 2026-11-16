@@ -500,6 +500,24 @@ add_test_suite(
   test/asm_task_entries.S test/asm_interrupt_entries.S)
 target_link_options(${PROJECT_NAME}-test-interrupt.elf PRIVATE
                     LINKER:--wrap=schedule LINKER:--wrap=tkmc_timer_handler)
+if(QEMU_EXECUTABLE)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(
+    NAME interrupt-completion-trace-self-test
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/test/check_interrupt_completion.py
+      --self-test)
+  add_test(
+    NAME qemu-interrupt-completion-trace
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/test/check_interrupt_completion.py
+      ${QEMU_EXECUTABLE} ${QEMU_RUN_ARGS}
+      $<TARGET_FILE:${PROJECT_NAME}-test-interrupt.elf>)
+  set_tests_properties(qemu-interrupt-completion-trace
+                       PROPERTIES ${QEMU_TEST_PROPERTIES})
+endif()
 add_test_suite(idle-halt ICOUNT_ONLY SOURCES test/suites/idle_halt.c)
 
 # How long a mailbox call keeps interrupts disabled, from the guest's
