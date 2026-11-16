@@ -36,11 +36,33 @@ static UD s_msip;
 static UD s_mtimecmp_low;
 static UD s_mtimecmp_high;
 static UW s_plic_enable[(PLIC_SOURCE_COUNT + 31) / 32];
-static UW s_plic_claim;
+static UW s_plic_pending[(PLIC_SOURCE_COUNT + 31) / 32];
+static BOOL s_plic_claimed[PLIC_SOURCE_COUNT];
 static UW s_plic_priority[PLIC_SOURCE_COUNT];
 static UW s_plic_threshold;
 static UW s_plic_threshold_highest;
 static UINT s_plic_ignored_completions;
+
+static BOOL plic_enabled(UINT src) {
+  return (s_plic_enable[src / 32] & (1u << (src % 32))) != 0;
+}
+
+static UINT plic_claim_pending(void) {
+  UINT claimed = 0;
+  UW highest_priority = 0;
+  for (UINT src = 1; src < PLIC_SOURCE_COUNT; ++src) {
+    if ((s_plic_pending[src / 32] & (1u << (src % 32))) != 0 &&
+        plic_enabled(src) && s_plic_priority[src] > highest_priority) {
+      claimed = src;
+      highest_priority = s_plic_priority[src];
+    }
+  }
+  if (claimed != 0) {
+    s_plic_pending[claimed / 32] &= ~(1u << (claimed % 32));
+    s_plic_claimed[claimed] = TRUE;
+  }
+  return claimed;
+}
 
 // The only addresses the kernel has a reason to touch. Anything else is a wild
 // access, and fails the running test.
@@ -64,7 +86,8 @@ enum {
 static void record(INT port, UINT width, UD value, BOOL is_write) {
   TEST_ASSERT_LESS_THAN_UINT_MESSAGE(HOST_LOG_MAX, host_log_count,
                                      "the access log is full");
-  host_log[host_log_count++] = (host_access_t){port, width, value, is_write};
+  host_log[host_log_count++] =
+      (host_access_t){port, width, value, is_write, s_interrupts_enabled};
 }
 
 void host_out(INT port, UINT width, UD data) {
@@ -86,12 +109,12 @@ void host_out(INT port, UINT width, UD data) {
       s_plic_threshold_highest = s_plic_threshold;
     }
     break;
-  case PLIC_CLAIM: // A completion. As the PLIC specification has it, one for a
-                   // source that is not enabled is ignored, and the source
-                   // would stay claimed.
-    if (data >= PLIC_SOURCE_COUNT ||
-        (s_plic_enable[data / 32] & (1u << (data % 32))) == 0) {
+  case PLIC_CLAIM: // A completion for a disabled source is ignored, and the
+                   // source stays claimed until a later enabled completion.
+    if (data >= PLIC_SOURCE_COUNT || !plic_enabled((UINT)data)) {
       s_plic_ignored_completions += 1;
+    } else {
+      s_plic_claimed[(UINT)data] = FALSE;
     }
     break;
   default:
@@ -131,9 +154,9 @@ UD host_in(INT port, UINT width) {
   case PLIC_THRESHOLD:
     value = s_plic_threshold;
     break;
-  case PLIC_CLAIM: // A claim takes the pending source, as the real one does.
-    value = s_plic_claim;
-    s_plic_claim = 0;
+  case PLIC_CLAIM: // Claim one enabled, nonzero-priority pending source. The
+                   // threshold affects notifications, not the claim result.
+    value = plic_claim_pending();
     s_plic_ignored_completions = 0;
     break;
   default:
@@ -146,10 +169,7 @@ UD host_in(INT port, UINT width) {
       break;
     }
     if (port >= PLIC_PENDING_FIRST && port <= PLIC_PENDING_LAST) {
-      value = s_plic_claim != 0 &&
-                      PLIC_PENDING_FIRST + 4 * (s_plic_claim / 32) == port
-                  ? 1u << (s_plic_claim % 32)
-                  : 0;
+      value = s_plic_pending[(port - PLIC_PENDING_FIRST) / 4];
       break;
     }
     TEST_FAIL_MESSAGE("the kernel read from an address the fake machine does "
@@ -359,9 +379,12 @@ void host_reset(void) {
   host_log_count = 0;
   s_interrupts_enabled = 1;
   s_msip = s_mtimecmp_low = s_mtimecmp_high = 0;
-  s_plic_claim = 0;
+  memset(s_plic_enable, 0, sizeof(s_plic_enable));
+  memset(s_plic_pending, 0, sizeof(s_plic_pending));
+  memset(s_plic_claimed, 0, sizeof(s_plic_claimed));
   s_plic_threshold = 0;
   s_plic_threshold_highest = 0;
+  s_plic_ignored_completions = 0;
   for (UINT src = 0; src < PLIC_SOURCE_COUNT; ++src) {
     s_plic_priority[src] = 0;
   }
@@ -445,18 +468,26 @@ UD host_last_write(INT port) {
 }
 
 void host_plic_set_enabled(UINT src, BOOL on) {
+  if (src >= PLIC_SOURCE_COUNT) {
+    return;
+  }
   UW bit = 1u << (src % 32);
   s_plic_enable[src / 32] =
       on ? s_plic_enable[src / 32] | bit : s_plic_enable[src / 32] & ~bit;
 }
 
 BOOL host_plic_is_enabled(UINT src) {
-  return (s_plic_enable[src / 32] & (1u << (src % 32))) != 0;
+  return src < PLIC_SOURCE_COUNT && plic_enabled(src);
 }
 
 UINT host_plic_ignored_completions(void) { return s_plic_ignored_completions; }
 
-void host_plic_raise(UINT src) { s_plic_claim = src; }
+void host_plic_raise(UINT src) {
+  if (src == 0 || src >= PLIC_SOURCE_COUNT || s_plic_claimed[src]) {
+    return;
+  }
+  s_plic_pending[src / 32] |= 1u << (src % 32);
+}
 
 UW host_plic_threshold(void) { return s_plic_threshold; }
 
@@ -467,7 +498,9 @@ void host_plic_set_threshold(UW value) { s_plic_threshold = value; }
 UW host_plic_threshold_highest(void) { return s_plic_threshold_highest; }
 
 void host_plic_set_priority(UINT src, UW priority) {
-  s_plic_priority[src] = priority;
+  if (src < PLIC_SOURCE_COUNT) {
+    s_plic_priority[src] = priority;
+  }
 }
 
 UINT host_plic_claim_port(void) { return PLIC_CLAIM; }

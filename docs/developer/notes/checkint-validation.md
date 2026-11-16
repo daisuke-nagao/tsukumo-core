@@ -107,6 +107,7 @@ file before rebuilding and rerunning the same tests.
 
 The evidence covers the configured source range and QEMU platform. Physical
 devices, a larger source configuration and deeper interrupt nesting require
-additional platform validation. The interrupt profile still has the separate
-`ClearInt` and `EndOfInt` availability gap described in the
-[specification review](../../kernel/spec-conformance-review.md).
+additional platform validation. Later additions complete the
+[interrupt-controller profile](../../kernel/spec-conformance-review.md#interrupt-controller-profile).
+The [ClearInt record](clearint-validation.md) and
+[EndOfInt record](interrupt-completion-validation.md) describe their checks.
