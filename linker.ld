@@ -68,10 +68,12 @@ SECTIONS
    * used after boot and which the fatal exception entry takes anew; below .bss
    * it would corrupt the kernel's tables. Nothing detects an overflow.
    *
-   * The size is for the nesting of the external interrupt, which is as deep as
-   * the PLIC has priorities (7): each level pushes a 128 byte trap frame and
-   * the frames of its handler, so 2048 bytes leave about 290 bytes a level. A
-   * stack of 1024 would be full at 3 or 4 levels.
+   * Strictly increasing priorities 1 through 7 permit seven nesting levels.
+   * Each nested entry needs a 128 byte trap frame and a 32 byte context, plus
+   * the handler's call frames. The outer trap frame is on the task stack.
+   * The interrupt-depth suites measure the tested handlers and check the
+   * boundary. See docs/developer/notes/deep-interrupt-nesting-validation.md
+   * for written high-water, reserved stack bounds and configuration limits.
    */
   .isr_stack (NOLOAD) : {
     . = ALIGN(16);

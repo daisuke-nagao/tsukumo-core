@@ -168,6 +168,7 @@ test, `qemu-<suite>`, and also has a `qemu-<suite>-hostclock` run.
 | `interrupt-state` | `EI()` puts back the interrupt state that `DI()` saved, whatever the state is when `EI()` runs, and `EI(0)` turns interrupts on. | |
 | `wakeup-context` | `tk_wup_tsk()` called from the real timer trap: the ISR that interrupted a task may queue a wake-up request for that task, while the task itself may not. | Uses a link-time wrap of `tkmc_timer_handler()`. See [wakeup-context-mutation.md](wakeup-context-mutation.md). |
 | `interrupt` | External interrupts through the PLIC, the interrupt stack and nested handlers. | See [The interrupt suite](#the-interrupt-suite). |
+| `interrupt-depth-<n>` | Five ELFs, `n` from 3 to 7: external interrupts nested `n` levels deep with high-level and assembly handlers, the state each level sees, deferred dispatch, and the interrupt stack checked against the boot stack below it. Each also has a `-trace` test of the PLIC completion order. | Uses a link-time wrap of `schedule()`. See [deep-interrupt-nesting-validation.md](deep-interrupt-nesting-validation.md). |
 
 ### Timer suites
 

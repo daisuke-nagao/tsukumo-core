@@ -92,4 +92,6 @@ Markdown hooks are defined in `.pre-commit-config.yaml`.
 The stack observations in [Interrupts](../../kernel/interrupts.md#measured-stack-use)
 cover the exercised one- and two-level paths. Hardware-device behavior,
 three-to-seven-level nesting and interrupt-stack overflow protection remain
-outside this evidence.
+outside this evidence. The
+[deep nesting record](deep-interrupt-nesting-validation.md) covers three to
+seven levels with assembly handlers.

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Run the interrupt suite and check the PLIC completion MMIO trace."""
+"""Run an interrupt suite and check the PLIC completion MMIO trace."""
 
 import re
 import subprocess
@@ -63,6 +63,49 @@ EXPECTED = {
     "a_task_restarted_by_an_isr_right_after_tk_ext_tsk_starts_anew": [10],
     "a_task_created_by_an_isr_in_the_tcb_tk_exd_tsk_freed_starts_anew": [10],
 }
+
+
+def _source(level):
+    """The source of a level of the nested chain of interrupt_depth.c."""
+    return 10 if level % 2 else 11
+
+
+def _depth_expected(depth):
+    """The EOI writes of each case of interrupt_depth.c built for depth levels.
+
+    Level k (2 to depth-1) completes the claim of level k-1 before it raises
+    level k+1, so the outer claims are complete before the chain unwinds; the
+    deepest level's exit then completes its own claim and level depth-1's exit
+    its own. In the late-request cases the deepest level completes level
+    depth-1's claim itself, and the late request adds one more completion.
+    """
+    outer = [_source(level) for level in range(1, depth - 1)]
+    chain = outer + [_source(depth), _source(depth - 1)]
+    late = outer + [_source(depth - 1), _source(depth), _source(depth - 1)]
+    cases = dict.fromkeys(DEPTH_CHAIN_CASES, chain)
+    cases.update(dict.fromkeys(DEPTH_LATE_CASES, late))
+    return cases
+
+
+DEPTH_CHAIN_CASES = (
+    "c_handlers_nest_to_the_full_depth",
+    "asm_handlers_with_tk_ret_int_outside",
+    "asm_handlers_with_direct_return_outside",
+    "c_odd_and_asm_even_levels_with_tk_ret_int",
+    "c_odd_and_asm_even_levels_with_direct_return",
+    "asm_odd_and_c_even_levels_with_tk_ret_int",
+    "asm_odd_and_c_even_levels_with_direct_return",
+)
+DEPTH_LATE_CASES = (
+    "a_same_priority_request_waits_for_the_deepest_level",
+    "a_lower_priority_request_waits_for_the_whole_chain",
+)
+
+# The expected sets by suite; --expect=<name> picks one, "interrupt" if absent.
+EXPECTED_SETS = {"interrupt": EXPECTED}
+EXPECTED_SETS.update(
+    {f"interrupt-depth-{depth}": _depth_expected(depth) for depth in range(3, 8)}
+)
 
 
 EVENT = re.compile(r"addr (0x[0-9a-fA-F]+) value (0x[0-9a-fA-F]+) size (\d+)")
@@ -140,6 +183,9 @@ def self_test():
         [eoi()] + valid,  # orphan completion before RUN
         valid + [eoi()],  # completion after the last PASS
         uart("suite:1:case-a:PASS\n") + valid,  # result before RUN
+        uart("RUN unknown\n"),  # unknown case
+        uart("RUN case-a\nRUN case-a\n"),  # repeated case
+        uart("RUN case-a\nsuite:1:case-b:PASS\n"),  # result for another case
         trace_for(writes=(10, 10)),  # extra completion
         trace_for(writes=()),  # missing completion
         trace_for(include_b=False),  # missing case
@@ -152,10 +198,58 @@ def self_test():
         except RuntimeError:
             continue
         raise AssertionError("malformed trace was accepted")
+
+    assert split_expect(["--expect=interrupt-depth-3", "qemu", "-kernel", "x.elf"]) == (
+        EXPECTED_SETS["interrupt-depth-3"],
+        ["qemu", "-kernel", "x.elf"],
+    )
+    assert split_expect(["qemu", "-kernel", "x.elf"]) == (EXPECTED, ["qemu", "-kernel", "x.elf"])
+    for argv in (["--expect=unknown", "qemu", "-kernel", "x.elf"], ["--expect=", "qemu"]):
+        try:
+            split_expect(argv)
+        except RuntimeError:
+            continue
+        raise AssertionError(f"bad expected set was accepted: {argv[0]}")
+    expected_depths = {
+        3: ([10, 10, 11], [10, 11, 10, 11]),
+        4: ([10, 11, 11, 10], [10, 11, 10, 11, 10]),
+        5: ([10, 11, 10, 10, 11], [10, 11, 10, 11, 10, 11]),
+        6: ([10, 11, 10, 11, 11, 10], [10, 11, 10, 11, 10, 11, 10]),
+        7: ([10, 11, 10, 11, 10, 10, 11], [10, 11, 10, 11, 10, 11, 10, 11]),
+    }
+    for depth, (chain, late) in expected_depths.items():
+        cases = EXPECTED_SETS[f"interrupt-depth-{depth}"]
+        assert set(cases) == set(DEPTH_CHAIN_CASES + DEPTH_LATE_CASES)
+        assert all(cases[name] == chain for name in DEPTH_CHAIN_CASES)
+        assert all(cases[name] == late for name in DEPTH_LATE_CASES)
+    for argv in ([], ["qemu"], ["--expect=interrupt-depth-3"]):
+        try:
+            command_args(argv)
+        except RuntimeError:
+            continue
+        raise AssertionError(f"bad command line was accepted: {argv}")
     print("trace parser self-test passed")
 
 
-def check(qemu, qemu_args, elf):
+def split_expect(argv):
+    """Takes a leading --expect=<set> off argv before QEMU's own arguments."""
+    if argv and argv[0].startswith("--expect="):
+        name = argv[0][len("--expect="):]
+        if name not in EXPECTED_SETS:
+            raise RuntimeError(f"unknown expected set: {name!r}")
+        return EXPECTED_SETS[name], argv[1:]
+    return EXPECTED, argv
+
+
+def command_args(argv):
+    """Validate the wrapper arguments after the optional expected-set flag."""
+    expected, qemu_argv = split_expect(argv)
+    if len(qemu_argv) < 3:
+        raise RuntimeError("usage: check_interrupt_completion.py [--expect=SET] QEMU QEMU-OPTION ELF")
+    return expected, qemu_argv
+
+
+def check(qemu, qemu_args, elf, expected):
     with tempfile.TemporaryDirectory() as directory:
         trace = Path(directory) / "interrupt.trace"
         command = [
@@ -172,16 +266,17 @@ def check(qemu, qemu_args, elf):
             raise RuntimeError(f"QEMU exited {result.returncode}: {output}\n{result.stderr.decode(errors='replace')}")
         if ":FAIL:" in output or not trace.is_file():
             raise RuntimeError(f"interrupt suite failed or trace is missing: {output}")
-        seen = parse_trace(trace.read_text(encoding="utf-8").splitlines(), EXPECTED)
+        seen = parse_trace(trace.read_text(encoding="utf-8").splitlines(), expected)
         print(f"checked {len(seen)} passing interrupt cases and PLIC EOI writes")
 
 
 if __name__ == "__main__":
     try:
-        if sys.argv[1] == "--self-test":
+        if sys.argv[1:] == ["--self-test"]:
             self_test()
         else:
-            check(sys.argv[1], sys.argv[2:-1], sys.argv[-1])
+            expected, argv = command_args(sys.argv[1:])
+            check(argv[0], argv[1:-1], argv[-1], expected)
     except (IndexError, OSError, RuntimeError, subprocess.SubprocessError) as error:
         print(error, file=sys.stderr)
         sys.exit(1)

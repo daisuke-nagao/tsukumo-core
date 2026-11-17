@@ -20,6 +20,8 @@ typedef struct {
   void (*fn)(void);
 } test_case_t;
 
+enum { TEST_STACK_WORDS = 512 };
+
 /// Starts the runner task. Called from usermain, which runs on a 512 byte
 /// stack and must not assert. limit_ms is the time one case may take before it
 /// is reported as a timeout and the suite is aborted.

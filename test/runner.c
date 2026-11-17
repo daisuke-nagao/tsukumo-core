@@ -37,7 +37,11 @@ void tearDown(void) {}
 // fill the task table (the timer-cost suite does). The pool is not sized to
 // match: it stays at 48 stacks, since most suites use few, and a case that
 // needs more of them has to change POOL_STACKS.
-enum { STACK_WORDS = 512, POOL_STACKS = 48, LEDGER_SIZE = CFN_MAX_TSKID };
+enum {
+  STACK_WORDS = TEST_STACK_WORDS,
+  POOL_STACKS = 48,
+  LEDGER_SIZE = CFN_MAX_TSKID
+};
 
 static UW s_runner_stack[STACK_WORDS] __attribute__((aligned(16)));
 static UW s_pool[POOL_STACKS][STACK_WORDS] __attribute__((aligned(16)));

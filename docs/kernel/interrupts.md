@@ -306,8 +306,11 @@ boot stack below it.
 The stack is sized for nesting. A trap that starts inside a handler pushes a
 128-byte frame, a 32-byte external-entry record and its own handler's frames
 on the same stack. The PLIC has 7
-priorities, which is the deepest nesting there can be, so 2048 bytes leave
-about 290 bytes for each level.
+priorities. A chain admitted only at strictly increasing priorities can
+therefore reach seven levels. Handler call frames also consume this stack.
+The [deep nesting record](../developer/notes/deep-interrupt-nesting-validation.md)
+gives the tested handlers' written high-water marks and separate bounds on
+reserved stack space for each build configuration.
 
 ### Measured stack use
 
@@ -328,8 +331,17 @@ build preset (`CMakePresets.json`) using the instruction-count clock.
 The suite checks the limits but does not print the counts. Diagnostic-only
 copies of the suite recorded them. They are observed counts, and interrupt
 timing can affect them. The suite covers its tested paths, not the worst case
-of a handler you write. Deeper nesting is not measured, because the QEMU
-`virt` board has only two sources that software can raise.
+of a handler you write.
+
+The `interrupt-depth-3` to `interrupt-depth-7` suites
+(`test/suites/interrupt_depth.c`) nest three to seven levels by alternating
+the two sources that the QEMU `virt` board lets software raise. They fail if
+a level's stack pointer leaves the interrupt stack, if the boot stack below
+it changes, or if the high-water mark reaches 2048 bytes. On 2026-11-18 the
+largest seven-level count was 1972 bytes in `debug` and 1600 to 1744 bytes in
+the optimized presets. The
+[deep nesting record](../developer/notes/deep-interrupt-nesting-validation.md)
+lists every depth and preset, and the limits of these figures.
 
 ## Nested interrupts
 

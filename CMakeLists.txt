@@ -518,6 +518,28 @@ if(QEMU_EXECUTABLE)
   set_tests_properties(qemu-interrupt-completion-trace
                        PROPERTIES ${QEMU_TEST_PROPERTIES})
 endif()
+# External interrupts nested 3 to 7 levels deep and the interrupt stack they
+# take, one ELF per depth so that a depth that overflows the stack fails alone.
+# Each depth also gets the PLIC completion trace check.
+foreach(depth RANGE 3 7)
+  set(suite interrupt-depth-${depth})
+  add_test_suite(${suite} SOURCES test/suites/interrupt_depth.c
+                 test/interrupt_depth_entries.S)
+  target_compile_definitions(${PROJECT_NAME}-test-${suite}.elf
+                             PRIVATE NEST_DEPTH=${depth})
+  target_link_options(${PROJECT_NAME}-test-${suite}.elf PRIVATE
+                      LINKER:--wrap=schedule)
+  if(QEMU_EXECUTABLE)
+    add_test(
+      NAME qemu-${suite}-trace
+      COMMAND
+        ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/check_interrupt_completion.py
+        --expect=${suite} ${QEMU_EXECUTABLE} ${QEMU_RUN_ARGS}
+        $<TARGET_FILE:${PROJECT_NAME}-test-${suite}.elf>)
+    set_tests_properties(qemu-${suite}-trace PROPERTIES ${QEMU_TEST_PROPERTIES})
+  endif()
+endforeach()
 add_test_suite(idle-halt ICOUNT_ONLY SOURCES test/suites/idle_halt.c)
 
 # How long a mailbox call keeps interrupts disabled, from the guest's
