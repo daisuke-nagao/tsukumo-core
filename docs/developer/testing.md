@@ -183,6 +183,29 @@ these tests were written, because its clang ships the sanitizer runtimes for
 x86_64 only. [`test/host/fakes.h`](../../test/host/fakes.h) describes the fake
 machine in full.
 
+## Name a test
+
+A test's name says what it tests and what it promises, so that a failure
+report reads as the rule that broke. The rule is the same for the PC tests and
+the QEMU cases:
+
+1. Start with the subject. That is the API the test calls, in lower case with
+   underscores (`tk_sig_sem`, `enable_int`, `end_of_int`). A test of several
+   APIs or of a mechanism names the feature instead (`semaphore`,
+   `timer_queue`, `interrupt_stack`).
+2. Then state the promise in the present tense: what the subject does or
+   keeps.
+3. Leave out the articles a, an and the.
+4. Start a PC test with `test_`. A QEMU case has no prefix.
+
+For example, `test_tk_cre_sem_refuses_null_packet_and_keeps_free_slots` is a PC
+test, and `semaphore_fifo_first_keeps_head_ahead` is a QEMU case.
+
+The cases of the runner's self-test suites (`selftest-*`) are the exception.
+They are fixtures named for the part they play, such as `pass_case` and
+`hang_case`, and the CTest regular expressions in `CMakeLists.txt` refer to
+those names.
+
 ## Configure without network access
 
 The tests use [Unity](https://github.com/ThrowTheSwitch/Unity) v2.6.1, a unit

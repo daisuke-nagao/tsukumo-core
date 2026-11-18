@@ -78,7 +78,7 @@ tcb == current && !isDI(intsts)
 
 A task with interrupts disabled then wrongly gets permission to queue its own
 request. An ISR that has `MIE` enabled wrongly loses permission to wake the
-task it interrupted. The QEMU case `isr_with_mie_on_is_still_an_isr` covers
+task it interrupted. The QEMU case `tk_wup_tsk_from_isr_with_mie_on_is_still_isr` covers
 the second effect: it turns `MIE` on in the timer ISR, with every interrupt
 source masked so that no trap can nest, and it records the ISR depth separately
 from the interrupt flag.
@@ -136,39 +136,39 @@ results.
 | Correct, restored | 0 | 0 | 0 |
 
 Each expected failure was an assertion in its named case, and no run timed
-out. With M2, `isr_wakes_a_sleeping_task` joined its child after the child's
+out. With M2, `tk_wup_tsk_from_isr_wakes_sleeping_task` joined its child after the child's
 bounded sleep expired, reached its assertion on the wake-up result, and
 completed the suite. For every change, the last case of each suite ran on both
 clocks.
 
 The host failures were:
 
-- M0 failed `test_a_task_cannot_wake_itself_with_interrupts_on_or_off` with
+- M0 failed `test_tk_wup_tsk_refuses_self_wake_with_interrupts_on_or_off` with
   expected `E_OBJ`, actual `E_OK`, and
-  `test_wakeup_count_is_bounded_for_the_running_task_in_an_isr` with expected
+  `test_tk_wup_tsk_bounds_wakeup_count_for_running_task_in_isr` with expected
   `E_OK`, actual `E_OBJ`.
-- M1 failed `test_wakeup_count_is_bounded_for_the_running_task_in_an_isr`
+- M1 failed `test_tk_wup_tsk_bounds_wakeup_count_for_running_task_in_isr`
   with expected `E_OK`, actual `E_OBJ`.
-- M2 failed `test_wakeup_count_is_bounded_for_ready_and_non_sleep_waiting_tasks`,
-  `test_wakeup_count_is_bounded_for_the_running_task_in_an_isr`, and
-  `test_a_sleeper_is_woken_in_every_context` with expected `E_OK`, actual
+- M2 failed `test_tk_wup_tsk_bounds_wakeup_count_for_ready_and_non_sleep_waiting_tasks`,
+  `test_tk_wup_tsk_bounds_wakeup_count_for_running_task_in_isr`, and
+  `test_tk_wup_tsk_wakes_sleeper_in_every_context` with expected `E_OK`, actual
   `E_CTX`. It also failed
-  `test_a_task_cannot_wake_itself_with_interrupts_on_or_off` with expected
+  `test_tk_wup_tsk_refuses_self_wake_with_interrupts_on_or_off` with expected
   `E_OBJ`, actual `E_CTX`.
 
 The QEMU failures were:
 
-- M0 failed `task_cannot_wake_itself` with expected `E_OBJ`, actual `E_OK`, and
-  `isr_with_mie_on_is_still_an_isr` with expected `E_OK`, actual `E_OBJ`.
-- M1 failed `isr_queues_a_wakeup_for_the_interrupted_task`,
-  `isr_queues_the_last_wakeup_slot`, and `isr_with_mie_on_is_still_an_isr`
+- M0 failed `tk_wup_tsk_refuses_task_waking_itself` with expected `E_OBJ`, actual `E_OK`, and
+  `tk_wup_tsk_from_isr_with_mie_on_is_still_isr` with expected `E_OK`, actual `E_OBJ`.
+- M1 failed `tk_wup_tsk_from_isr_queues_wakeup_for_interrupted_task`,
+  `tk_wup_tsk_from_isr_queues_last_wakeup_slot`, and `tk_wup_tsk_from_isr_with_mie_on_is_still_isr`
   with expected `E_OK`, actual `E_OBJ`. It also failed
-  `isr_refuses_a_wakeup_past_the_limit` with expected `E_QOVR`, actual `E_OBJ`.
-- M2 failed `task_cannot_wake_itself` with expected `E_OBJ`, actual `E_CTX`.
-  It failed `isr_queues_a_wakeup_for_the_interrupted_task`,
-  `isr_queues_the_last_wakeup_slot`, and `isr_wakes_a_sleeping_task` with
+  `tk_wup_tsk_from_isr_refuses_wakeup_past_limit` with expected `E_QOVR`, actual `E_OBJ`.
+- M2 failed `tk_wup_tsk_refuses_task_waking_itself` with expected `E_OBJ`, actual `E_CTX`.
+  It failed `tk_wup_tsk_from_isr_queues_wakeup_for_interrupted_task`,
+  `tk_wup_tsk_from_isr_queues_last_wakeup_slot`, and `tk_wup_tsk_from_isr_wakes_sleeping_task` with
   expected `E_OK`, actual `E_CTX`. It also failed
-  `isr_refuses_a_wakeup_past_the_limit` with expected `E_QOVR`, actual `E_CTX`.
+  `tk_wup_tsk_from_isr_refuses_wakeup_past_limit` with expected `E_QOVR`, actual `E_CTX`.
 
 ## Repeating the experiment
 

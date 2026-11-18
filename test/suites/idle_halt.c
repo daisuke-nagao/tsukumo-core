@@ -29,7 +29,7 @@ enum {
   INSTRUCTION_LIMIT = 100000
 };
 
-static void idle_stops_the_cpu_while_all_tasks_wait(void) {
+static void idle_stops_cpu_while_all_tasks_wait(void) {
   // Start on a tick edge, so that the sleep below spans whole ticks.
   TEST_ASSERT_EQUAL(E_OK, tk_dly_tsk(1));
   UW mtime_before = test_mtime();
@@ -67,16 +67,14 @@ static void lowest_priority_child(void *arg) {
   test_checkpoint();
 }
 
-static void lowest_priority_yield_resumes_without_a_tick(void) {
+static void idle_lowest_priority_yield_resumes_without_tick(void) {
   test_spawn(lowest_priority_child, CFN_MAX_PRI, NULL);
   test_join_expect(1);
 }
 
 static const test_case_t s_cases[] = {
-    {"lowest_priority_yield_resumes_without_a_tick",
-     lowest_priority_yield_resumes_without_a_tick},
-    {"idle_stops_the_cpu_while_all_tasks_wait",
-     idle_stops_the_cpu_while_all_tasks_wait},
+    CASE(idle_lowest_priority_yield_resumes_without_tick),
+    CASE(idle_stops_cpu_while_all_tasks_wait),
 };
 
 TEST_SUITE_MAIN("idle-halt", s_cases, 5000)

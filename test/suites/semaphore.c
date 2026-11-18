@@ -19,6 +19,7 @@
 #include <unity.h>
 
 #include "../runner.h"
+#include "../sem_request.h"
 
 enum {
   ROUNDS = 5,
@@ -73,7 +74,7 @@ static void contender(void *arg) {
 // other waits for it, and its wait of WAIT_MS outlasts the hold of HOLD_MS.
 static contest_t g_binary;
 
-static void binary_semaphore_is_exclusive(void) {
+static void semaphore_binary_is_exclusive(void) {
   g_binary.semid = create_semaphore(1, 1);
   g_binary.units = 1;
   g_binary.wait_ms = WAIT_MS;
@@ -89,7 +90,7 @@ static void binary_semaphore_is_exclusive(void) {
 // Both children wait for as long as it takes.
 static contest_t g_counting;
 
-static void counting_semaphore_grants_whole_requests(void) {
+static void semaphore_counting_grants_whole_requests(void) {
   g_counting.semid = create_semaphore(3, 3);
   g_counting.units = 3;
   g_counting.wait_ms = TMO_FEVR;
@@ -104,7 +105,7 @@ static void counting_semaphore_grants_whole_requests(void) {
 // A wait with a time limit that nobody satisfies returns E_TMOUT, and not
 // before the limit. Only a lower bound is checked: a stalled host makes the
 // wait longer, never shorter.
-static void wait_times_out(void) {
+static void tk_wai_sem_times_out_not_before_limit(void) {
   ID semid = create_semaphore(0, 1);
 
   UW start = test_mtime_mid_tick();
@@ -136,7 +137,7 @@ static void timed_waiter(void *arg) {
   test_checkpoint();
 }
 
-static void signal_after_timeout_keeps_the_unit(void) {
+static void tk_sig_sem_after_wait_timeout_keeps_unit(void) {
   g_timed.semid = create_semaphore(0, 1);
   g_timed.result = E_SYS;
 
@@ -173,7 +174,7 @@ static void wait_for_deleted(void *arg) {
   test_checkpoint();
 }
 
-static void delete_releases_waiters(void) {
+static void tk_del_sem_releases_waiters(void) {
   ID semid = create_semaphore(0, 1);
   g_delete_forever.semid = semid;
   g_delete_timed.semid = semid;
@@ -191,7 +192,7 @@ static void delete_releases_waiters(void) {
 }
 
 // A semaphore refuses to go past its maximum, and keeps its count.
-static void signal_over_limit_is_refused(void) {
+static void tk_sig_sem_over_limit_is_refused(void) {
   ID semid = create_semaphore(1, 1);
 
   TEST_ASSERT_EQUAL(E_QOVR, tk_sig_sem(semid, 1));
@@ -203,7 +204,7 @@ static void signal_over_limit_is_refused(void) {
 
 // A maximum of 1 to 32767 and an initial count of 0 to the maximum are
 // accepted, and nothing else.
-static void counts_out_of_range_are_refused(void) {
+static void tk_cre_sem_refuses_counts_out_of_range(void) {
   static const INT bad[][2] = {{-1, 1},       {0, 0},           {0, -1},
                                {0, 32768},    {0, __INT_MAX__}, {2, 1},
                                {32768, 32768}};
@@ -228,7 +229,7 @@ static void counts_out_of_range_are_refused(void) {
 
 // A signal larger than the maximum, or one whose sum overflows, is refused,
 // and the semaphore keeps the count it had.
-static void signal_past_the_maximum_keeps_the_count(void) {
+static void tk_sig_sem_past_maximum_keeps_count(void) {
   ID empty = create_semaphore(0, 1);
   TEST_ASSERT_EQUAL(E_QOVR, tk_sig_sem(empty, 2));
   TEST_ASSERT_EQUAL(E_TMOUT, tk_wai_sem(empty, 1, TMO_POL));
@@ -248,33 +249,10 @@ static void signal_past_the_maximum_keeps_the_count(void) {
 // asserted before it deleted the semaphore would leave A waiting for good, and
 // the time-out would skip every later case. Deleting the semaphore ends A with
 // E_DLT, whatever the kernel did.
-enum { UNSET = 1, QUEUE_TIMEOUT_MS = 1000 };
-_Static_assert(UNSET > E_OK, "UNSET must not be a result of tk_wai_sem");
+enum { QUEUE_TIMEOUT_MS = 1000 };
 
-typedef struct {
-  ID semid;
-  INT units;
-  TMO wait_ms;
-  volatile ER result;
-} request_t;
-
-static void requester(void *arg) {
-  request_t *request = arg;
-  request->result =
-      tk_wai_sem(request->semid, request->units, request->wait_ms);
-  test_checkpoint();
-}
-
-// Both priorities are above the case, so the request is made, or waits, before
-// this returns.
-static void start_request(request_t *request, ID semid, INT units, TMO wait_ms,
-                          PRI prio) {
-  request->semid = semid;
-  request->units = units;
-  request->wait_ms = wait_ms;
-  request->result = UNSET;
-  test_spawn(requester, prio, request);
-}
+// Both priorities are above the case, so start_request() (sem_request.h)
+// returns after the request is made or waits.
 
 // A semaphore that holds one unit, with A waiting at its head for two. The
 // signal that leaves the unit goes to *signalled, to be checked with the rest:
@@ -293,7 +271,7 @@ static ID semaphore_with_head_waiting(ATR attr, request_t *head, PRI prio,
 static request_t g_fifo_head;
 static request_t g_fifo_late;
 
-static void fifo_first_keeps_the_head_ahead(void) {
+static void semaphore_fifo_first_keeps_head_ahead(void) {
   ER signalled;
   ID semid = semaphore_with_head_waiting(TA_TFIFO | TA_FIRST, &g_fifo_head,
                                          SECOND_PRIORITY, &signalled);
@@ -326,7 +304,7 @@ static const priority_row_t s_priority_rows[PRIORITY_ROWS] = {
 static request_t g_priority_head[PRIORITY_ROWS];
 static request_t g_priority_late[PRIORITY_ROWS];
 
-static void tpri_first_lets_only_a_higher_priority_pass(void) {
+static void semaphore_tpri_first_lets_only_higher_priority_pass(void) {
   ER signalled[PRIORITY_ROWS];
   ER deleted[PRIORITY_ROWS];
   for (int row = 0; row < PRIORITY_ROWS; ++row) {
@@ -355,7 +333,7 @@ static void tpri_first_lets_only_a_higher_priority_pass(void) {
 // guards the other attribute against being made as strict as TA_FIRST.
 static request_t g_cnt_head[2];
 
-static void cnt_lets_a_small_request_pass(void) {
+static void semaphore_cnt_lets_small_request_pass(void) {
   static const ATR attrs[2] = {TA_TFIFO | TA_CNT, TA_TPRI | TA_CNT};
   ER signalled[2];
   ER polled[2];
@@ -383,7 +361,7 @@ static void cnt_lets_a_small_request_pass(void) {
 static request_t g_ordered_head;
 static request_t g_ordered_late;
 
-static void refused_request_is_served_after_the_head(void) {
+static void semaphore_refused_request_is_served_after_head(void) {
   ER signalled;
   ID semid = semaphore_with_head_waiting(TA_TFIFO | TA_FIRST, &g_ordered_head,
                                          SECOND_PRIORITY, &signalled);
@@ -402,10 +380,10 @@ static void refused_request_is_served_after_the_head(void) {
   test_join_expect(2);
 
   TEST_ASSERT_EQUAL(E_OK, signalled);
-  TEST_ASSERT_EQUAL(UNSET, late_while_head_waits);
+  TEST_ASSERT_EQUAL(REQUEST_UNSET, late_while_head_waits);
   TEST_ASSERT_EQUAL(E_OK, second_signal);
   TEST_ASSERT_EQUAL(E_OK, head_after_second);
-  TEST_ASSERT_EQUAL(UNSET, late_after_second);
+  TEST_ASSERT_EQUAL(REQUEST_UNSET, late_after_second);
   TEST_ASSERT_EQUAL(E_OK, third_signal);
   TEST_ASSERT_EQUAL(E_OK, late_after_third);
   TEST_ASSERT_EQUAL(E_OK, deleted);
@@ -422,7 +400,7 @@ static request_t g_served_next;
 // before the signal, which would serve the next waiter by the signal instead.
 enum { HEAD_LIMIT_MS = 200 };
 
-static void a_leaving_head_hands_its_units_on(void) {
+static void semaphore_leaving_head_hands_its_units_on(void) {
   ID semid = create_semaphore_with(TA_TFIFO | TA_FIRST, 0, 2);
   start_request(&g_leaving_head, semid, 2, HEAD_LIMIT_MS, SECOND_PRIORITY);
   start_request(&g_served_next, semid, 1, QUEUE_TIMEOUT_MS, FIRST_PRIORITY);
@@ -437,13 +415,13 @@ static void a_leaving_head_hands_its_units_on(void) {
   test_join_expect(2);
 
   TEST_ASSERT_EQUAL(E_OK, signalled);
-  TEST_ASSERT_EQUAL(UNSET, next_while_head_waits);
+  TEST_ASSERT_EQUAL(REQUEST_UNSET, next_while_head_waits);
   TEST_ASSERT_EQUAL(E_TMOUT, head_result);
   TEST_ASSERT_EQUAL(E_OK, next_result);
   TEST_ASSERT_EQUAL(E_OK, deleted);
 }
 
-static void null_creation_packet_is_refused(void) {
+static void tk_cre_sem_refuses_null_packet(void) {
   TEST_ASSERT_EQUAL(E_PAR, tk_cre_sem(NULL));
   UINT intsts, after;
   DI(intsts);
@@ -459,25 +437,20 @@ static void null_creation_packet_is_refused(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"null_creation_packet_is_refused", null_creation_packet_is_refused},
-    {"binary_semaphore_is_exclusive", binary_semaphore_is_exclusive},
-    {"counting_semaphore_grants_whole_requests",
-     counting_semaphore_grants_whole_requests},
-    {"wait_times_out", wait_times_out},
-    {"delete_releases_waiters", delete_releases_waiters},
-    {"signal_after_timeout_keeps_the_unit",
-     signal_after_timeout_keeps_the_unit},
-    {"signal_over_limit_is_refused", signal_over_limit_is_refused},
-    {"counts_out_of_range_are_refused", counts_out_of_range_are_refused},
-    {"signal_past_the_maximum_keeps_the_count",
-     signal_past_the_maximum_keeps_the_count},
-    {"fifo_first_keeps_the_head_ahead", fifo_first_keeps_the_head_ahead},
-    {"tpri_first_lets_only_a_higher_priority_pass",
-     tpri_first_lets_only_a_higher_priority_pass},
-    {"cnt_lets_a_small_request_pass", cnt_lets_a_small_request_pass},
-    {"refused_request_is_served_after_the_head",
-     refused_request_is_served_after_the_head},
-    {"a_leaving_head_hands_its_units_on", a_leaving_head_hands_its_units_on},
+    CASE(tk_cre_sem_refuses_null_packet),
+    CASE(semaphore_binary_is_exclusive),
+    CASE(semaphore_counting_grants_whole_requests),
+    CASE(tk_wai_sem_times_out_not_before_limit),
+    CASE(tk_del_sem_releases_waiters),
+    CASE(tk_sig_sem_after_wait_timeout_keeps_unit),
+    CASE(tk_sig_sem_over_limit_is_refused),
+    CASE(tk_cre_sem_refuses_counts_out_of_range),
+    CASE(tk_sig_sem_past_maximum_keeps_count),
+    CASE(semaphore_fifo_first_keeps_head_ahead),
+    CASE(semaphore_tpri_first_lets_only_higher_priority_pass),
+    CASE(semaphore_cnt_lets_small_request_pass),
+    CASE(semaphore_refused_request_is_served_after_head),
+    CASE(semaphore_leaving_head_hands_its_units_on),
 };
 
 TEST_SUITE_MAIN("semaphore", s_cases, 10000)

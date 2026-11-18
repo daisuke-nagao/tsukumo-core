@@ -23,7 +23,7 @@ static UD machine_time(void) {
   return ((UD)high << 32) | low;
 }
 
-static void delay_across_low_word_wrap(void) {
+static void tk_dly_tsk_lasts_across_low_word_wrap(void) {
   UD start = machine_time();
   TEST_ASSERT_EQUAL_UINT32(1, start >> 32);
   TEST_ASSERT_EQUAL(E_OK, tk_dly_tsk(300));
@@ -33,7 +33,7 @@ static void delay_across_low_word_wrap(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"delay_across_low_word_wrap", delay_across_low_word_wrap},
+    CASE(tk_dly_tsk_lasts_across_low_word_wrap),
 };
 
 void usermain(int a0) {

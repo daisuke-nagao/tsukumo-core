@@ -26,9 +26,11 @@
 
 #include <tk/tkernel.h>
 
+#include "asm/rv32/address.h"
 #include "event_flag.h"
 #include "list.h"
 #include "mailbox.h"
+#include "panic.h"
 #include "semaphore.h"
 #include "task.h"
 
@@ -106,6 +108,10 @@ extern void host_assert_unchanged(const host_snapshot_t *s, const char *what);
 // task on the wait queue of an object is waiting for that kind of object.
 extern void host_check_kernel_queues(void);
 
+// host_check_kernel_queues(), and fails the running test if the call before
+// left interrupts off.
+extern void host_check_kernel_state(void);
+
 // Resets the fake machine and the kernel to a fresh boot: interrupts enabled,
 // registers and log cleared, no current task, and every kernel table
 // initialised.
@@ -117,6 +123,63 @@ extern ID host_make_task(PRI prio);
 // Makes the task the running one, as the scheduler would have.
 extern void host_set_current(ID tskid);
 
+// The priorities most tests use: a task and one it outranks.
+enum { HOST_HIGH_PRIORITY = 4, HOST_LOW_PRIORITY = 5 };
+
+// The machine software interrupt register. Every write to it is a context
+// switch request.
+enum { HOST_MSIP = CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET };
+
+#define HOST_COUNT(array) (sizeof(array) / sizeof((array)[0]))
+
+static inline TCB *host_tcb(ID tskid) { return &tkmc_tcbs[tskid - 1]; }
+
+// Whether node is linked on the ring that head starts.
+extern BOOL host_in_queue(const tkmc_list_head *head,
+                          const tkmc_list_head *node);
+
+// Makes a task at HOST_HIGH_PRIORITY the running one and lets it sleep for
+// ticks (2 or more), counted as tkmc_ms_to_ticks() does. Returns its ID.
+extern ID host_sleep_for(UINT ticks);
+
+// Makes a task at HOST_LOW_PRIORITY that never waits the running one, so the
+// queues are complete.
+extern void host_run_idle_task(void);
+
+// A small linear congruential generator, so that a seed gives the same
+// sequence on every run.
+extern UINT host_next_random(UINT *state);
+
+// One semaphore (no units, at most one), one event flag (no bits set) and one
+// mailbox, each TA_TFIFO. The test fails if one cannot be made.
+typedef struct {
+  ID semid;
+  ID flgid;
+  ID mbxid;
+} host_objects_t;
+extern host_objects_t host_make_objects(void);
+
+// Two tasks at HOST_HIGH_PRIORITY, the first one running, and
+// host_make_objects(). The priorities are equal so that a call that wrongly
+// yields, unlinks a task or touches an object changes a snapshot.
+extern void host_two_tasks_and_objects(void);
+
+// Creates semaphores until the kernel refuses with E_LIMIT, and returns how
+// many it made. Nothing deletes them. A free list that does not end fails the
+// test instead of hanging it.
+extern UINT host_count_creatable_semaphores(void);
+
+// The execution context of a call: in_isr is the state the RV32 trap entries
+// set (tkmc_isr_depth), whatever the interrupt flag says; interrupts_off is a
+// task's own DI() or the MIE a handler left off. host_leave() goes back to a
+// task with interrupts on.
+typedef struct {
+  BOOL interrupts_off;
+  UINT intsts;
+} host_context_t;
+extern host_context_t host_enter(BOOL in_isr, BOOL interrupts_off);
+extern void host_leave(host_context_t context);
+
 // Advances the machine timer by n kernel ticks (HOST_TICK counts each), running
 // the timer interrupt handler after each.
 extern void host_tick(UINT ticks);
@@ -125,6 +188,9 @@ extern void host_tick(UINT ticks);
 extern UINT host_write_count(INT port);
 extern UD host_last_write(INT port);
 
+// The number of accesses to port in the access log, of writes or of reads.
+extern UINT host_access_count(INT port, BOOL is_write);
+
 // The PLIC: pending sources are claimed only when enabled with nonzero
 // priority; highest priority wins, then lowest source ID. Threshold does not
 // change a claim result. The port of the claim and completion register, for
@@ -132,6 +198,9 @@ extern UD host_last_write(INT port);
 extern void host_plic_set_enabled(UINT src, BOOL on);
 extern BOOL host_plic_is_enabled(UINT src);
 extern void host_plic_raise(UINT src);
+// Whether src is pending, read through the pending register as the kernel
+// reads it (the read is logged).
+extern BOOL host_plic_pending(UINT src);
 extern UW host_plic_threshold(void);
 extern void host_plic_set_threshold(UW value);
 extern UW host_plic_threshold_highest(void);
@@ -139,6 +208,16 @@ extern void host_plic_set_priority(UINT src, UW priority);
 // How many ignored completions have occurred since the last claim read.
 extern UINT host_plic_ignored_completions(void);
 extern UINT host_plic_claim_port(void);
+// The port of the priority register of src.
+extern INT host_plic_priority_port(UINT src);
+
+// A TA_HLNG handler that counts its calls in host_handler_calls and keeps the
+// interrupt number of the last one in host_handler_intno, and a definition of
+// it for tk_def_int().
+extern UINT host_handler_calls;
+extern UINT host_handler_intno;
+extern void host_counting_handler(UINT intno);
+extern const T_DINT host_counting_hlng;
 
 extern jmp_buf host_wait_jmp;
 extern volatile int host_wait_armed;
@@ -167,6 +246,32 @@ extern void host_arm_wait(void);
                              #statement " returned without "                   \
                                         "switching the task out");             \
     TEST_ASSERT_TRUE(host_interrupts_enabled());                               \
+  } while (0)
+
+// The PC does not compile kernel/panic.c, so fakes.c stands in for
+// tkmc_fatal_context(); the QEMU tests check the real one. The stand-in aborts
+// the test run unless HOST_CATCH_FATAL_CONTEXT is around the call.
+typedef struct {
+  BOOL stopped;         // The call ended in tkmc_fatal_context().
+  tkmc_context_api api; // The API it named.
+  BOOL interrupts_off;  // Interrupts were off when it was called.
+} host_fatal_t;
+
+extern jmp_buf host_fatal_jmp;
+extern volatile BOOL host_fatal_armed;
+extern volatile host_fatal_t host_fatal;
+
+// Runs statement, and stops it where it calls tkmc_fatal_context(). result
+// (a host_fatal_t) says whether, and how, it got there.
+#define HOST_CATCH_FATAL_CONTEXT(result, statement)                            \
+  do {                                                                         \
+    host_fatal = (host_fatal_t){FALSE, TKMC_CONTEXT_NONE, FALSE};              \
+    host_fatal_armed = TRUE;                                                   \
+    if (setjmp(host_fatal_jmp) == 0) {                                         \
+      statement;                                                               \
+    }                                                                          \
+    host_fatal_armed = FALSE;                                                  \
+    (result) = host_fatal;                                                     \
   } while (0)
 
 #ifdef __cplusplus

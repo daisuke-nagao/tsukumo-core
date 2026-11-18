@@ -82,6 +82,14 @@ UW test_mtime_mid_tick(void) {
   return test_mtime();
 }
 
+UINT test_task_state(ID id) {
+  UINT intsts;
+  DI(intsts);
+  UINT state = tkmc_tcbs[id - 1].tskstat;
+  EI(intsts);
+  return state;
+}
+
 // Reads the task table the kernel owns. The tests depend on its layout.
 static int task_gone(ID id) {
   return ((volatile TCB *)&tkmc_tcbs[id - 1])->tskstat == TTS_NOEXS;

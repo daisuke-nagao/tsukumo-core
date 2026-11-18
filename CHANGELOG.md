@@ -33,10 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `tk_set_utc` and `tk_get_utc` for millisecond UTC system time and declare `TK_SUPPORT_UTC` true
   (see [docs/kernel/behavior.md](docs/kernel/behavior.md#system-time-utc))
 
+- Add a QEMU test of the `in_b`, `in_h`, `in_d`, `out_b`, `out_h` and `out_d` port access functions
+- Add PC tests of `TWF_ANDW`, `TWF_BITCLR`, a refused message priority of 0 and `TA_TFIFO` receiver order
+
+### Changed
+
+- Rename the PC tests and QEMU cases, all but the runner's self-test fixtures, to name what they test
+  (see [naming rule](docs/developer/testing.md#name-a-test))
+- Restructure the tests around shared helpers and tables, split the largest files and register CTest cases by name
+
 ### Fixed
 
 - Strengthen UTC reset and refusal regressions with elapsed and pending ticks
 - Keep the never-return attribute of the panic APIs when `<stdnoreturn.h>` is included before the kernel headers
+- Run the RV32 public-declaration link checks one at a time so that `ctest -j` no longer fails them at random
 
 ## [0.0.1] - 2026-11-11
 

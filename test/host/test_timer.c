@@ -40,7 +40,7 @@ static void check_compare(UD expected) {
 }
 
 // At boot the first interrupt is set one tick ahead of the machine time.
-void test_the_kernel_arms_the_timer_one_tick_ahead_at_boot(void) {
+static void test_timer_arms_compare_one_tick_ahead_at_boot(void) {
   host_log_count = 0; // setUp() has already booted; boot again, with a log.
   host_mtime = 3 * HOST_TICK;
   tkmc_start_timer();
@@ -50,7 +50,7 @@ void test_the_kernel_arms_the_timer_one_tick_ahead_at_boot(void) {
 }
 
 // After a tick the next interrupt is one tick away.
-void test_timer_interrupt_sets_the_next_compare_value_ahead_of_now(void) {
+static void test_timer_interrupt_sets_next_compare_ahead_of_now(void) {
   host_tick(1);
   check_compare(2 * HOST_TICK);
   host_tick(1);
@@ -59,13 +59,13 @@ void test_timer_interrupt_sets_the_next_compare_value_ahead_of_now(void) {
 
 // If the handler runs late, past several ticks, the compare value still ends up
 // ahead of the machine time, on the tick grid.
-void test_a_late_timer_interrupt_skips_to_the_next_tick_ahead(void) {
+static void test_timer_late_interrupt_skips_to_next_tick_ahead(void) {
   host_mtime = 5 * HOST_TICK + 5000;
   tkmc_timer_handler();
   check_compare(6 * HOST_TICK);
 }
 
-void test_timer_boot_replaces_both_compare_words(void) {
+static void test_timer_boot_replaces_both_compare_words(void) {
   out_w(MTIMECMP_HIGH, 0xffffffffu);
   out_w(MTIMECMP_LOW, 0xffffffffu);
   host_mtime = ((UD)7 << 32) + 12345;
@@ -74,11 +74,11 @@ void test_timer_boot_replaces_both_compare_words(void) {
   check_compare(host_mtime + HOST_TICK);
 }
 
-void test_timer_compare_crosses_the_low_word_boundary(void) {
+static void test_timer_compare_crosses_low_word_boundary(void) {
   const UD boundary = (UD)8 << 32;
   const UD starts[] = {boundary - HOST_TICK - 1, boundary - HOST_TICK,
                        boundary - 1, boundary, boundary + 1};
-  for (UINT i = 0; i < sizeof(starts) / sizeof(starts[0]); ++i) {
+  for (UINT i = 0; i < HOST_COUNT(starts); ++i) {
     host_mtime = starts[i];
     host_log_count = 0;
     tkmc_start_timer();
@@ -93,7 +93,7 @@ void test_timer_compare_crosses_the_low_word_boundary(void) {
   }
 }
 
-void test_timer_boot_retries_a_read_that_carries_into_the_high_word(void) {
+static void test_timer_boot_retries_read_that_carries_into_high_word(void) {
   host_mtime = ((UD)7 << 32) | 0xfffffff0u;
   host_mtime_advance_after_low_read = 0x30;
   host_log_count = 0;
@@ -101,7 +101,7 @@ void test_timer_boot_retries_a_read_that_carries_into_the_high_word(void) {
   check_compare(host_mtime + HOST_TICK);
 }
 
-void test_timer_handler_retries_a_read_that_carries_into_the_high_word(void) {
+static void test_timer_handler_retries_read_that_carries_into_high_word(void) {
   const UD boundary = (UD)8 << 32;
   host_mtime = boundary - 2 * HOST_TICK;
   tkmc_start_timer();
@@ -118,21 +118,6 @@ void test_timer_handler_retries_a_read_that_carries_into_the_high_word(void) {
 // call that comes before the compare value (MTIP is cleared late after a
 // compare write) changes nothing.
 
-enum { WAITER_PRIORITY = 4, IDLE_PRIORITY = 5 };
-
-// A task that sleeps for ticks (2 or more), counted as tkmc_ms_to_ticks() does.
-static ID sleep_for(UINT ticks) {
-  ID id = host_make_task(WAITER_PRIORITY);
-  host_set_current(id);
-  HOST_EXPECT_WAIT(tk_slp_tsk((TMO)((ticks - 1) * 10)));
-  return id;
-}
-
-// Makes a task that never waits the running one, so the queues are complete.
-static void run_idle_task(void) {
-  host_set_current(host_make_task(IDLE_PRIORITY));
-}
-
 static void check_wait(ID id, UINT left) {
   const TCB *tcb = &tkmc_tcbs[id - 1];
   if (left == 0) {
@@ -145,7 +130,7 @@ static void check_wait(ID id, UINT left) {
   host_check_kernel_queues();
 }
 
-void test_a_timer_interrupt_counts_every_period_that_has_passed(void) {
+static void test_timer_interrupt_counts_every_period_that_has_passed(void) {
   // An 11 tick wait, then one interrupt after `periods`; 0 left is a time-out.
   static const struct {
     UINT periods;
@@ -153,13 +138,13 @@ void test_a_timer_interrupt_counts_every_period_that_has_passed(void) {
   } rows[] = {{0, 11}, {1, 10}, {10, 1}, {11, 0}, {14, 0}};
   // From the start of time, and across the low-word wrap of the machine timer.
   const UD starts[] = {0, ((UD)8 << 32) - 5 * HOST_TICK};
-  for (UINT s = 0; s < sizeof(starts) / sizeof(starts[0]); ++s) {
-    for (UINT r = 0; r < sizeof(rows) / sizeof(rows[0]); ++r) {
+  for (UINT s = 0; s < HOST_COUNT(starts); ++s) {
+    for (UINT r = 0; r < HOST_COUNT(rows); ++r) {
       host_reset();
       host_mtime = starts[s];
       tkmc_start_timer();
-      ID id = sleep_for(11);
-      run_idle_task();
+      ID id = host_sleep_for(11);
+      host_run_idle_task();
       host_log_count = 0;
 
       host_mtime = starts[s] + rows[r].periods * HOST_TICK;
@@ -180,9 +165,9 @@ void test_a_timer_interrupt_counts_every_period_that_has_passed(void) {
 
 // A second interrupt at the same time, as when MTIP is cleared late, finds no
 // period that has passed and changes nothing, the compare value included.
-void test_a_repeated_timer_interrupt_changes_nothing(void) {
-  ID id = sleep_for(3);
-  run_idle_task();
+static void test_timer_repeated_interrupt_changes_nothing(void) {
+  ID id = host_sleep_for(3);
+  host_run_idle_task();
   host_tick(1);
   check_wait(id, 2);
 
@@ -197,11 +182,11 @@ void test_a_repeated_timer_interrupt_changes_nothing(void) {
 
 // One late interrupt ends only the waits whose time has come, and takes the
 // same periods off the others.
-void test_a_late_timer_interrupt_ends_only_the_waits_it_reached(void) {
-  ID short_wait = sleep_for(3);
-  ID exact = sleep_for(10);
-  ID long_wait = sleep_for(12);
-  run_idle_task();
+static void test_timer_queue_late_interrupt_ends_only_waits_it_reached(void) {
+  ID short_wait = host_sleep_for(3);
+  ID exact = host_sleep_for(10);
+  ID long_wait = host_sleep_for(12);
+  host_run_idle_task();
 
   host_mtime = 10 * HOST_TICK;
   tkmc_timer_handler();
@@ -213,12 +198,13 @@ void test_a_late_timer_interrupt_ends_only_the_waits_it_reached(void) {
 // Periods that passed before a task began to wait, while their interrupt was
 // still pending, are not taken off its wait, but are taken off the tasks that
 // already waited.
-void test_a_new_wait_does_not_count_periods_from_before_it_began(void) {
-  ID earlier = sleep_for(10);
+static void
+test_timer_queue_new_wait_does_not_count_periods_before_it_began(void) {
+  ID earlier = host_sleep_for(10);
   // The compare value is one tick; at four ticks four periods are pending.
   host_mtime = 4 * HOST_TICK;
-  ID late = sleep_for(3);
-  run_idle_task();
+  ID late = host_sleep_for(3);
+  host_run_idle_task();
 
   tkmc_timer_handler();
   check_wait(late, 3);
@@ -228,4 +214,19 @@ void test_a_new_wait_does_not_count_periods_from_before_it_began(void) {
   host_tick(1);
   check_wait(late, 0);
   check_wait(earlier, 3);
+}
+
+void run_timer_tests(void) {
+  UnitySetTestFile(__FILE__);
+  RUN_TEST(test_timer_arms_compare_one_tick_ahead_at_boot);
+  RUN_TEST(test_timer_interrupt_sets_next_compare_ahead_of_now);
+  RUN_TEST(test_timer_late_interrupt_skips_to_next_tick_ahead);
+  RUN_TEST(test_timer_boot_replaces_both_compare_words);
+  RUN_TEST(test_timer_compare_crosses_low_word_boundary);
+  RUN_TEST(test_timer_boot_retries_read_that_carries_into_high_word);
+  RUN_TEST(test_timer_handler_retries_read_that_carries_into_high_word);
+  RUN_TEST(test_timer_interrupt_counts_every_period_that_has_passed);
+  RUN_TEST(test_timer_repeated_interrupt_changes_nothing);
+  RUN_TEST(test_timer_queue_late_interrupt_ends_only_waits_it_reached);
+  RUN_TEST(test_timer_queue_new_wait_does_not_count_periods_before_it_began);
 }

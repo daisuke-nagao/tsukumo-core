@@ -49,15 +49,7 @@ static void restarted_child(INT stacd, void *exinf) {
   // Even runs return through the ra installed by tk_sta_tsk().
 }
 
-static UINT task_state(ID id) {
-  UINT intsts;
-  DI(intsts);
-  UINT state = tkmc_tcbs[id - 1].tskstat;
-  EI(intsts);
-  return state;
-}
-
-static void restart_preserves_entry_and_arguments(void) {
+static void tk_sta_tsk_restart_preserves_entry_and_arguments(void) {
   s_entries = 0;
   s_gate = tk_cre_sem(&(T_CSEM){.sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
   TEST_ASSERT_GREATER_THAN(0, s_gate);
@@ -70,15 +62,15 @@ static void restart_preserves_entry_and_arguments(void) {
   TEST_ASSERT_GREATER_THAN(0, id);
   for (s_expected = 0; s_expected <= RESTARTS; ++s_expected) {
     TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, (INT)s_expected));
-    TEST_ASSERT_EQUAL_UINT(TTS_WAI, task_state(id));
+    TEST_ASSERT_EQUAL_UINT(TTS_WAI, test_task_state(id));
     // A wakeup while waiting on a semaphore must not survive the next start.
     TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(id));
     TEST_ASSERT_EQUAL(E_OK, tk_sig_sem(s_gate, 1));
-    TEST_ASSERT_EQUAL_UINT(TTS_DMT, task_state(id));
+    TEST_ASSERT_EQUAL_UINT(TTS_DMT, test_task_state(id));
     TEST_ASSERT_EQUAL_UINT(s_expected + 1, s_entries);
   }
   TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, CLEANUP));
-  TEST_ASSERT_EQUAL_UINT(TTS_NOEXS, task_state(id));
+  TEST_ASSERT_EQUAL_UINT(TTS_NOEXS, test_task_state(id));
   TEST_ASSERT_EQUAL(E_OK, tk_del_sem(s_gate));
   test_join_expect(RESTARTS + 1);
 }
@@ -94,21 +86,22 @@ static void check_start_refused(ID bad_id) {
                                .bufptr = s_stack});
   TEST_ASSERT_GREATER_THAN(0, id);
   TEST_ASSERT_EQUAL(E_ID, tk_sta_tsk(bad_id, 0));
-  TEST_ASSERT_EQUAL_UINT(TTS_DMT, task_state(id));
+  TEST_ASSERT_EQUAL_UINT(TTS_DMT, test_task_state(id));
   TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, CLEANUP));
-  TEST_ASSERT_EQUAL_UINT(TTS_NOEXS, task_state(id));
+  TEST_ASSERT_EQUAL_UINT(TTS_NOEXS, test_task_state(id));
 }
 
-static void start_with_id_zero(void) { check_start_refused(0); }
-static void start_with_a_negative_id(void) { check_start_refused(-1); }
+static void tk_sta_tsk_with_id_zero_is_refused(void) { check_start_refused(0); }
+static void tk_sta_tsk_with_negative_id_is_refused(void) {
+  check_start_refused(-1);
+}
 
 // The refusals come last: before the fix they read and may write the memory in
 // front of the task table, and the cases after them would run on what is left.
 static const test_case_t s_cases[] = {
-    {"restart_preserves_entry_and_arguments",
-     restart_preserves_entry_and_arguments},
-    {"start_with_id_zero", start_with_id_zero},
-    {"start_with_a_negative_id", start_with_a_negative_id},
+    CASE(tk_sta_tsk_restart_preserves_entry_and_arguments),
+    CASE(tk_sta_tsk_with_id_zero_is_refused),
+    CASE(tk_sta_tsk_with_negative_id_is_refused),
 };
 
 TEST_SUITE_MAIN("task-restart", s_cases, 5000)

@@ -21,6 +21,7 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
+#include "qemu_virt.h"
 #include "runner.h"
 
 extern void **__real_schedule(void *sp);
@@ -39,9 +40,6 @@ enum {
 };
 _Static_assert(CHILD_PRIORITY < TEST_CASE_PRIORITY,
                "the child must preempt the case, to sleep before it goes on");
-
-static const UW MCAUSE_SOFTWARE = 0x80000003u; // Machine software interrupt
-static const UW MCAUSE_TIMER = 0x80000007u;    // Machine timer interrupt
 
 static volatile UW s_last_mcause;
 
@@ -79,7 +77,7 @@ static void timer_sleeping_child(void *arg) {
 // the child outranks. The runner can wake in the same trap and run first, so
 // not every wake-up has to be switched to in the timer trap; the sleeps are
 // spaced so that it cannot be all of them.
-static void timer_wake_switches_inside_the_timer_trap(void) {
+static void timer_wake_switches_inside_timer_trap(void) {
   s_done = FALSE;
   test_spawn(timer_sleeping_child, CHILD_PRIORITY, NULL);
   TEST_ASSERT_TRUE_MESSAGE(wait_until_done(), "the child never finished");
@@ -111,7 +109,7 @@ static void wakeup_sleeping_child(void *arg) {
 // The child is asleep when test_spawn() returns, since it outranks the case.
 // tk_wup_tsk() asks for the switch with dispatch(), and the software interrupt
 // takes it as soon as the call enables interrupts again.
-static void task_dispatch_still_switches_in_the_software_interrupt(void) {
+static void tk_wup_tsk_dispatch_still_switches_in_software_interrupt(void) {
   s_cause_after_wakeup = 0;
   ID child = test_spawn(wakeup_sleeping_child, CHILD_PRIORITY, NULL);
   TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(child));
@@ -199,7 +197,7 @@ static void flag_setting_child(void *arg) {
 // is resumed by the end of the child (__launch_task, not a trap exit): the
 // child outranks it and the runner cannot be ready while the child runs, so
 // this is also the check of that path. Keep it so.
-static void a_task_preempted_by_the_timer_resumes_intact(void) {
+static void timer_preempted_task_resumes_intact(void) {
   for (UINT i = 0; i < STATE_WORDS; ++i) {
     s_state[i] = 0;
   }
@@ -214,12 +212,9 @@ static void a_task_preempted_by_the_timer_resumes_intact(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"timer_wake_switches_inside_the_timer_trap",
-     timer_wake_switches_inside_the_timer_trap},
-    {"task_dispatch_still_switches_in_the_software_interrupt",
-     task_dispatch_still_switches_in_the_software_interrupt},
-    {"a_task_preempted_by_the_timer_resumes_intact",
-     a_task_preempted_by_the_timer_resumes_intact},
+    CASE(timer_wake_switches_inside_timer_trap),
+    CASE(tk_wup_tsk_dispatch_still_switches_in_software_interrupt),
+    CASE(timer_preempted_task_resumes_intact),
 };
 
 TEST_SUITE_MAIN("timer-switch", s_cases, 5000)

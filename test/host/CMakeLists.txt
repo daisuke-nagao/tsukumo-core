@@ -59,6 +59,8 @@ add_executable(
   test_event_flag.c
   test_fixture.c
   test_intctl.c
+  test_asm_interrupt.c
+  test_pending_int.c
   test_interrupt_state.c
   test_isr_context.c
   test_list.c

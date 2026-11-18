@@ -25,8 +25,8 @@ static void orphan_case1(void) { test_spawn(late_failing_child, 2, 0); }
 static void orphan_case2(void) { TEST_ASSERT_EQUAL(1, 1); }
 
 static const test_case_t s_cases[] = {
-    {"orphan_case1", orphan_case1},
-    {"orphan_case2", orphan_case2},
+    CASE(orphan_case1),
+    CASE(orphan_case2),
 };
 
 TEST_SUITE_MAIN("selftest-orphan", s_cases, 5000)

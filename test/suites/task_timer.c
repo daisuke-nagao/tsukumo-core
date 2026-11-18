@@ -33,7 +33,7 @@ static void sleeping_child(void *arg) {
   test_checkpoint();
 }
 
-static void sleep_times_out(void) {
+static void tk_slp_tsk_times_out(void) {
   test_spawn(sleeping_child, CHILD_PRIORITY, 0);
   test_join_expect(1);
 }
@@ -48,7 +48,7 @@ static void released_child(void *arg) {
   test_checkpoint();
 }
 
-static void release_wait(void) {
+static void tk_rel_wai_ends_sleeps_early(void) {
   ID child = test_spawn(released_child, CHILD_PRIORITY, 0);
   TEST_ASSERT_EQUAL(E_OK, tk_rel_wai(child));
   TEST_ASSERT_EQUAL(E_OK, tk_rel_wai(child));
@@ -66,7 +66,7 @@ static void woken_child(void *arg) {
   test_checkpoint();
 }
 
-static void wakeup_multiple(void) {
+static void tk_wup_tsk_ends_multiple_sleeps(void) {
   ID child = test_spawn(woken_child, CHILD_PRIORITY, 0);
   TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(child));
   TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(child));
@@ -86,7 +86,7 @@ static void queued_wakeup_child(void *arg) {
   test_checkpoint();
 }
 
-static void wakeup_queued_before_sleep(void) {
+static void tk_wup_tsk_queued_before_sleep_is_consumed_by_tk_slp_tsk(void) {
   ID child = test_spawn(queued_wakeup_child, LATE_CHILD_PRIORITY, 0);
   TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(child));
   TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(child));
@@ -96,7 +96,7 @@ static void wakeup_queued_before_sleep(void) {
 
 // tk_dly_tsk() must not return early. Only a lower bound is checked: a stalled
 // host makes the delay longer, never shorter, so this cannot be flaky.
-static void delay_lasts_long_enough(void) {
+static void tk_dly_tsk_lasts_long_enough(void) {
   UW start = test_mtime_mid_tick();
   TEST_ASSERT_EQUAL(E_OK, tk_dly_tsk(SLEEP_MS));
   TEST_ASSERT_GREATER_OR_EQUAL_UINT32(SLEEP_MS * TEST_MTIME_PER_MS,
@@ -116,7 +116,7 @@ static void long_sleeper(void *arg) {
   test_checkpoint();
 }
 
-static void longest_sleep_counts_its_ticks(void) {
+static void tk_slp_tsk_longest_limit_counts_its_ticks(void) {
   ID child = test_spawn(long_sleeper, CHILD_PRIORITY, 0);
   UINT intsts;
   DI(intsts);
@@ -153,14 +153,14 @@ static ER queue_wakeup_limit(ID child) {
   return tk_wup_tsk(child);
 }
 
-static void ready_task_refuses_a_wakeup_past_the_limit(void) {
+static void tk_wup_tsk_refuses_wakeup_past_limit_for_ready_task(void) {
   ID child = test_spawn(consume_wakeup_limit, LATE_CHILD_PRIORITY, 0);
   ER overflow = queue_wakeup_limit(child);
   test_join_expect(1);
   TEST_ASSERT_EQUAL(E_QOVR, overflow);
 }
 
-static void semaphore_waiter_refuses_a_wakeup_past_the_limit(void) {
+static void tk_wup_tsk_refuses_wakeup_past_limit_for_semaphore_waiter(void) {
   s_wakeup_gate =
       tk_cre_sem(&(T_CSEM){.sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
   TEST_ASSERT_GREATER_THAN(0, s_wakeup_gate);
@@ -183,7 +183,7 @@ static void released_semaphore_waiter(void *arg) {
   test_checkpoint();
 }
 
-static void release_wait_keeps_a_queued_wakeup(void) {
+static void tk_rel_wai_keeps_queued_wakeup(void) {
   s_wakeup_gate =
       tk_cre_sem(&(T_CSEM){.sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
   TEST_ASSERT_GREATER_THAN(0, s_wakeup_gate);
@@ -201,7 +201,7 @@ static void release_wait_keeps_a_queued_wakeup(void) {
 // and with them off: DI() does not make a task an ISR. The result is kept and
 // checked after interrupts are back on, since a failed assert must not run in
 // the DI section. The poll afterwards finds no request.
-static void task_cannot_wake_itself(void) {
+static void tk_wup_tsk_refuses_task_waking_itself(void) {
   UINT intsts;
   DI(intsts);
   ID self = current->tskid;
@@ -240,7 +240,7 @@ static void held_back_sleeper(void *arg) {
   test_checkpoint();
 }
 
-static void a_held_back_interrupt_counts_every_period(void) {
+static void timer_held_back_interrupt_counts_every_period(void) {
   // Taken here: test_mtime_mid_tick() delays, and the child must sleep at once.
   s_sleep_start = test_mtime_mid_tick();
   test_spawn(held_back_sleeper, CHILD_PRIORITY, 0);
@@ -256,20 +256,17 @@ static void a_held_back_interrupt_counts_every_period(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"sleep_times_out", sleep_times_out},
-    {"release_wait", release_wait},
-    {"wakeup_multiple", wakeup_multiple},
-    {"wakeup_queued_before_sleep", wakeup_queued_before_sleep},
-    {"delay_lasts_long_enough", delay_lasts_long_enough},
-    {"longest_sleep_counts_its_ticks", longest_sleep_counts_its_ticks},
-    {"ready_task_refuses_a_wakeup_past_the_limit",
-     ready_task_refuses_a_wakeup_past_the_limit},
-    {"semaphore_waiter_refuses_a_wakeup_past_the_limit",
-     semaphore_waiter_refuses_a_wakeup_past_the_limit},
-    {"release_wait_keeps_a_queued_wakeup", release_wait_keeps_a_queued_wakeup},
-    {"task_cannot_wake_itself", task_cannot_wake_itself},
-    {"a_held_back_interrupt_counts_every_period",
-     a_held_back_interrupt_counts_every_period},
+    CASE(tk_slp_tsk_times_out),
+    CASE(tk_rel_wai_ends_sleeps_early),
+    CASE(tk_wup_tsk_ends_multiple_sleeps),
+    CASE(tk_wup_tsk_queued_before_sleep_is_consumed_by_tk_slp_tsk),
+    CASE(tk_dly_tsk_lasts_long_enough),
+    CASE(tk_slp_tsk_longest_limit_counts_its_ticks),
+    CASE(tk_wup_tsk_refuses_wakeup_past_limit_for_ready_task),
+    CASE(tk_wup_tsk_refuses_wakeup_past_limit_for_semaphore_waiter),
+    CASE(tk_rel_wai_keeps_queued_wakeup),
+    CASE(tk_wup_tsk_refuses_task_waking_itself),
+    CASE(timer_held_back_interrupt_counts_every_period),
 };
 
 TEST_SUITE_MAIN("task-timer", s_cases, 5000)

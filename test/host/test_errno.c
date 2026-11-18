@@ -12,16 +12,23 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-void test_the_main_and_sub_error_codes_come_apart_as_they_were_joined(void) {
+#include "fakes.h"
+
+static void test_error_code_main_and_sub_parts_split_as_joined(void) {
   static const struct {
     ER mer;
     H ser;
   } rows[] = {{0, 0},    {-17, 0}, {-17, 1}, {-17, 0x7fff},
               {-17, -1}, {-66, 1}, {5, 1}};
-  for (UINT i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i) {
+  for (UINT i = 0; i < HOST_COUNT(rows); ++i) {
     ER er = ERCD(rows[i].mer, rows[i].ser);
     TEST_ASSERT_EQUAL_INT(rows[i].mer, MERCD(er));
     TEST_ASSERT_EQUAL_INT(rows[i].ser, SERCD(er));
   }
   TEST_ASSERT_EQUAL_INT(E_PAR, ERCD(MERCD(E_PAR), SERCD(E_PAR)));
+}
+
+void run_errno_tests(void) {
+  UnitySetTestFile(__FILE__);
+  RUN_TEST(test_error_code_main_and_sub_parts_split_as_joined);
 }

@@ -153,9 +153,9 @@ what they claim:
 The cases do not check that a late interrupt takes the passed ticks off every
 wait, or that a wake-up request is kept when a wait ends. Neither behavior
 changed with the skipped wait-queue walk, and the PC unit tests
-`test_a_timer_interrupt_counts_every_period_that_has_passed`,
-`test_a_late_timer_interrupt_ends_only_the_waits_it_reached` and
-`test_release_wait_keeps_a_queued_wakeup` check them. The PC unit tests run
+`test_timer_interrupt_counts_every_period_that_has_passed`,
+`test_timer_queue_late_interrupt_ends_only_waits_it_reached` and
+`test_tk_rel_wai_keeps_queued_wakeup` check them. The PC unit tests run
 the kernel sources on the development PC, without QEMU (see
 [testing.md](../testing.md)).
 
@@ -344,5 +344,5 @@ Two checks hold the change:
 
 In the PC unit tests, the checker of the kernel queues fails a `TA_CNT`
 waiter whose request the units cover, which is the fact that makes the skip
-correct. `test_a_cnt_signal_serves_every_request_the_units_cover` fails when a
+correct. `test_tk_sig_sem_with_ta_cnt_serves_every_request_units_cover` fails when a
 signal stops at the first request it serves.

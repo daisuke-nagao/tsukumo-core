@@ -65,7 +65,7 @@ static BOOL irq_enabled(void) {
 // so this rules out only gross errors; the PC unit tests check the start
 // exactly. The bound is loose for the host clock, where a stalled host
 // stretches the time.
-static void utc_is_small_before_any_set(void) {
+static void tk_get_utc_is_small_before_any_set(void) {
   test_mtime_mid_tick();
   UD now = read_utc();
   TEST_ASSERT_TRUE_MESSAGE(now < 5000, "the clock does not start near zero");
@@ -73,7 +73,7 @@ static void utc_is_small_before_any_set(void) {
 
 // A value is read back as set, apart from the ticks since. The values cover
 // both words and the end of the low word.
-static void set_value_is_read_back(void) {
+static void tk_set_utc_value_is_read_back(void) {
   static const SYSTIM values[] = {
       {0, 0},
       {0, 123456},
@@ -95,7 +95,7 @@ static void set_value_is_read_back(void) {
 // A tick adds 10 ms, so a delay of 100 ms moves it by at least 100 ms. The
 // upper bounds of this suite only catch gross errors (SLACK_MS): on the host
 // clock a stalled host makes one late interrupt count several ticks.
-static void clock_advances_by_a_delay_across_the_low_word_boundary(void) {
+static void system_time_advances_by_delay_across_low_word_boundary(void) {
   const UD start = 0xffffffffu - 5;
   test_mtime_mid_tick();
   set_utc(0, (UW)start);
@@ -107,7 +107,7 @@ static void clock_advances_by_a_delay_across_the_low_word_boundary(void) {
                            "the clock advanced too much");
 }
 
-static void clock_advances_by_a_delay_after_a_set_to_a_smaller_value(void) {
+static void system_time_advances_by_delay_after_set_to_smaller_value(void) {
   test_mtime_mid_tick();
   set_utc(5, 0);
   test_mtime_mid_tick();
@@ -190,11 +190,11 @@ static void wait_ignores_a_set_of_the_clock(W hi, UW lo) {
   TEST_ASSERT_EQUAL(E_OK, tk_del_mbx(s_mbxid));
 }
 
-static void waits_end_normally_when_the_clock_is_set_forward(void) {
+static void system_time_set_forward_ends_waits_normally(void) {
   wait_ignores_a_set_of_the_clock(2, 0);
 }
 
-static void waits_end_normally_when_the_clock_is_set_backward(void) {
+static void system_time_set_backward_ends_waits_normally(void) {
   wait_ignores_a_set_of_the_clock(0, 500);
 }
 
@@ -227,7 +227,7 @@ void __wrap_tkmc_timer_handler(void) {
   s_observed = TRUE;
 }
 
-static void calls_in_a_real_interrupt_handler_are_refused(void) {
+static void system_time_calls_in_real_interrupt_handler_are_refused(void) {
   const UD start = 1000000;
   test_mtime_mid_tick();
   set_utc(0, (UW)start);
@@ -252,18 +252,13 @@ static void calls_in_a_real_interrupt_handler_are_refused(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"utc_is_small_before_any_set", utc_is_small_before_any_set},
-    {"set_value_is_read_back", set_value_is_read_back},
-    {"clock_advances_by_a_delay_across_the_low_word_boundary",
-     clock_advances_by_a_delay_across_the_low_word_boundary},
-    {"clock_advances_by_a_delay_after_a_set_to_a_smaller_value",
-     clock_advances_by_a_delay_after_a_set_to_a_smaller_value},
-    {"waits_end_normally_when_the_clock_is_set_forward",
-     waits_end_normally_when_the_clock_is_set_forward},
-    {"waits_end_normally_when_the_clock_is_set_backward",
-     waits_end_normally_when_the_clock_is_set_backward},
-    {"calls_in_a_real_interrupt_handler_are_refused",
-     calls_in_a_real_interrupt_handler_are_refused},
+    CASE(tk_get_utc_is_small_before_any_set),
+    CASE(tk_set_utc_value_is_read_back),
+    CASE(system_time_advances_by_delay_across_low_word_boundary),
+    CASE(system_time_advances_by_delay_after_set_to_smaller_value),
+    CASE(system_time_set_forward_ends_waits_normally),
+    CASE(system_time_set_backward_ends_waits_normally),
+    CASE(system_time_calls_in_real_interrupt_handler_are_refused),
 };
 
 TEST_SUITE_MAIN("system-time", s_cases, 5000)

@@ -117,8 +117,11 @@ target_compile_options(
   test-runner PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS} -fstack-usage>)
 target_compile_features(test-runner PRIVATE c_std_11)
 
-# add_test_suite(<name> SOURCES <files>... [ICOUNT_ONLY] [EXPECT_FAIL
-# OUTPUT_REGEX <regex> [FAIL_REGEX <regex>]])
+# add_test_suite(<name> SOURCES <files>... [WRAP <symbols>...] [ICOUNT_ONLY]
+# [EXPECT_FAIL OUTPUT_REGEX <regex> [FAIL_REGEX <regex>]])
+#
+# WRAP links the ELF with --wrap for each symbol, for a suite that replaces a
+# kernel function with a test-only wrapper (__wrap_<symbol>).
 #
 # ICOUNT_ONLY is for a suite that reads minstret. QEMU counts instructions in
 # minstret only under -icount; on the host clock it returns host timer ticks, a
@@ -143,7 +146,7 @@ target_compile_features(test-runner PRIVATE c_std_11)
 #   alternatives, not a conjunction; chain the expected lines with ".*".
 function(add_test_suite name)
   cmake_parse_arguments(SUITE "EXPECT_FAIL;ICOUNT_ONLY"
-                        "OUTPUT_REGEX;FAIL_REGEX" "SOURCES" ${ARGN})
+                        "OUTPUT_REGEX;FAIL_REGEX" "SOURCES;WRAP" ${ARGN})
   # An empty or misspelled OUTPUT_REGEX would register a -output test that
   # passes on any output, which is worse than no test.
   if(SUITE_UNPARSED_ARGUMENTS OR SUITE_KEYWORDS_MISSING_VALUES)
@@ -161,6 +164,9 @@ function(add_test_suite name)
   target_compile_options(${elf} PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS}
                                         -fstack-usage>)
   target_compile_features(${elf} PRIVATE c_std_11)
+  foreach(symbol IN LISTS SUITE_WRAP)
+    target_link_options(${elf} PRIVATE LINKER:--wrap=${symbol})
+  endforeach()
 
   if(NOT QEMU_EXECUTABLE)
     return()
@@ -305,6 +311,26 @@ else()
 endif()
 list(APPEND QEMU_RUN_ARGS -kernel)
 
+# add_completion_trace(<test name> <suite>) runs the suite's ELF on QEMU under
+# test/check_interrupt_completion.py, which checks the PLIC completions of each
+# case against the set the script keeps for the suite.
+if(QEMU_EXECUTABLE)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+endif()
+function(add_completion_trace test_name suite)
+  if(NOT QEMU_EXECUTABLE)
+    return()
+  endif()
+  add_test(
+    NAME ${test_name}
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/test/check_interrupt_completion.py
+      --expect=${suite} ${QEMU_EXECUTABLE} ${QEMU_RUN_ARGS}
+      $<TARGET_FILE:${PROJECT_NAME}-test-${suite}.elf>)
+  set_tests_properties(${test_name} PROPERTIES ${QEMU_TEST_PROPERTIES})
+endfunction()
+
 # Self-tests of the test runner. Each ELF must fail, and the regex pins which
 # cases failed and how many ran (Unity prints "<n> Tests <f> Failures").
 add_test_suite(
@@ -365,79 +391,98 @@ add_test_suite(panic-bad-stack SOURCES test/suites/panic_bad_stack.c
 
 # Each startup failure stops before the runner exists. Wrapping is confined to
 # these ELFs; successful earlier calls still use the real task APIs.
-set(startup_cases success initial-create initial-start idle-create idle-start
-                  idle-start-mie)
-foreach(stage RANGE 0 5)
-  list(GET startup_cases ${stage} startup_case)
-  if(stage EQUAL 0)
+foreach(
+  entry
+  "success|TKMC_STARTUP_NONE|0"
+  "initial-create|TKMC_STARTUP_INITIAL_CREATE|0"
+  "initial-start|TKMC_STARTUP_INITIAL_START|0"
+  "idle-create|TKMC_STARTUP_IDLE_CREATE|0"
+  "idle-start|TKMC_STARTUP_IDLE_START|0"
+  "idle-start-mie|TKMC_STARTUP_IDLE_START|1")
+  # <case>|<stage that fails>|<MIE on at the failure>
+  string(REPLACE "|" ";" entry "${entry}")
+  list(GET entry 0 startup_case)
+  list(GET entry 1 startup_stage)
+  list(GET entry 2 startup_mie)
+  if(startup_stage STREQUAL "TKMC_STARTUP_NONE")
     set(startup_marker "STARTUP SUCCESS OK")
   else()
     set(startup_marker "STARTUP FAILURE OK stage=")
   endif()
-  add_test_suite(startup-${startup_case} SOURCES test/suites/startup.c
-                 OUTPUT_REGEX "${startup_marker}")
-  set(startup_target ${PROJECT_NAME}-test-startup-${startup_case}.elf)
-  if(stage EQUAL 5)
-    target_compile_definitions(${startup_target} PRIVATE STARTUP_FAIL_STAGE=4
-                                                         STARTUP_ENABLE_MIE=1)
-  else()
-    target_compile_definitions(${startup_target}
-                               PRIVATE STARTUP_FAIL_STAGE=${stage})
-  endif()
-  target_link_options(
-    ${startup_target}
-    PRIVATE
-    LINKER:--wrap=tk_cre_tsk
-    LINKER:--wrap=tk_sta_tsk
-    LINKER:--wrap=tkmc_get_highest_priority_task
-    LINKER:--wrap=tkmc_start_timer
-    LINKER:--wrap=__launch_task)
+  add_test_suite(
+    startup-${startup_case}
+    SOURCES
+    test/suites/startup.c
+    test/panic_fail.c
+    WRAP
+    tk_cre_tsk
+    tk_sta_tsk
+    tkmc_get_highest_priority_task
+    tkmc_start_timer
+    __launch_task
+    OUTPUT_REGEX
+    "${startup_marker}")
+  target_compile_definitions(
+    ${PROJECT_NAME}-test-startup-${startup_case}.elf
+    PRIVATE STARTUP_FAIL_STAGE=${startup_stage}
+            STARTUP_ENABLE_MIE=${startup_mie})
 endforeach()
 
 # Actual timer/dispatch entry and prelaunch/termination failures, not simulated
 # ISR calls. Each fatal case needs its own boot; no production injection flags.
-set(context_cases
-    isr
-    no-current-wait
-    di-ext
-    di-exd
-    isr-ext
-    isr-exd
-    no-current-ext
-    no-current-exd
-    ret-task
-    ret-task-di
-    ret-hlng
-    ret-timer
-    ret-software
-    ret-asm-task-di
-    ret-no-current)
-foreach(mode RANGE 0 14)
-  list(GET context_cases ${mode} context_case)
-  if(mode EQUAL 0)
+foreach(
+  entry
+  "isr|LIVE_ISR"
+  "no-current-wait|NO_CURRENT_WAIT"
+  "di-ext|DI_EXT"
+  "di-exd|DI_EXD"
+  "isr-ext|ISR_EXT"
+  "isr-exd|ISR_EXD"
+  "no-current-ext|NO_CURRENT_EXT"
+  "no-current-exd|NO_CURRENT_EXD"
+  "ret-task|RET_TASK"
+  "ret-task-di|RET_TASK_DI"
+  "ret-hlng|RET_HLNG"
+  "ret-timer|RET_TIMER"
+  "ret-software|RET_SOFTWARE"
+  "ret-asm-task-di|RET_ASM_TASK_DI"
+  "ret-no-current|RET_NO_CURRENT")
+  # <case>|<mode in test/suites/task_context.c>
+  string(REPLACE "|" ";" entry "${entry}")
+  list(GET entry 0 context_case)
+  list(GET entry 1 context_mode)
+  if(context_mode STREQUAL "LIVE_ISR")
     set(context_marker "1 Tests 0 Failures")
-  elseif(mode EQUAL 1)
+  elseif(context_mode STREQUAL "NO_CURRENT_WAIT")
     set(context_marker "NO CURRENT WAIT OK")
   else()
     set(context_marker "CONTEXT STOP OK")
   endif()
-  add_test_suite(task-context-${context_case} SOURCES
-                 test/suites/task_context.c OUTPUT_REGEX "${context_marker}")
-  set(context_target ${PROJECT_NAME}-test-task-context-${context_case}.elf)
-  if(mode EQUAL 13)
-    target_sources(${context_target} PRIVATE test/asm_task_di_ret.S)
+  set(context_sources test/suites/task_context.c)
+  if(context_mode STREQUAL "RET_ASM_TASK_DI")
+    list(APPEND context_sources test/asm_task_di_ret.S)
   endif()
-  target_compile_definitions(${context_target}
-                             PRIVATE CONTEXT_TEST_MODE=${mode})
-  target_link_options(${context_target} PRIVATE LINKER:--wrap=tk_cre_tsk
-                      LINKER:--wrap=tkmc_timer_handler LINKER:--wrap=schedule)
+  add_test_suite(
+    task-context-${context_case}
+    SOURCES
+    ${context_sources}
+    WRAP
+    tk_cre_tsk
+    tkmc_timer_handler
+    schedule
+    OUTPUT_REGEX
+    "${context_marker}")
+  target_compile_definitions(
+    ${PROJECT_NAME}-test-task-context-${context_case}.elf
+    PRIVATE CONTEXT_TEST_MODE=${context_mode})
 endforeach()
 
-# tkmc_memset() is tested with the shift check on, trapping: undefined shifts
-# leave the bytes right, and only the check can tell. The options go on the file
-# that includes kernel/memset.c, not on kernel/memset.c itself, because the
-# options of a source file reach every target that uses it, the kernel library
-# too. panic_hook.c turns the trap into a line that says what happened.
+# tkmc_memset() is tested with the shift check on, trapping: an undefined shift
+# in it would leave the bytes right, and only the check could tell. The options
+# go on the file that includes kernel/memset.c, not on kernel/memset.c itself,
+# because the options of a source file reach every target that uses it, the
+# kernel library too. panic_hook.c turns the trap into a line that says what
+# happened.
 set_source_files_properties(
   test/suites/memset_under_test.c
   PROPERTIES COMPILE_OPTIONS "-fsanitize=shift;-fsanitize-trap=shift")
@@ -447,6 +492,8 @@ add_test_suite(
 # tkmc_memcpy() and tkmc_memset() of the kernel library itself, as callers get
 # them, on bytes and on objects of other types.
 add_test_suite(memcpy SOURCES test/suites/memcpy.c)
+# The port access functions of sys/ioport.h, on RAM with guard bytes.
+add_test_suite(ioport SOURCES test/suites/ioport.c)
 
 # The word loops of tkmc_memcpy() and tkmc_memset() must access memory as a type
 # that may alias any object (see kernel/memcpy.c). No test that runs can see a
@@ -481,9 +528,8 @@ add_test_suite(task-create SOURCES test/suites/task_create.c)
 add_test_suite(timer-wrap SOURCES test/suites/timer_wrap.c)
 # tk_set_utc()/tk_get_utc(); the wrap of tkmc_timer_handler() runs the calls in
 # a real interrupt handler.
-add_test_suite(system-time SOURCES test/suites/system_time.c)
-target_link_options(${PROJECT_NAME}-test-system-time.elf PRIVATE
-                    LINKER:--wrap=tkmc_timer_handler)
+add_test_suite(system-time SOURCES test/suites/system_time.c WRAP
+               tkmc_timer_handler)
 add_test_suite(event-flag SOURCES test/suites/event_flag.c)
 add_test_suite(semaphore SOURCES test/suites/semaphore.c)
 add_test_suite(semaphore-wait-release SOURCES
@@ -496,49 +542,38 @@ add_test_suite(interrupt-state SOURCES test/suites/interrupt_state.c)
 # the trap that switches to a task the handler woke, and where the C part of
 # each trap ran.
 add_test_suite(
-  interrupt SOURCES test/suites/interrupt.c test/spin_with_registers.S
-  test/asm_task_entries.S test/asm_interrupt_entries.S)
-target_link_options(${PROJECT_NAME}-test-interrupt.elf PRIVATE
-                    LINKER:--wrap=schedule LINKER:--wrap=tkmc_timer_handler)
+  interrupt
+  SOURCES
+  test/suites/interrupt.c
+  test/panic_fail.c
+  test/spin_with_registers.S
+  test/asm_interrupt_entries.S
+  WRAP
+  schedule
+  tkmc_timer_handler)
 if(QEMU_EXECUTABLE)
-  find_package(Python3 REQUIRED COMPONENTS Interpreter)
   add_test(
     NAME interrupt-completion-trace-self-test
     COMMAND
       ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/test/check_interrupt_completion.py
       --self-test)
-  add_test(
-    NAME qemu-interrupt-completion-trace
-    COMMAND
-      ${Python3_EXECUTABLE}
-      ${CMAKE_CURRENT_SOURCE_DIR}/test/check_interrupt_completion.py
-      ${QEMU_EXECUTABLE} ${QEMU_RUN_ARGS}
-      $<TARGET_FILE:${PROJECT_NAME}-test-interrupt.elf>)
-  set_tests_properties(qemu-interrupt-completion-trace
-                       PROPERTIES ${QEMU_TEST_PROPERTIES})
 endif()
+add_completion_trace(qemu-interrupt-completion-trace interrupt)
+# TA_ASM task entry and termination. Its completion trace checks that no
+# interrupt completes while the tasks run.
+add_test_suite(asm-task SOURCES test/suites/asm_task.c test/asm_task_entries.S)
+add_completion_trace(qemu-asm-task-trace asm-task)
 # External interrupts nested 3 to 7 levels deep and the interrupt stack they
 # take, one ELF per depth so that a depth that overflows the stack fails alone.
 # Each depth also gets the PLIC completion trace check.
 foreach(depth RANGE 3 7)
   set(suite interrupt-depth-${depth})
   add_test_suite(${suite} SOURCES test/suites/interrupt_depth.c
-                 test/interrupt_depth_entries.S)
+                 test/interrupt_depth_entries.S WRAP schedule)
   target_compile_definitions(${PROJECT_NAME}-test-${suite}.elf
                              PRIVATE NEST_DEPTH=${depth})
-  target_link_options(${PROJECT_NAME}-test-${suite}.elf PRIVATE
-                      LINKER:--wrap=schedule)
-  if(QEMU_EXECUTABLE)
-    add_test(
-      NAME qemu-${suite}-trace
-      COMMAND
-        ${Python3_EXECUTABLE}
-        ${CMAKE_CURRENT_SOURCE_DIR}/test/check_interrupt_completion.py
-        --expect=${suite} ${QEMU_EXECUTABLE} ${QEMU_RUN_ARGS}
-        $<TARGET_FILE:${PROJECT_NAME}-test-${suite}.elf>)
-    set_tests_properties(qemu-${suite}-trace PROPERTIES ${QEMU_TEST_PROPERTIES})
-  endif()
+  add_completion_trace(qemu-${suite}-trace ${suite})
 endforeach()
 add_test_suite(idle-halt ICOUNT_ONLY SOURCES test/suites/idle_halt.c)
 
@@ -549,28 +584,29 @@ add_test_suite(mailbox-cost ICOUNT_ONLY SOURCES test/suites/mailbox_cost.c)
 # How long the timer interrupt handler runs when many timed waits end in one
 # tick, from the guest's retired-instruction counter. The test-only link wrap
 # reads the counter around the handler on the trap path.
-add_test_suite(timer-cost ICOUNT_ONLY SOURCES test/suites/timer_cost.c)
-target_link_options(${PROJECT_NAME}-test-timer-cost.elf PRIVATE
-                    LINKER:--wrap=tkmc_timer_handler)
+add_test_suite(timer-cost ICOUNT_ONLY SOURCES test/suites/timer_cost.c WRAP
+               tkmc_timer_handler)
 
 # The same at the kernel's limit, every task but idle waiting, with no runner:
 # the suite prints the marker itself when every check held.
-add_test_suite(timer-cost-max ICOUNT_ONLY SOURCES test/suites/timer_cost_max.c
-               OUTPUT_REGEX "TIMER COST MAX OK")
-target_link_options(${PROJECT_NAME}-test-timer-cost-max.elf PRIVATE
-                    LINKER:--wrap=tkmc_timer_handler)
+add_test_suite(
+  timer-cost-max
+  ICOUNT_ONLY
+  SOURCES
+  test/suites/timer_cost_max.c
+  OUTPUT_REGEX
+  "TIMER COST MAX OK"
+  WRAP
+  tkmc_timer_handler)
 
 # tk_wup_tsk() from the actual timer trap: the test-only link wrap runs the call
 # on the trap path, in the task the trap interrupted.
-add_test_suite(wakeup-context SOURCES test/suites/wakeup_context.c)
-target_link_options(${PROJECT_NAME}-test-wakeup-context.elf PRIVATE
-                    LINKER:--wrap=tkmc_timer_handler)
+add_test_suite(wakeup-context SOURCES test/suites/wakeup_context.c
+               test/panic_fail.c WRAP tkmc_timer_handler)
 
 # Which trap makes a task switch: the test-only link wrap of schedule() keeps
 # the mcause of the trap that ran it.
-add_test_suite(timer-switch SOURCES test/suites/timer_switch.c)
-target_link_options(${PROJECT_NAME}-test-timer-switch.elf PRIVATE
-                    LINKER:--wrap=schedule)
+add_test_suite(timer-switch SOURCES test/suites/timer_switch.c WRAP schedule)
 
 if(NOT QEMU_EXECUTABLE)
   message(

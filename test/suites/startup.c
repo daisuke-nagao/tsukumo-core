@@ -35,10 +35,7 @@ static INT boot_argument;
 static BOOL injected, injected_with_mie;
 
 static __attribute__((__noreturn__)) void fail(const char *what) {
-  putstring("STARTUP :FAIL: ");
-  putstring(what);
-  putstring("\n");
-  test_exit(1);
+  test_fail("STARTUP :FAIL: ", what);
 }
 
 static UINT interrupt_status(void) {
@@ -152,13 +149,6 @@ __attribute__((__noreturn__)) void tkmc_startup_panic(tkmc_startup_stage stage,
   puthex((UW)stage);
   putstring("\n");
   test_exit(0);
-}
-
-__attribute__((__noreturn__)) void tkmc_panic(UW mcause, UW mepc, UW mtval) {
-  (void)mcause;
-  (void)mepc;
-  (void)mtval;
-  fail("unexpected CPU exception");
 }
 
 void usermain(int argument) {

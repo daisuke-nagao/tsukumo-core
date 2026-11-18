@@ -15,11 +15,7 @@
 #include "fakes.h"
 #include "task.h"
 
-enum {
-  FRAME_WORDS = 32,
-  PRIORITY = 4,
-  MSIP = CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET
-};
+enum { FRAME_WORDS = 32 };
 static _Alignas(16) UINT s_stack[256];
 static UINT s_exinf;
 
@@ -32,19 +28,19 @@ static ID create_task(void) {
   ID id = tk_cre_tsk(&(T_CTSK){.exinf = &s_exinf,
                                .tskatr = TA_HLNG | TA_USERBUF,
                                .task = (FP)entry,
-                               .itskpri = PRIORITY,
+                               .itskpri = HOST_HIGH_PRIORITY,
                                .stksz = sizeof(s_stack),
                                .bufptr = s_stack});
   TEST_ASSERT_GREATER_THAN(0, id);
   return id;
 }
 
-void test_task_start_rebuilds_a_damaged_frame(void) {
+static void test_tk_sta_tsk_rebuilds_damaged_frame(void) {
   ID id = create_task();
   TCB *tcb = &tkmc_tcbs[id - 1];
   UINT *frame = tcb->initial_sp;
   const INT codes[] = {0, -1234567, 42};
-  for (UINT run = 0; run < sizeof(codes) / sizeof(codes[0]); ++run) {
+  for (UINT run = 0; run < HOST_COUNT(codes); ++run) {
     for (UINT i = 0; i < FRAME_WORDS; ++i) {
       frame[i] = 0x12340000u + i;
     }
@@ -73,7 +69,7 @@ void test_task_start_rebuilds_a_damaged_frame(void) {
   }
 }
 
-void test_task_start_clears_previous_wakeup_and_wait_state(void) {
+static void test_tk_sta_tsk_clears_previous_wakeup_and_wait_state(void) {
   ID id = create_task();
   TCB *tcb = &tkmc_tcbs[id - 1];
   tcb->wupcnt = 3;
@@ -96,7 +92,7 @@ void test_task_start_clears_previous_wakeup_and_wait_state(void) {
   TEST_ASSERT_EACH_EQUAL_UINT8(0, details, details_size);
   TEST_ASSERT_EQUAL_PTR((FP)entry, tcb->task);
   TEST_ASSERT_EQUAL_PTR(&s_exinf, tcb->exinf);
-  TEST_ASSERT_EQUAL_INT(PRIORITY, tcb->itskpri);
+  TEST_ASSERT_EQUAL_INT(HOST_HIGH_PRIORITY, tcb->itskpri);
   TEST_ASSERT_EQUAL_INT(id, tcb->tskid);
   host_check_kernel_queues();
 }
@@ -116,7 +112,7 @@ static void check_start_refused(ID id) {
   host_check_kernel_queues();
 }
 
-void test_starting_a_non_dormant_task_leaves_it_unchanged(void) {
+static void test_tk_sta_tsk_leaves_non_dormant_task_unchanged(void) {
   ID id = create_task();
   TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, 0));
   check_start_refused(id);
@@ -143,7 +139,7 @@ static T_CTSK valid_packet(void) {
   return (T_CTSK){.exinf = &s_exinf,
                   .tskatr = TA_HLNG | TA_USERBUF,
                   .task = (FP)entry,
-                  .itskpri = PRIORITY,
+                  .itskpri = HOST_HIGH_PRIORITY,
                   .stksz = sizeof(s_stack),
                   .bufptr = s_stack};
 }
@@ -179,77 +175,89 @@ static UINT free_tcb_count(void) {
 }
 
 // Calls tk_cre_tsk() with the packet and checks the refusal: the error code,
-// interrupts back on, and every table the kernel keeps for tasks as it was.
-static void check_refused(const T_CTSK *pk, ER expected) {
-  unsigned char tcbs[sizeof(tkmc_tcbs)];
-  unsigned char ready[sizeof(tkmc_ready_queue)];
-  memcpy(tcbs, tkmc_tcbs, sizeof(tcbs));
-  memcpy(ready, tkmc_ready_queue, sizeof(ready));
+// interrupts back on, nothing the kernel keeps changed, and no task slot taken
+// from the free list (its head is not in the snapshot).
+static void check_refused_with(const T_CTSK *pk, ER expected,
+                               const char *label) {
+  host_snapshot_t before;
+  host_take_snapshot(&before);
   UINT free_before = free_tcb_count();
-  TCB *current_before = current;
-  TCB *next_before = next;
 
-  TEST_ASSERT_EQUAL(expected, tk_cre_tsk(pk));
-  TEST_ASSERT_TRUE(host_interrupts_enabled());
-  TEST_ASSERT_EQUAL_MEMORY(tcbs, tkmc_tcbs, sizeof(tcbs));
-  TEST_ASSERT_EQUAL_MEMORY(ready, tkmc_ready_queue, sizeof(ready));
-  TEST_ASSERT_EQUAL_UINT(free_before, free_tcb_count());
-  TEST_ASSERT_EQUAL_PTR(current_before, current);
-  TEST_ASSERT_EQUAL_PTR(next_before, next);
+  TEST_ASSERT_EQUAL_MESSAGE(expected, tk_cre_tsk(pk), label);
+  TEST_ASSERT_TRUE_MESSAGE(host_interrupts_enabled(), label);
+  host_assert_unchanged(&before, label);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(free_before, free_tcb_count(), label);
   host_check_kernel_queues();
 }
 
-void test_a_null_packet_is_refused(void) { check_refused(NULL, E_PAR); }
-
-void test_a_null_entry_is_refused(void) {
-  T_CTSK pk = valid_packet();
-  pk.task = NULL;
-  check_refused(&pk, E_PAR);
+static void check_refused(const T_CTSK *pk, ER expected) {
+  check_refused_with(pk, expected, "a refused tk_cre_tsk()");
 }
 
-void test_a_null_buffer_is_refused(void) {
-  // 256 bytes at address 0 end on a 16 byte boundary and hold the frame, so
-  // only the NULL check can refuse it.
-  T_CTSK pk = packet_with_stack(NULL, 256);
-  check_refused(&pk, E_PAR);
-}
-
-void test_a_priority_outside_the_range_is_refused(void) {
-  const PRI refused[] = {0, -1, INT_MIN, CFN_MAX_PRI + 1, INT_MAX};
-  for (UINT i = 0; i < sizeof(refused) / sizeof(refused[0]); ++i) {
-    T_CTSK pk = packet_with_priority(refused[i]);
-    check_refused(&pk, E_PAR);
+// Each packet breaks one rule, and tk_cre_tsk() refuses it with E_PAR.
+//
+// The stacks that are too small end on a 16 byte boundary, so the size is the
+// only rule they break; an offset moves the start to reach sizes that are not a
+// multiple of 16. The refusal of 128 is a policy, not memory safety: the frame
+// would fit, and the rule asks for room beyond it. The negative sizes are
+// refused by the overflow check as well, so they do not show that the size
+// check works; the QEMU suite does that, where a low address leaves the
+// overflow check no say.
+static void
+test_tk_cre_tsk_refuses_every_broken_packet_and_changes_nothing(void) {
+  struct {
+    const char *label;
+    BOOL no_packet;
+    T_CTSK pk;
+  } rows[] = {
+      {"no packet", TRUE, {0}},
+      {"no entry", FALSE, valid_packet()},
+      // 256 bytes at address 0 end on a 16 byte boundary and hold the frame,
+      // so only the NULL check can refuse it.
+      {"no buffer", FALSE, packet_with_stack(NULL, 256)},
+      {"priority 0", FALSE, packet_with_priority(0)},
+      {"priority -1", FALSE, packet_with_priority(-1)},
+      {"priority INT_MIN", FALSE, packet_with_priority(INT_MIN)},
+      {"priority above the lowest", FALSE,
+       packet_with_priority(CFN_MAX_PRI + 1)},
+      {"priority INT_MAX", FALSE, packet_with_priority(INT_MAX)},
+      {"stack of 0", FALSE, packet_with_stack(s_stack, 0)},
+      {"stack of 16", FALSE, packet_with_stack(s_stack, 16)},
+      {"stack of 112", FALSE, packet_with_stack(s_stack, 112)},
+      {"stack of 128", FALSE, packet_with_stack(s_stack, 128)},
+      {"stack of 120", FALSE, packet_with_stack(byte_offset(s_stack, 8), 120)},
+      {"stack of 127", FALSE, packet_with_stack(byte_offset(s_stack, 1), 127)},
+      {"stack of -1", FALSE, packet_with_stack(s_stack, -1)},
+      {"stack of INT_MIN", FALSE, packet_with_stack(s_stack, INT_MIN)},
+      {"end 8 bytes off a boundary", FALSE, packet_with_stack(s_stack, 520)},
+      {"end 8 bytes off, start 8 off", FALSE,
+       packet_with_stack(byte_offset(s_stack, 8), 512)},
+      {"end 8 bytes off, start 4 off", FALSE,
+       packet_with_stack(byte_offset(s_stack, 4), 516)},
+      {"end 15 bytes off", FALSE, packet_with_stack(s_stack, 1023)},
+      // The end is address 0 after the wrap, which is aligned, and the size is
+      // large enough: only the overflow check can refuse it. The address is
+      // never used as memory.
+      {"end wraps around the address space", FALSE,
+       packet_with_stack(wrapping_address(), 256)},
+  };
+  rows[1].pk.task = NULL;
+  for (UINT i = 0; i < HOST_COUNT(rows); ++i) {
+    host_reset();
+    check_refused_with(rows[i].no_packet ? NULL : &rows[i].pk, E_PAR,
+                       rows[i].label);
   }
 }
 
-void test_the_highest_and_the_lowest_priority_are_accepted(void) {
+static void test_tk_cre_tsk_accepts_highest_and_lowest_priority(void) {
   const PRI accepted[] = {1, CFN_MAX_PRI};
-  for (UINT i = 0; i < sizeof(accepted) / sizeof(accepted[0]); ++i) {
+  for (UINT i = 0; i < HOST_COUNT(accepted); ++i) {
     T_CTSK pk = packet_with_priority(accepted[i]);
     ID id = tk_cre_tsk(&pk);
     TEST_ASSERT_GREATER_THAN(0, id);
     TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, 0));
     TEST_ASSERT_EQUAL_INT(accepted[i], tkmc_tcbs[id - 1].itskpri);
     host_check_kernel_queues();
-  }
-}
-
-// Each stack here ends on a 16 byte boundary, so the size is the only rule it
-// breaks. The offset moves the start, to reach sizes that are not a multiple of
-// 16. The refusal of 128 is a policy, not memory safety: the frame would fit,
-// and the rule asks for room beyond it. The negative sizes are refused by the
-// overflow check as well, so they do not show that the size check works; the
-// QEMU suite does that, where a low address leaves the overflow check no say.
-void test_a_stack_that_does_not_hold_the_frame_and_more_is_refused(void) {
-  const struct {
-    UINT offset;
-    SZ stksz;
-  } refused[] = {{0, 0},   {0, 16},  {0, 112}, {0, 128},
-                 {8, 120}, {1, 127}, {0, -1},  {0, INT_MIN}};
-  for (UINT i = 0; i < sizeof(refused) / sizeof(refused[0]); ++i) {
-    T_CTSK pk = packet_with_stack(byte_offset(s_stack, refused[i].offset),
-                                  refused[i].stksz);
-    check_refused(&pk, E_PAR);
   }
 }
 
@@ -262,7 +270,8 @@ typedef struct {
   unsigned char above[STACK_ALIGN];
 } guarded_stack_t;
 
-void test_the_smallest_accepted_stack_keeps_the_frame_inside_it(void) {
+static void
+test_tk_cre_tsk_accepts_smallest_stack_that_keeps_frame_inside(void) {
   static guarded_stack_t area;
   memset(&area, GUARD_FILL, sizeof(area));
   const SZ smallest = FRAME_BYTES + STACK_ALIGN;
@@ -284,28 +293,16 @@ void test_the_smallest_accepted_stack_keeps_the_frame_inside_it(void) {
   host_check_kernel_queues();
 }
 
-void test_a_stack_that_does_not_end_on_a_16_byte_boundary_is_refused(void) {
-  const struct {
-    UINT offset;
-    SZ stksz;
-  } refused[] = {{0, 520}, {8, 512}, {4, 516}, {0, 1023}};
-  for (UINT i = 0; i < sizeof(refused) / sizeof(refused[0]); ++i) {
-    T_CTSK pk = packet_with_stack(byte_offset(s_stack, refused[i].offset),
-                                  refused[i].stksz);
-    check_refused(&pk, E_PAR);
-  }
-}
-
 // The smallest size the rule allows is one byte above the frame, not the next
 // multiple of 16.
-void test_a_stack_one_byte_above_the_frame_is_accepted(void) {
+static void test_tk_cre_tsk_accepts_stack_one_byte_above_frame(void) {
   T_CTSK pk = packet_with_stack(byte_offset(s_stack, 15), FRAME_BYTES + 1);
   ID id = tk_cre_tsk(&pk);
   TEST_ASSERT_GREATER_THAN(0, id);
   host_check_kernel_queues();
 }
 
-void test_only_the_end_of_the_stack_has_to_be_aligned(void) {
+static void test_tk_cre_tsk_requires_alignment_only_at_end_of_stack(void) {
   // The start is 8 bytes off, the end is on a boundary.
   T_CTSK pk = packet_with_stack(byte_offset(s_stack, 8), 504);
   ID id = tk_cre_tsk(&pk);
@@ -315,23 +312,15 @@ void test_only_the_end_of_the_stack_has_to_be_aligned(void) {
   host_check_kernel_queues();
 }
 
-void test_a_stack_whose_end_wraps_around_the_address_space_is_refused(void) {
-  // The end is address 0 after the wrap, which is aligned, and the size is
-  // large enough: only the overflow check can refuse it. The address is never
-  // used as memory.
-  T_CTSK pk = packet_with_stack(wrapping_address(), 256);
-  check_refused(&pk, E_PAR);
-}
-
 // An attribute error is reported before a parameter error, whichever rule the
 // packet breaks as well.
-void test_an_attribute_error_comes_before_every_parameter_error(void) {
+static void
+test_tk_cre_tsk_reports_attribute_error_before_every_parameter_error(void) {
   const ATR bad_attributes[] = {
       TA_HLNG | TA_USERBUF | TA_DSNAME, // a bit the kernel does not support
       TA_HLNG,                          // no TA_USERBUF
   };
-  for (UINT a = 0; a < sizeof(bad_attributes) / sizeof(bad_attributes[0]);
-       ++a) {
+  for (UINT a = 0; a < HOST_COUNT(bad_attributes); ++a) {
     T_CTSK broken[] = {
         valid_packet(),
         packet_with_priority(0),
@@ -341,19 +330,20 @@ void test_an_attribute_error_comes_before_every_parameter_error(void) {
         packet_with_stack(NULL, 256),
     };
     broken[0].task = NULL;
-    for (UINT i = 0; i < sizeof(broken) / sizeof(broken[0]); ++i) {
+    for (UINT i = 0; i < HOST_COUNT(broken); ++i) {
       broken[i].tskatr = bad_attributes[a];
       check_refused(&broken[i], E_RSATR);
     }
   }
 }
 
-void test_a_refused_creation_changes_nothing_and_takes_no_task_slot(void) {
+static void
+test_tk_cre_tsk_refused_creation_changes_nothing_and_takes_no_slot(void) {
   // Something is running and something is ready, so that a refusal that
   // touched either would show.
-  ID running = host_make_task(PRIORITY);
+  ID running = host_make_task(HOST_HIGH_PRIORITY);
   host_set_current(running);
-  host_make_task(PRIORITY + 1);
+  host_make_task(HOST_HIGH_PRIORITY + 1);
 
   T_CTSK refused[] = {
       packet_with_priority(0),
@@ -361,7 +351,7 @@ void test_a_refused_creation_changes_nothing_and_takes_no_task_slot(void) {
       packet_with_stack(byte_offset(s_stack, 8), 512),
       packet_with_stack(wrapping_address(), 256),
   };
-  for (UINT i = 0; i < sizeof(refused) / sizeof(refused[0]); ++i) {
+  for (UINT i = 0; i < HOST_COUNT(refused); ++i) {
     check_refused(&refused[i], E_PAR);
   }
 
@@ -371,13 +361,13 @@ void test_a_refused_creation_changes_nothing_and_takes_no_task_slot(void) {
   TEST_ASSERT_EQUAL(expected, tk_cre_tsk(&ok));
 }
 
-void test_refusals_do_not_use_up_the_tasks_the_kernel_can_hold(void) {
+static void test_tk_cre_tsk_refusals_do_not_use_up_task_capacity(void) {
   T_CTSK refused[] = {
       packet_with_priority(0),
       packet_with_stack(s_stack, FRAME_BYTES),
       packet_with_stack(byte_offset(s_stack, 8), 512),
   };
-  for (UINT i = 0; i < sizeof(refused) / sizeof(refused[0]); ++i) {
+  for (UINT i = 0; i < HOST_COUNT(refused); ++i) {
     check_refused(&refused[i], E_PAR);
   }
   // tk_cre_tsk() writes nothing to the stack, so one stack serves every task.
@@ -388,7 +378,7 @@ void test_refusals_do_not_use_up_the_tasks_the_kernel_can_hold(void) {
   TEST_ASSERT_EQUAL(E_LIMIT, tk_cre_tsk(&ok));
   // A bad packet is still a parameter error when there is no TCB left: the
   // check comes before the allocation.
-  for (UINT i = 0; i < sizeof(refused) / sizeof(refused[0]); ++i) {
+  for (UINT i = 0; i < HOST_COUNT(refused); ++i) {
     check_refused(&refused[i], E_PAR);
   }
 }
@@ -398,13 +388,14 @@ enum { WAKEUP_LIMIT = 4095 };
 // Build real queue membership for each branch; the host cannot run tasks.
 static ID make_wakeup_target(UINT state) {
   if (state == TTS_RUN) {
-    ID target = host_make_task(PRIORITY);
+    ID target = host_make_task(HOST_HIGH_PRIORITY);
     host_set_current(target);
     return target;
   }
 
-  ID caller = host_make_task(PRIORITY);
-  ID target = host_make_task(state == TTS_WAI ? PRIORITY - 1 : PRIORITY + 1);
+  ID caller = host_make_task(HOST_HIGH_PRIORITY);
+  ID target = host_make_task(state == TTS_WAI ? HOST_HIGH_PRIORITY - 1
+                                              : HOST_HIGH_PRIORITY + 1);
   host_set_current(caller);
   if (state == TTS_WAI) {
     ID semid =
@@ -424,20 +415,14 @@ static ID make_wakeup_target(UINT state) {
 // the task's own DI() or the MIE a handler left on or off. Neither the flag nor
 // the ISR state may be changed by the call.
 static ER wake_in_context(ID target, BOOL interrupts_off, BOOL in_isr) {
-  tkmc_isr_depth = in_isr;
-  UINT saved = 0;
-  if (interrupts_off) {
-    DI(saved);
-  }
+  const host_context_t entered = host_enter(in_isr, interrupts_off);
   ER ercd = tk_wup_tsk(target);
   BOOL enabled = host_interrupts_enabled();
-  if (interrupts_off) {
-    EI(saved);
-  }
+  BOOL still_in_isr = tkmc_in_isr();
+  host_leave(entered);
   TEST_ASSERT_EQUAL(!interrupts_off, enabled);
   TEST_ASSERT_TRUE(host_interrupts_enabled());
-  TEST_ASSERT_EQUAL(in_isr, tkmc_in_isr());
-  tkmc_isr_depth = 0;
+  TEST_ASSERT_EQUAL(in_isr, still_in_isr);
   return ercd;
 }
 
@@ -462,12 +447,14 @@ static void check_wakeup_limit(UINT state, UINT count, BOOL interrupts_off,
   host_check_kernel_queues();
 }
 
-void test_wakeup_count_is_bounded_for_ready_and_non_sleep_waiting_tasks(void) {
+static void
+test_tk_wup_tsk_bounds_wakeup_count_for_ready_and_non_sleep_waiting_tasks(
+    void) {
   const UINT states[] = {TTS_RDY, TTS_WAI};
   const UINT counts[] = {0, WAKEUP_LIMIT - 1, WAKEUP_LIMIT};
   // Another task may be woken from a task or an ISR, with interrupts on or off.
-  for (UINT s = 0; s < sizeof(states) / sizeof(states[0]); ++s) {
-    for (UINT c = 0; c < sizeof(counts) / sizeof(counts[0]); ++c) {
+  for (UINT s = 0; s < HOST_COUNT(states); ++s) {
+    for (UINT c = 0; c < HOST_COUNT(counts); ++c) {
       for (UINT off = 0; off < 2; ++off) {
         for (UINT isr = 0; isr < 2; ++isr) {
           check_wakeup_limit(states[s], counts[c], off, isr);
@@ -479,9 +466,9 @@ void test_wakeup_count_is_bounded_for_ready_and_non_sleep_waiting_tasks(void) {
 
 // The running task gets a request only from an ISR, which has interrupted it,
 // and the interrupt flag a handler left does not matter.
-void test_wakeup_count_is_bounded_for_the_running_task_in_an_isr(void) {
+static void test_tk_wup_tsk_bounds_wakeup_count_for_running_task_in_isr(void) {
   const UINT counts[] = {0, WAKEUP_LIMIT - 1, WAKEUP_LIMIT};
-  for (UINT c = 0; c < sizeof(counts) / sizeof(counts[0]); ++c) {
+  for (UINT c = 0; c < HOST_COUNT(counts); ++c) {
     for (UINT off = 0; off < 2; ++off) {
       check_wakeup_limit(TTS_RUN, counts[c], off, TRUE);
     }
@@ -491,17 +478,17 @@ void test_wakeup_count_is_bounded_for_the_running_task_in_an_isr(void) {
 // A sleeper is woken, not given a request, whoever calls: the same from a task
 // and from an ISR, with interrupts on or off. It is the higher priority, so its
 // release asks for a task switch.
-void test_a_sleeper_is_woken_in_every_context(void) {
+static void test_tk_wup_tsk_wakes_sleeper_in_every_context(void) {
   for (UINT off = 0; off < 2; ++off) {
     for (UINT isr = 0; isr < 2; ++isr) {
       host_reset();
-      ID sleeper = host_make_task(PRIORITY - 1);
-      ID caller = host_make_task(PRIORITY);
+      ID sleeper = host_make_task(HOST_HIGH_PRIORITY - 1);
+      ID caller = host_make_task(HOST_HIGH_PRIORITY);
       TCB *tcb = &tkmc_tcbs[sleeper - 1];
       host_set_current(sleeper);
       HOST_EXPECT_WAIT(tk_slp_tsk(TMO_FEVR));
       host_set_current(caller);
-      UINT requests = host_write_count(MSIP);
+      UINT requests = host_write_count(HOST_MSIP);
 
       TEST_ASSERT_EQUAL(E_OK, wake_in_context(sleeper, off, isr));
 
@@ -509,15 +496,16 @@ void test_a_sleeper_is_woken_in_every_context(void) {
       TEST_ASSERT_EQUAL_UINT(0, tcb->wupcnt);
       TEST_ASSERT_EQUAL(E_OK, tcb->wupcause);
       TEST_ASSERT_EQUAL_PTR(tcb, next);
-      TEST_ASSERT_EQUAL_UINT(requests + 1, host_write_count(MSIP));
+      TEST_ASSERT_EQUAL_UINT(requests + 1, host_write_count(HOST_MSIP));
       host_check_kernel_queues();
     }
   }
 }
 
-void test_consuming_a_wakeup_makes_room_for_one_more_request(void) {
-  ID caller = host_make_task(PRIORITY);
-  ID target = host_make_task(PRIORITY + 1);
+static void
+test_tk_slp_tsk_consuming_wakeup_makes_room_for_one_more_tk_wup_tsk(void) {
+  ID caller = host_make_task(HOST_HIGH_PRIORITY);
+  ID target = host_make_task(HOST_HIGH_PRIORITY + 1);
   host_set_current(caller);
   tkmc_tcbs[target - 1].wupcnt = WAKEUP_LIMIT;
 
@@ -541,9 +529,9 @@ void test_consuming_a_wakeup_makes_room_for_one_more_request(void) {
 // A task that wakes itself is refused before the limit is checked, so a full
 // count gives E_OBJ too, and nothing changes. DI() makes no difference: it does
 // not turn the task into an ISR.
-void test_a_task_cannot_wake_itself_with_interrupts_on_or_off(void) {
+static void test_tk_wup_tsk_refuses_self_wake_with_interrupts_on_or_off(void) {
   const UINT counts[] = {0, WAKEUP_LIMIT - 1, WAKEUP_LIMIT};
-  for (UINT c = 0; c < sizeof(counts) / sizeof(counts[0]); ++c) {
+  for (UINT c = 0; c < HOST_COUNT(counts); ++c) {
     for (UINT off = 0; off < 2; ++off) {
       host_reset();
       ID self = make_wakeup_target(TTS_RUN);
@@ -557,4 +545,66 @@ void test_a_task_cannot_wake_itself_with_interrupts_on_or_off(void) {
       host_check_kernel_queues();
     }
   }
+}
+
+static void
+test_tk_ext_tsk_and_tk_exd_tsk_stop_in_invalid_context_before_changing_tasks(
+    void) {
+  for (UINT api = 0; api < 2; ++api) {
+    for (UINT mode = 0; mode < 3; ++mode) {
+      for (UINT irq = 0; irq < 2; ++irq) {
+        // A valid task with IRQ on is the permitted termination path.
+        if (mode == 0 && irq) {
+          continue;
+        }
+        host_reset();
+        host_two_tasks_and_objects();
+        if (mode == 1) {
+          current = NULL;
+        }
+        tkmc_isr_depth = mode == 2;
+        host_snapshot_t before;
+        host_take_snapshot(&before);
+        UINT saved;
+        if (!irq) {
+          DI(saved);
+        }
+        host_fatal_t fatal;
+        HOST_CATCH_FATAL_CONTEXT(fatal, api ? tk_exd_tsk() : tk_ext_tsk());
+        EI(0);
+        TEST_ASSERT_TRUE_MESSAGE(fatal.stopped, "invalid termination returned");
+        TEST_ASSERT_EQUAL(api ? TKMC_CONTEXT_EXD_TSK : TKMC_CONTEXT_EXT_TSK,
+                          fatal.api);
+        TEST_ASSERT_TRUE(fatal.interrupts_off);
+        TEST_ASSERT_EQUAL(mode == 2, tkmc_in_isr());
+        host_assert_unchanged(&before,
+                              "invalid termination must not unlink a task");
+        host_check_kernel_queues();
+      }
+    }
+  }
+}
+
+void run_task_tests(void) {
+  UnitySetTestFile(__FILE__);
+  RUN_TEST(test_tk_cre_tsk_refuses_every_broken_packet_and_changes_nothing);
+  RUN_TEST(test_tk_sta_tsk_rebuilds_damaged_frame);
+  RUN_TEST(test_tk_sta_tsk_clears_previous_wakeup_and_wait_state);
+  RUN_TEST(test_tk_sta_tsk_leaves_non_dormant_task_unchanged);
+  RUN_TEST(test_tk_cre_tsk_accepts_highest_and_lowest_priority);
+  RUN_TEST(test_tk_cre_tsk_accepts_smallest_stack_that_keeps_frame_inside);
+  RUN_TEST(test_tk_cre_tsk_accepts_stack_one_byte_above_frame);
+  RUN_TEST(test_tk_cre_tsk_requires_alignment_only_at_end_of_stack);
+  RUN_TEST(
+      test_tk_cre_tsk_reports_attribute_error_before_every_parameter_error);
+  RUN_TEST(test_tk_cre_tsk_refused_creation_changes_nothing_and_takes_no_slot);
+  RUN_TEST(test_tk_cre_tsk_refusals_do_not_use_up_task_capacity);
+  RUN_TEST(
+      test_tk_wup_tsk_bounds_wakeup_count_for_ready_and_non_sleep_waiting_tasks);
+  RUN_TEST(test_tk_wup_tsk_bounds_wakeup_count_for_running_task_in_isr);
+  RUN_TEST(test_tk_wup_tsk_wakes_sleeper_in_every_context);
+  RUN_TEST(test_tk_slp_tsk_consuming_wakeup_makes_room_for_one_more_tk_wup_tsk);
+  RUN_TEST(test_tk_wup_tsk_refuses_self_wake_with_interrupts_on_or_off);
+  RUN_TEST(
+      test_tk_ext_tsk_and_tk_exd_tsk_stop_in_invalid_context_before_changing_tasks);
 }

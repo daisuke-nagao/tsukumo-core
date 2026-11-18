@@ -30,6 +30,7 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
+#include "../cost.h"
 #include "../runner.h"
 
 enum {
@@ -40,11 +41,8 @@ enum {
   // further message that a loop in the call visits costs 27 more, so QUEUED of
   // them are far above this.
   SLACK = 100,
-  // The most instructions the send into the middle of the queue may take: a
-  // tenth of a kernel tick (10 ms) at -icount shift 5, which holds 312500
-  // instructions, the same budget as the timer handler's in qemu-timer-cost.
-  // It is a count, not a share of a tick, so it does not follow the shift.
-  BUDGET_INSTRUCTIONS = 31250,
+  // The send into the middle of the queue may take BUDGET_INSTRUCTIONS, the
+  // same budget as the timer handler's in qemu-timer-cost.
   // Queued messages are of QUEUED_PRIORITY, then of BEHIND_PRIORITY. A message
   // of BETWEEN_PRIORITY goes after the first and before the second; a message
   // of AHEAD_PRIORITY goes before all of them.
@@ -161,8 +159,7 @@ static void report_extra(const char *label, UINT queued, UW empty, UW used) {
   UNITY_PRINT_EOL();
 }
 
-static void
-deleting_a_mailbox_costs_the_same_with_any_number_of_messages(void) {
+static void tk_del_mbx_costs_same_with_any_number_of_messages(void) {
   UW empty = instructions_to_delete(0);
   UW full = instructions_to_delete(QUEUED);
   report_extra("tk_del_mbx", QUEUED, empty, full);
@@ -172,7 +169,7 @@ deleting_a_mailbox_costs_the_same_with_any_number_of_messages(void) {
 }
 
 static void
-a_send_behind_the_last_message_costs_the_same_as_into_an_empty_queue(void) {
+tk_snd_mbx_behind_last_message_costs_same_as_into_empty_queue(void) {
   UW empty = instructions_to_send(0, 0, QUEUED_PRIORITY, 0);
   UW behind_one = instructions_to_send(1, 1, QUEUED_PRIORITY, 1);
   UW behind_equal =
@@ -196,7 +193,7 @@ a_send_behind_the_last_message_costs_the_same_as_into_an_empty_queue(void) {
 }
 
 static void
-a_send_ahead_of_every_message_costs_the_same_as_into_an_empty_queue(void) {
+tk_snd_mbx_ahead_of_every_message_costs_same_as_into_empty_queue(void) {
   UW empty = instructions_to_send(0, 0, AHEAD_PRIORITY, 0);
   UW ahead_one = instructions_to_send(1, 1, AHEAD_PRIORITY, 0);
   UW ahead = instructions_to_send(QUEUED, QUEUED, AHEAD_PRIORITY, 0);
@@ -212,8 +209,7 @@ a_send_ahead_of_every_message_costs_the_same_as_into_an_empty_queue(void) {
 }
 
 // The send that scans the queue: half of the messages are ahead of it.
-static void
-a_send_into_the_middle_of_a_full_queue_stays_within_the_budget(void) {
+static void tk_snd_mbx_into_middle_of_full_queue_stays_within_budget(void) {
   UW used =
       instructions_to_send(QUEUED, QUEUED / 2, BETWEEN_PRIORITY, QUEUED / 2);
   report("send into the middle", QUEUED, used);
@@ -226,8 +222,7 @@ a_send_into_the_middle_of_a_full_queue_stays_within_the_budget(void) {
 // The worst send: it goes before the last message and behind all the others,
 // so the scan visits every queued message. One queued message and QUEUED give
 // the cost of one more message, which the report line shows.
-static void
-a_send_before_the_last_of_a_full_queue_stays_within_the_budget(void) {
+static void tk_snd_mbx_before_last_of_full_queue_stays_within_budget(void) {
   UW one = instructions_to_send(1, 0, BETWEEN_PRIORITY, 0);
   UW used =
       instructions_to_send(QUEUED, QUEUED - 1, BETWEEN_PRIORITY, QUEUED - 1);
@@ -246,16 +241,11 @@ a_send_before_the_last_of_a_full_queue_stays_within_the_budget(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"deleting_a_mailbox_costs_the_same_with_any_number_of_messages",
-     deleting_a_mailbox_costs_the_same_with_any_number_of_messages},
-    {"a_send_behind_the_last_message_costs_the_same_as_into_an_empty_queue",
-     a_send_behind_the_last_message_costs_the_same_as_into_an_empty_queue},
-    {"a_send_ahead_of_every_message_costs_the_same_as_into_an_empty_queue",
-     a_send_ahead_of_every_message_costs_the_same_as_into_an_empty_queue},
-    {"a_send_into_the_middle_of_a_full_queue_stays_within_the_budget",
-     a_send_into_the_middle_of_a_full_queue_stays_within_the_budget},
-    {"a_send_before_the_last_of_a_full_queue_stays_within_the_budget",
-     a_send_before_the_last_of_a_full_queue_stays_within_the_budget},
+    CASE(tk_del_mbx_costs_same_with_any_number_of_messages),
+    CASE(tk_snd_mbx_behind_last_message_costs_same_as_into_empty_queue),
+    CASE(tk_snd_mbx_ahead_of_every_message_costs_same_as_into_empty_queue),
+    CASE(tk_snd_mbx_into_middle_of_full_queue_stays_within_budget),
+    CASE(tk_snd_mbx_before_last_of_full_queue_stays_within_budget),
 };
 
 TEST_SUITE_MAIN("mailbox-cost", s_cases, 20000)

@@ -60,15 +60,15 @@ a deliberate change to the code that a test should detect. The columns are:
 
 | Change to the rule | Host before | Host after | QEMU |
 | --- | --- | --- | --- |
-| M0 the old code: count only (`may_take = semcnt >= cnt`) | order table, for-ever, outranks-later | order table, head-not-later | `fifo_first_keeps_the_head_ahead`, `tpri_first_lets_only_a_higher_priority_pass`, `refused_request_is_served_after_the_head` |
-| M1 refuse whenever a task waits, also under `TA_TPRI` (`TA_CNT` stays exempt) | order table | order table, head-not-later | `tpri_first_lets_only_a_higher_priority_pass` |
-| M2 apply the rule under `TA_CNT` too | order table | order table | `cnt_lets_a_small_request_pass` |
-| M3 `TA_TPRI` takes at once, whatever the priority | order table, outranks-later | order table, head-not-later | `tpri_first_lets_only_a_higher_priority_pass` |
-| M4 `<=` for `<` | order table | order table, head-not-later | `tpri_first_lets_only_a_higher_priority_pass` |
-| M5 `>` for `<` | order table, outranks-later | order table, head-not-later | `tpri_first_lets_only_a_higher_priority_pass` |
+| M0 the old code: count only (`may_take = semcnt >= cnt`) | order table, for-ever, outranks-later | order table, head-not-later | `semaphore_fifo_first_keeps_head_ahead`, `semaphore_tpri_first_lets_only_higher_priority_pass`, `semaphore_refused_request_is_served_after_head` |
+| M1 refuse whenever a task waits, also under `TA_TPRI` (`TA_CNT` stays exempt) | order table | order table, head-not-later | `semaphore_tpri_first_lets_only_higher_priority_pass` |
+| M2 apply the rule under `TA_CNT` too | order table | order table | `semaphore_cnt_lets_small_request_pass` |
+| M3 `TA_TPRI` takes at once, whatever the priority | order table, outranks-later | order table, head-not-later | `semaphore_tpri_first_lets_only_higher_priority_pass` |
+| M4 `<=` for `<` | order table | order table, head-not-later | `semaphore_tpri_first_lets_only_higher_priority_pass` |
+| M5 `>` for `<` | order table, outranks-later | order table, head-not-later | `semaphore_tpri_first_lets_only_higher_priority_pass` |
 | M6 weigh the request against the last waiter, not the head | outranks-later | head-not-later | none |
-| M7 skip the rule for a poll | order table, outranks-later | order table, head-not-later | `fifo_first_keeps_the_head_ahead`, `tpri_first_lets_only_a_higher_priority_pass` |
-| M8 skip the rule for a request with a time limit | order table | order table, head-not-later | `refused_request_is_served_after_the_head` |
+| M7 skip the rule for a poll | order table, outranks-later | order table, head-not-later | `semaphore_fifo_first_keeps_head_ahead`, `semaphore_tpri_first_lets_only_higher_priority_pass` |
+| M8 skip the rule for a request with a time limit | order table | order table, head-not-later | `semaphore_refused_request_is_served_after_head` |
 | M9 skip the rule for a wait for ever | for-ever | order table | none |
 | M9b skip the rule for a wait for ever, under `TA_TPRI` only | none | order table | none |
 | M10 let a request that may go first take units without a count check | order table | order table | none |
@@ -77,13 +77,13 @@ a deliberate change to the code that a test should detect. The columns are:
 | M13 with no task waiting, take whenever any unit is left (`semcnt > 0`) | maximum-counts | maximum-counts | none |
 
 The table shortens the test names. These three tests are checked in and
-registered by `test/host/main.c`:
+registered by `test/host/test_semaphore.c`:
 
 | Short name | Test |
 | --- | --- |
-| order table | `test_a_new_request_takes_units_only_in_the_order_of_the_semaphore` |
-| head-not-later | `test_a_request_is_weighed_against_the_head_not_a_later_waiter` |
-| maximum-counts | `test_the_maximum_counts_units_before_they_go_to_waiters` |
+| order table | `test_tk_wai_sem_new_request_takes_units_only_in_semaphore_order` |
+| head-not-later | `test_tk_wai_sem_weighs_request_against_queue_head_not_later_waiter` |
+| maximum-counts | `test_tk_sig_sem_counts_maximum_before_serving_waiters` |
 
 These two were baseline cases. The widened tests absorbed them, so they are not
 separate tests in the checkout:
@@ -126,7 +126,7 @@ The widened host tests differ from the baseline as follows:
   row of the table.
 - The order table has rows with a head that waits for three units, two units
   left, and requests for two and for three units.
-- `test_a_request_is_weighed_against_the_head_not_a_later_waiter` replaces the
+- `test_tk_wai_sem_weighs_request_against_queue_head_not_later_waiter` replaces the
   single case of a request that outranks only the later waiter with a table of
   five priorities, each tried as a poll and as a wait with a time limit.
 
@@ -141,7 +141,7 @@ its tail, so M6 is still caught by one test.
 The QEMU tests were not changed. M6, M9, M9b, M10, M11 and M13 pass them, and
 the host tests are what catch these. In the QEMU cases in which the order
 decides a request, the head of the queue waits for ever and the request polls
-(`TMO_POL`). The exception is `refused_request_is_served_after_the_head`, whose
+(`TMO_POL`). The exception is `semaphore_refused_request_is_served_after_head`, whose
 request waits with a time limit, behind the head, under `TA_TFIFO`. No QEMU
 case has the order refuse a request that then waits for ever, or weighs a
 request against a queue of two under `TA_TPRI`.

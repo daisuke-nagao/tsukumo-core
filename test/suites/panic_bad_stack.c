@@ -23,7 +23,7 @@ enum { ILLEGAL_INSTRUCTION = 2 };
 // nothing.
 #define UNMAPPED_ADDRESS 0x00010000u
 
-static void illegal_instruction_with_a_bad_stack(void) {
+static void panic_illegal_instruction_with_bad_stack_reports_cause(void) {
   panic_expect.mcause = ILLEGAL_INSTRUCTION;
   panic_expect.mtval = ILLEGAL_WORD;
   // The trap never returns, so the stack pointer is not restored.
@@ -37,8 +37,7 @@ static void illegal_instruction_with_a_bad_stack(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"illegal_instruction_with_a_bad_stack",
-     illegal_instruction_with_a_bad_stack},
+    CASE(panic_illegal_instruction_with_bad_stack_reports_cause),
 };
 
 TEST_SUITE_MAIN("panic-bad-stack", s_cases, 2000)

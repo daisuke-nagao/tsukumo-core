@@ -22,8 +22,6 @@
 
 #include "fakes.h"
 
-enum { PRIORITY = 4 };
-
 static const UINT FLAG_SENTINEL = 0xdeadbeefU;
 
 static UINT s_flgptn;
@@ -77,7 +75,7 @@ static void check_call(const api_t *api, ID id, ER expected) {
 
   host_reset();
   if (api->from_a_task) {
-    host_set_current(host_make_task(PRIORITY));
+    host_set_current(host_make_task(HOST_HIGH_PRIORITY));
   }
   s_flgptn = FLAG_SENTINEL;
   s_received = &s_sentinel;
@@ -91,18 +89,24 @@ static void check_call(const api_t *api, ID id, ER expected) {
   host_assert_unchanged(&before, label);
 }
 
-void test_an_id_out_of_range_is_refused_and_changes_nothing(void) {
-  for (UINT i = 0; i < sizeof(s_apis) / sizeof(s_apis[0]); ++i) {
+static void test_object_id_out_of_range_is_refused_and_changes_nothing(void) {
+  for (UINT i = 0; i < HOST_COUNT(s_apis); ++i) {
     const ID out_of_range[] = {0, -1, INT_MIN, s_apis[i].max + 1};
-    for (UINT j = 0; j < sizeof(out_of_range) / sizeof(out_of_range[0]); ++j) {
+    for (UINT j = 0; j < HOST_COUNT(out_of_range); ++j) {
       check_call(&s_apis[i], out_of_range[j], E_ID);
     }
   }
 }
 
-void test_the_ids_at_both_ends_of_the_range_get_past_the_id_check(void) {
-  for (UINT i = 0; i < sizeof(s_apis) / sizeof(s_apis[0]); ++i) {
+static void test_object_id_at_both_ends_of_range_passes_id_check(void) {
+  for (UINT i = 0; i < HOST_COUNT(s_apis); ++i) {
     check_call(&s_apis[i], 1, E_NOEXS);
     check_call(&s_apis[i], s_apis[i].max, E_NOEXS);
   }
+}
+
+void run_object_id_tests(void) {
+  UnitySetTestFile(__FILE__);
+  RUN_TEST(test_object_id_out_of_range_is_refused_and_changes_nothing);
+  RUN_TEST(test_object_id_at_both_ends_of_range_passes_id_check);
 }

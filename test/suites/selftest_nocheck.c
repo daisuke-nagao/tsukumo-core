@@ -23,8 +23,8 @@ static void no_checkpoint(void) {
 static void pass_case(void) { TEST_ASSERT_EQUAL(1, 1); }
 
 static const test_case_t s_cases[] = {
-    {"no_checkpoint", no_checkpoint},
-    {"pass_case", pass_case},
+    CASE(no_checkpoint),
+    CASE(pass_case),
 };
 
 TEST_SUITE_MAIN("selftest-nocheck", s_cases, 5000)

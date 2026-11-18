@@ -214,8 +214,8 @@ The `interrupt` suite reproduces the window without kernel hooks. The task
 masks the software, timer and external interrupts in `mie` until the UART
 interrupt is pending, then ends, and the handler restarts it or creates a task
 in its TCB. The cases are
-`a_task_restarted_by_an_isr_right_after_tk_ext_tsk_starts_anew` and
-`a_task_created_by_an_isr_in_the_tcb_tk_exd_tsk_freed_starts_anew`. Before the
+`tk_sta_tsk_by_isr_right_after_tk_ext_tsk_starts_task_anew` and
+`tk_cre_tsk_by_isr_in_tcb_freed_by_tk_exd_tsk_starts_task_anew`. Before the
 fix both failed on both QEMU clocks, because the ended run went on; they now
 pass. On QEMU without AIA (the RISC-V Advanced Interrupt Architecture), the
 hart may not take a pending external interrupt ahead of a software one, so the
@@ -241,7 +241,7 @@ again, so the switch at the trap exit goes to the released task if it outranks
 the task the wait call chose.
 
 The PC unit test
-`test_an_isr_releases_the_task_it_interrupted_right_after_it_began_to_wait`
+`test_tk_rel_wai_in_isr_releases_task_it_interrupted_right_after_wait_began`
 in `test/host/test_wait.c` failed with `E_OBJ` before the fix. It calls from a
 handler with interrupts off and from one that turned them on, because a handler
 is an ISR whatever MIE is.
@@ -268,7 +268,7 @@ no public yield in its place (`tk_rot_rdq()` is not implemented). The
 `idle-halt` suite now yields with the kernel's internal `tkmc_yield()`.
 
 The PC unit test
-`test_a_delay_of_zero_with_interrupts_on_changes_nothing_and_leaves_them_on`
+`test_tk_dly_tsk_zero_with_interrupts_on_changes_nothing_and_leaves_them_on`
 in `test/host/test_wait_context.c` compares the kernel before and after the
 call, with a ready task of the same priority. It failed before the fix.
 
@@ -306,7 +306,7 @@ above now compiles and takes the two-argument branch. At that point,
 `ClearInt`, `EndOfInt` and `CheckInt` were still missing. The later additions
 complete the [interrupt-controller profile](spec-conformance-review.md#interrupt-controller-profile).
 
-The PC unit test `test_a_driver_written_to_the_profile_enables_a_source_at_its_level`
+The PC unit test `test_enable_int_sets_source_at_its_level_for_profile_driver`
 in `test/host/test_intctl.c` follows the same pattern and checks the priority it
 sets. With the previous flags it did not compile.
 

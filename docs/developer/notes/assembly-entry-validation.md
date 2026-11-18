@@ -14,10 +14,12 @@ The host run passed 167 Unity cases and three public declaration consumers.
 Each of `debug`, `debug-lto`, `relwithdebinfo`, `relwithdebinfo-lto`,
 `minsizerel` and `minsizerel-lto` passed all 104 CTests. Those runs include
 instruction-count and host-clock QEMU tests and the existing timer and mailbox
-instruction budgets. The `interrupt` suite covers assembly tasks, both raw
-interrupt exits and both orders of mixed ASM/high-level nesting. The
-`task-context` variants cover invalid interrupt-return contexts, including an
-assembly task that disables interrupts before its normal task return.
+instruction budgets. At that date, the `interrupt` suite included assembly
+tasks, both raw interrupt exits and both orders of mixed ASM/high-level
+nesting. Current sources place the three task cases in `asm-task`; raw
+interrupt and mixed-nesting cases remain in `interrupt`. The `task-context`
+variants cover invalid interrupt-return contexts, including an assembly task
+that disables interrupts before its normal task return.
 
 A standalone preprocessed assembler consumer included only the public include
 path and expanded `TKMC_RET_INT_ASM`. A C++17 consumer, including
@@ -36,19 +38,22 @@ and the active test.
 ## Isolated fault experiments
 
 Copy the current source and tests into a disposable directory. Give each fault
-its own source and build directories. Apply one change at a time. Build the
-`tsukumo-core-test-interrupt.elf` target and run `qemu-interrupt` with the
-instruction-count clock. For these experiments the disposable suite's case
-list selected the relevant existing cases listed below. Its test bodies and
-fixtures were retained. Restore the changed production file, rebuild and rerun
-the same cases after each experiment.
+its own source and build directories. Apply one change at a time. For the
+task-entry argument and normal-return faults, build
+`tsukumo-core-test-asm-task.elf` and run `qemu-asm-task`. For the raw-handler
+and nested-dispatch faults, build `tsukumo-core-test-interrupt.elf` and run
+`qemu-interrupt`. Use the instruction-count clock for each experiment.
+The recorded experiments selected the relevant cases listed below in a
+disposable case list while retaining their test bodies and fixtures.
+Restore the changed production file, rebuild and rerun the same suite after
+each experiment.
 
-The task cases are `asm_task_entry_and_termination_paths`,
+The task cases are `asm_task_runs_entry_and_ends_by_every_termination_path`,
 `asm_task_restart_rebuilds_entry_and_arguments` and
 `asm_task_tcb_reuse_starts_with_fresh_arguments`. The raw exit cases are
-`asm_tk_ret_int_restores_frame_and_dispatches_in_external_trap` and
-`asm_direct_return_restores_frame_and_leaves_dispatch_pending`. The outer
-nested-dispatch case is `asm_outer_and_hlng_inner_dispatch_at_the_outer_exit`.
+`tk_ret_int_restores_frame_and_dispatches_in_external_trap` and
+`asm_handler_direct_return_restores_frame_and_leaves_dispatch_pending`. The outer
+nested-dispatch case is `nested_interrupt_asm_outer_hlng_inner_dispatches_at_outer_exit`.
 
 | Fault | Reached case and observed mismatch |
 | --- | --- |

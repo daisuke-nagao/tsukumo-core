@@ -26,6 +26,11 @@ function(add_public_declarations_check name)
     if(QEMU_EXECUTABLE)
       add_test(NAME ${name}-link COMMAND ${CMAKE_COMMAND} --build
                                          ${CMAKE_BINARY_DIR} --target ${name})
+      # Two Ninja runs in one build tree race on its .ninja_deps file: one
+      # rewrites it while the other fails to open it. ctest -j would start these
+      # checks together, so they share a lock.
+      set_tests_properties(${name}-link PROPERTIES RESOURCE_LOCK
+                                                   "${CMAKE_BINARY_DIR}")
     endif()
   else()
     add_test(NAME ${name} COMMAND $<TARGET_FILE:${name}>)

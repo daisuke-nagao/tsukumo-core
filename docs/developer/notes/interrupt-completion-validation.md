@@ -34,7 +34,7 @@ Markdown checks passed.
 
 ## What the tests observe
 
-The six EndOfInt host tests in `test/host/test_intctl.c` check immediate EOI,
+The six EndOfInt host tests in `test/host/test_asm_interrupt.c` check immediate EOI,
 repeated calls, C exit after explicit completion, invalid/inactive/unmatched
 calls, disabled sources, MIE states and operation without a current task.
 They also cover completion of an enclosing claim, same-source record

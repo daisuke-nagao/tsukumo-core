@@ -16,7 +16,8 @@
 
 enum { PRIORITY = 4, HIGH_PRIORITY = 3, LOW_PRIORITY = 5 };
 
-static ID s_self, s_semid, s_flgid, s_mbxid;
+static ID s_self;
+static host_objects_t s_obj;
 static T_MSG s_message;
 static UW s_task_stack[256] __attribute__((aligned(16)));
 
@@ -28,13 +29,8 @@ static void never_run(INT stacd, void *exinf) {
 static void fresh(void) {
   s_self = host_make_task(PRIORITY);
   host_set_current(s_self);
-  s_semid = tk_cre_sem(
-      &(T_CSEM){.exinf = 0, .sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
-  s_flgid = tk_cre_flg(&(T_CFLG){.exinf = 0, .flgatr = TA_WSGL, .iflgptn = 5});
-  s_mbxid = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = TA_TFIFO});
-  TEST_ASSERT_GREATER_THAN(0, s_semid);
-  TEST_ASSERT_GREATER_THAN(0, s_flgid);
-  TEST_ASSERT_GREATER_THAN(0, s_mbxid);
+  s_obj = host_make_objects();
+  TEST_ASSERT_EQUAL(E_OK, tk_set_flg(s_obj.flgid, 5));
   s_message = (T_MSG){0};
 }
 
@@ -56,10 +52,10 @@ static ER create_flag(void) {
 static ER create_mailbox(void) {
   return tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = TA_TFIFO});
 }
-static ER delete_sem(void) { return tk_del_sem(s_semid); }
-static ER delete_mailbox(void) { return tk_del_mbx(s_mbxid); }
-static ER clear_flag(void) { return tk_clr_flg(s_flgid, 0); }
-static ER send_mailbox(void) { return tk_snd_mbx(s_mbxid, &s_message); }
+static ER delete_sem(void) { return tk_del_sem(s_obj.semid); }
+static ER delete_mailbox(void) { return tk_del_mbx(s_obj.mbxid); }
+static ER clear_flag(void) { return tk_clr_flg(s_obj.flgid, 0); }
+static ER send_mailbox(void) { return tk_snd_mbx(s_obj.mbxid, &s_message); }
 
 typedef struct {
   const char *name;
@@ -91,32 +87,29 @@ static void check_effect(UINT api, ER result) {
     TEST_ASSERT_EQUAL(E_OK, tk_del_mbx(result));
     break;
   case 4:
-    TEST_ASSERT_EQUAL(E_NOEXS, tk_sig_sem(s_semid, 1));
+    TEST_ASSERT_EQUAL(E_NOEXS, tk_sig_sem(s_obj.semid, 1));
     break;
   case 5:
-    TEST_ASSERT_EQUAL(E_NOEXS, tk_snd_mbx(s_mbxid, &s_message));
+    TEST_ASSERT_EQUAL(E_NOEXS, tk_snd_mbx(s_obj.mbxid, &s_message));
     break;
   case 6:
-    TEST_ASSERT_EQUAL_UINT(0, tkmc_flgcbs[s_flgid - 1].flgptn);
+    TEST_ASSERT_EQUAL_UINT(0, tkmc_flgcbs[s_obj.flgid - 1].flgptn);
     break;
   default: {
     T_MSG *received = NULL;
-    TEST_ASSERT_EQUAL(E_OK, tk_rcv_mbx(s_mbxid, &received, TMO_POL));
+    TEST_ASSERT_EQUAL(E_OK, tk_rcv_mbx(s_obj.mbxid, &received, TMO_POL));
     TEST_ASSERT_EQUAL_PTR(&s_message, received);
   } break;
   }
 }
 
-void test_optional_calls_succeed_in_an_isr_and_restore_interrupt_state(void) {
-  for (UINT api = 0; api < sizeof(s_calls) / sizeof(s_calls[0]); ++api) {
+static void
+test_isr_context_optional_calls_succeed_and_restore_interrupt_state(void) {
+  for (UINT api = 0; api < HOST_COUNT(s_calls); ++api) {
     for (UINT irq = 0; irq < 2; ++irq) {
       host_reset();
       fresh();
-      UINT saved = 0;
-      if (!irq) {
-        DI(saved);
-      }
-      tkmc_isr_depth = 1;
+      const host_context_t entered = host_enter(TRUE, !irq);
       ER result = s_calls[api].call();
       TEST_ASSERT_TRUE_MESSAGE(tkmc_in_isr(), s_calls[api].name);
       TEST_ASSERT_EQUAL_UINT_MESSAGE(irq, host_interrupts_enabled(),
@@ -124,18 +117,14 @@ void test_optional_calls_succeed_in_an_isr_and_restore_interrupt_state(void) {
       TEST_ASSERT_TRUE_MESSAGE(s_calls[api].creates ? result > E_OK
                                                     : result == E_OK,
                                s_calls[api].name);
-      tkmc_isr_depth = 0;
-      if (!irq) {
-        EI(0);
-      }
+      host_leave(entered);
       check_effect(api, result);
       host_check_kernel_queues();
     }
   }
 }
 
-void test_isr_mailbox_sends_keep_fifo_and_priority_order(void) {
-  host_reset();
+static void test_tk_snd_mbx_in_isr_keeps_fifo_and_priority_order(void) {
   s_self = host_make_task(LOW_PRIORITY);
   host_set_current(s_self);
   ID fifo = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = TA_TFIFO});
@@ -175,8 +164,7 @@ void test_isr_mailbox_sends_keep_fifo_and_priority_order(void) {
   host_check_kernel_queues();
 }
 
-void test_isr_mailbox_send_wakes_waiter_and_defers_its_switch(void) {
-  host_reset();
+static void test_tk_snd_mbx_in_isr_wakes_waiter_and_defers_its_switch(void) {
   ID mbxid = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = TA_TFIFO});
   ID receiver = host_make_task(HIGH_PRIORITY);
   host_set_current(receiver);
@@ -204,4 +192,11 @@ void test_isr_mailbox_send_wakes_waiter_and_defers_its_switch(void) {
   TEST_ASSERT_FALSE(tkmc_in_isr());
   TEST_ASSERT_EQUAL_PTR(&tkmc_tcbs[receiver - 1], next);
   host_check_kernel_queues();
+}
+
+void run_isr_context_tests(void) {
+  UnitySetTestFile(__FILE__);
+  RUN_TEST(test_isr_context_optional_calls_succeed_and_restore_interrupt_state);
+  RUN_TEST(test_tk_snd_mbx_in_isr_keeps_fifo_and_priority_order);
+  RUN_TEST(test_tk_snd_mbx_in_isr_wakes_waiter_and_defers_its_switch);
 }

@@ -19,8 +19,6 @@
 #include "asm/rv32/address.h"
 #include "fakes.h"
 
-enum { PRIORITY = 4, MSIP = CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET };
-
 typedef struct {
   BOOL from_di;  // The saved value comes from DI(), else it is 0.
   BOOL on_at_di; // Interrupts are on when DI() saves them.
@@ -42,7 +40,7 @@ enum {
   CHECK_SETUP, // Interrupts before EI() and isDI() are as the row says.
   CHECKS
 };
-enum { ROWS = sizeof(s_rows) / sizeof(s_rows[0]) };
+enum { ROWS = HOST_COUNT(s_rows) };
 _Static_assert((ROWS * CHECKS) <= 32, "the mismatches must fit in one UINT");
 
 // Interrupts are turned on by a fresh fake machine and off by DI(), so that
@@ -77,7 +75,7 @@ static UINT run_row(const row_t *row) {
   return mismatches;
 }
 
-void test_ei_restores_the_state_di_saved_whatever_the_state_before_it(void) {
+static void test_ei_restores_state_saved_by_di_whatever_state_before(void) {
   UINT mask = 0;
   for (UINT row = 0; row < ROWS; ++row) {
     mask |= run_row(&s_rows[row]) << (row * CHECKS);
@@ -90,7 +88,7 @@ void test_ei_restores_the_state_di_saved_whatever_the_state_before_it(void) {
       "EI, 1 setup");
 }
 
-void test_nested_di_ei_restores_each_saved_state(void) {
+static void test_di_ei_nested_pairs_restore_each_saved_state(void) {
   BOOL outer_di[2];
   BOOL inner_di[2];
   BOOL after_inner_ei[2];
@@ -126,14 +124,15 @@ void test_nested_di_ei_restores_each_saved_state(void) {
 // out by the fake machine at the EI() that turns interrupts on. An EI() that
 // turns them off must neither switch nor drop the request: the switch comes
 // at the next EI() that turns them on.
-void test_an_ei_that_turns_interrupts_off_keeps_the_switch_for_later(void) {
+static void
+test_ei_turning_interrupts_off_keeps_switch_request_for_later(void) {
   // Saved here, while nothing is armed, so this EI() cannot switch.
   UINT outer, off;
   DI(outer);
   DI(off);
   EI(outer);
 
-  host_set_current(host_make_task(PRIORITY));
+  host_set_current(host_make_task(HOST_HIGH_PRIORITY));
   host_waited = 0;
   if (setjmp(host_wait_jmp) == 0) {
     host_arm_wait();
@@ -154,7 +153,7 @@ void test_an_ei_that_turns_interrupts_off_keeps_the_switch_for_later(void) {
 
   // Arm a second wait; this request must survive EI(off) and switch at EI(0).
   host_arm_wait();
-  out_w(MSIP, 1);
+  out_w(HOST_MSIP, 1);
 
   // Each EI() installs its own jump target in this frame so a jump returns to
   // the matching restore.
@@ -165,7 +164,7 @@ void test_an_ei_that_turns_interrupts_off_keeps_the_switch_for_later(void) {
     switched = TRUE;
   }
   const BOOL disabled_restore_did_not_switch = !switched;
-  const BOOL request_survived_disabled_restore = in_w(MSIP) == 1;
+  const BOOL request_survived_disabled_restore = in_w(HOST_MSIP) == 1;
   const BOOL disabled_after_restore = !host_interrupts_enabled();
 
   switched = FALSE;
@@ -176,7 +175,7 @@ void test_an_ei_that_turns_interrupts_off_keeps_the_switch_for_later(void) {
   }
   const BOOL enabled_restore_switched = switched;
   const BOOL enabled_after_restore = host_interrupts_enabled();
-  const BOOL request_consumed_by_enabled_restore = in_w(MSIP) == 0;
+  const BOOL request_consumed_by_enabled_restore = in_w(HOST_MSIP) == 0;
 
   host_reset();
   TEST_ASSERT_TRUE_MESSAGE(disabled_restore_did_not_switch,
@@ -191,4 +190,11 @@ void test_an_ei_that_turns_interrupts_off_keeps_the_switch_for_later(void) {
                            "EI(0) did not turn interrupts on");
   TEST_ASSERT_TRUE_MESSAGE(request_consumed_by_enabled_restore,
                            "EI(0) did not consume the switch request");
+}
+
+void run_interrupt_state_tests(void) {
+  UnitySetTestFile(__FILE__);
+  RUN_TEST(test_ei_restores_state_saved_by_di_whatever_state_before);
+  RUN_TEST(test_di_ei_nested_pairs_restore_each_saved_state);
+  RUN_TEST(test_ei_turning_interrupts_off_keeps_switch_request_for_later);
 }

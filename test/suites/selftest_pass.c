@@ -77,9 +77,9 @@ static void the_most_children(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"join_waits_for_child", join_waits_for_child},
-    {"join_long_child_first", join_long_child_first},
-    {"join_long_child_last", join_long_child_last},
+    CASE(join_waits_for_child),
+    CASE(join_long_child_first),
+    CASE(join_long_child_last),
     {"the_most_children_in_a_case", the_most_children},
     {"the_most_children_in_the_next_case", the_most_children},
 };

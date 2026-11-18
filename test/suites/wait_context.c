@@ -69,57 +69,55 @@ static void assert_refused(const outcome_t *o) {
 // Runs with the interrupts the caller had on, whatever a failed call did.
 static void interrupts_on(void) { EI(0); }
 
-static void delay_with_interrupts_off(void) {
+// Makes the call with interrupts off and checks that it was refused and left
+// the plain running task.
+static void check_refused_with_interrupts_off(ER (*call)(void)) {
   UINT intsts;
   DI(intsts);
-  outcome_t o = observe(tk_dly_tsk(WAIT_MS));
+  outcome_t o = observe(call());
   EI(intsts);
   interrupts_on();
   assert_refused(&o);
 }
 
-static void sleep_with_interrupts_off(void) {
-  UINT intsts;
-  DI(intsts);
-  outcome_t o = observe(tk_slp_tsk(WAIT_MS));
-  EI(intsts);
-  interrupts_on();
-  assert_refused(&o);
+static ER call_dly_tsk(void) { return tk_dly_tsk(WAIT_MS); }
+static ER call_slp_tsk(void) { return tk_slp_tsk(WAIT_MS); }
+static ER wait_semaphore(void) { return tk_wai_sem(s_sem, 1, WAIT_MS); }
+static ER wait_flag(void) {
+  UINT pattern = 0;
+  return tk_wai_flg(s_flg, 0x1, TWF_ORW, &pattern, WAIT_MS);
+}
+static ER receive_message(void) {
+  T_MSG *message = NULL;
+  return tk_rcv_mbx(s_mbx, &message, WAIT_MS);
 }
 
-static void semaphore_wait_with_interrupts_off(void) {
+static void tk_dly_tsk_with_interrupts_off_is_refused(void) {
+  check_refused_with_interrupts_off(call_dly_tsk);
+}
+
+static void tk_slp_tsk_with_interrupts_off_is_refused(void) {
+  check_refused_with_interrupts_off(call_slp_tsk);
+}
+
+static void tk_wai_sem_with_interrupts_off_is_refused(void) {
   s_sem = tk_cre_sem(&(T_CSEM){.sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
   TEST_ASSERT_GREATER_THAN(0, s_sem);
-  UINT intsts;
-  DI(intsts);
-  outcome_t o = observe(tk_wai_sem(s_sem, 1, WAIT_MS));
-  EI(intsts);
-  interrupts_on();
-  assert_refused(&o);
+  check_refused_with_interrupts_off(wait_semaphore);
+  TEST_ASSERT_EQUAL(E_OK, tk_del_sem(s_sem));
 }
 
-static void flag_wait_with_interrupts_off(void) {
+static void tk_wai_flg_with_interrupts_off_is_refused(void) {
   s_flg = tk_cre_flg(&(T_CFLG){.flgatr = TA_WSGL});
   TEST_ASSERT_GREATER_THAN(0, s_flg);
-  UINT pattern = 0;
-  UINT intsts;
-  DI(intsts);
-  outcome_t o = observe(tk_wai_flg(s_flg, 0x1, TWF_ORW, &pattern, WAIT_MS));
-  EI(intsts);
-  interrupts_on();
-  assert_refused(&o);
+  check_refused_with_interrupts_off(wait_flag);
 }
 
-static void mailbox_receive_with_interrupts_off(void) {
+static void tk_rcv_mbx_with_interrupts_off_is_refused(void) {
   s_mbx = tk_cre_mbx(&(T_CMBX){.mbxatr = TA_TFIFO});
   TEST_ASSERT_GREATER_THAN(0, s_mbx);
-  T_MSG *message = NULL;
-  UINT intsts;
-  DI(intsts);
-  outcome_t o = observe(tk_rcv_mbx(s_mbx, &message, WAIT_MS));
-  EI(intsts);
-  interrupts_on();
-  assert_refused(&o);
+  check_refused_with_interrupts_off(receive_message);
+  TEST_ASSERT_EQUAL(E_OK, tk_del_mbx(s_mbx));
 }
 
 // A refusal uses up nothing, even when the call could succeed at once: what it
@@ -141,13 +139,13 @@ static void sleeping_child(void *arg) {
   test_checkpoint();
 }
 
-static void sleep_refusal_keeps_the_wakeup_request(void) {
+static void tk_slp_tsk_refusal_keeps_wakeup_request(void) {
   ID child = test_spawn(sleeping_child, LATE_CHILD_PRIORITY, 0);
   TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(child));
   test_join_expect(1);
 }
 
-static void semaphore_refusal_keeps_the_unit(void) {
+static void tk_wai_sem_refusal_keeps_unit(void) {
   s_sem = tk_cre_sem(&(T_CSEM){.sematr = TA_TFIFO, .isemcnt = 1, .maxsem = 1});
   TEST_ASSERT_GREATER_THAN(0, s_sem);
   UINT intsts;
@@ -158,9 +156,10 @@ static void semaphore_refusal_keeps_the_unit(void) {
   TEST_ASSERT_EQUAL(E_CTX, refused);
   TEST_ASSERT_EQUAL(E_OK, tk_wai_sem(s_sem, 1, TMO_POL));
   TEST_ASSERT_EQUAL(E_TMOUT, tk_wai_sem(s_sem, 1, TMO_POL));
+  TEST_ASSERT_EQUAL(E_OK, tk_del_sem(s_sem));
 }
 
-static void flag_refusal_keeps_the_pattern(void) {
+static void tk_wai_flg_refusal_keeps_pattern(void) {
   s_flg = tk_cre_flg(&(T_CFLG){.flgatr = TA_WSGL});
   TEST_ASSERT_GREATER_THAN(0, s_flg);
   TEST_ASSERT_EQUAL(E_OK, tk_set_flg(s_flg, 0x1));
@@ -179,7 +178,7 @@ static void flag_refusal_keeps_the_pattern(void) {
       E_TMOUT, tk_wai_flg(s_flg, 0x1, TWF_ORW | TWF_CLR, &pattern, TMO_POL));
 }
 
-static void mailbox_refusal_keeps_the_message(void) {
+static void tk_rcv_mbx_refusal_keeps_message(void) {
   s_mbx = tk_cre_mbx(&(T_CMBX){.mbxatr = TA_TFIFO});
   TEST_ASSERT_GREATER_THAN(0, s_mbx);
   TEST_ASSERT_EQUAL(E_OK, tk_snd_mbx(s_mbx, &s_message));
@@ -194,11 +193,12 @@ static void mailbox_refusal_keeps_the_message(void) {
   TEST_ASSERT_EQUAL(E_OK, tk_rcv_mbx(s_mbx, &message, TMO_POL));
   TEST_ASSERT_EQUAL_PTR(&s_message, message);
   TEST_ASSERT_EQUAL(E_TMOUT, tk_rcv_mbx(s_mbx, &message, TMO_POL));
+  TEST_ASSERT_EQUAL(E_OK, tk_del_mbx(s_mbx));
 }
 
 // tk_dly_tsk(0) is the wait that does not block. With interrupts on it returns
 // E_OK at once, and with them still on.
-static void zero_delay_with_interrupts_on_returns_with_them_on(void) {
+static void tk_dly_tsk_zero_with_interrupts_on_returns_with_them_on(void) {
   ER ercd = tk_dly_tsk(0);
   UINT probe;
   DI(probe);
@@ -208,33 +208,17 @@ static void zero_delay_with_interrupts_on_returns_with_them_on(void) {
   TEST_ASSERT_TRUE(was_on);
 }
 
-// DI() fills the variable it is given, whatever its name. The macro used to
-// declare a local named status, so a caller's variable of that name was never
-// assigned, and EI() then worked from whatever it held.
-static void di_fills_a_variable_named_status(void) {
-  UINT status = 0xdeadbeefU;
-  DI(status);
-  UINT filled = status;
-  EI(status);
-  TEST_ASSERT_NOT_EQUAL_HEX32(0xdeadbeefU, filled);
-  TEST_ASSERT_FALSE(isDI(filled)); // Interrupts were on before the call.
-}
-
 static const test_case_t s_cases[] = {
-    {"di_fills_a_variable_named_status", di_fills_a_variable_named_status},
-    {"delay_with_interrupts_off", delay_with_interrupts_off},
-    {"sleep_with_interrupts_off", sleep_with_interrupts_off},
-    {"semaphore_wait_with_interrupts_off", semaphore_wait_with_interrupts_off},
-    {"flag_wait_with_interrupts_off", flag_wait_with_interrupts_off},
-    {"mailbox_receive_with_interrupts_off",
-     mailbox_receive_with_interrupts_off},
-    {"sleep_refusal_keeps_the_wakeup_request",
-     sleep_refusal_keeps_the_wakeup_request},
-    {"semaphore_refusal_keeps_the_unit", semaphore_refusal_keeps_the_unit},
-    {"flag_refusal_keeps_the_pattern", flag_refusal_keeps_the_pattern},
-    {"mailbox_refusal_keeps_the_message", mailbox_refusal_keeps_the_message},
-    {"zero_delay_with_interrupts_on_returns_with_them_on",
-     zero_delay_with_interrupts_on_returns_with_them_on},
+    CASE(tk_dly_tsk_with_interrupts_off_is_refused),
+    CASE(tk_slp_tsk_with_interrupts_off_is_refused),
+    CASE(tk_wai_sem_with_interrupts_off_is_refused),
+    CASE(tk_wai_flg_with_interrupts_off_is_refused),
+    CASE(tk_rcv_mbx_with_interrupts_off_is_refused),
+    CASE(tk_slp_tsk_refusal_keeps_wakeup_request),
+    CASE(tk_wai_sem_refusal_keeps_unit),
+    CASE(tk_wai_flg_refusal_keeps_pattern),
+    CASE(tk_rcv_mbx_refusal_keeps_message),
+    CASE(tk_dly_tsk_zero_with_interrupts_on_returns_with_them_on),
 };
 
 TEST_SUITE_MAIN("wait-context", s_cases, 5000)

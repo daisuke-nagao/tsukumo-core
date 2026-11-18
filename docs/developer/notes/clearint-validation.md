@@ -104,7 +104,7 @@ Each fault is applied separately in an isolated source and host build tree.
 All five faults built and reached assertions in
 `test_clear_int_claims_only_its_pending_source_and_preserves_all_words`.
 The last two also failed
-`test_clear_int_in_a_nested_handler_preserves_outer_claim_and_record`.
+`test_clear_int_in_nested_handler_preserves_outer_claim_and_record`.
 Every restored variant rebuilt and passed its full host registration.
 The disabled-completion fault confirms the corrected sampling catches an
 EOI the controller ignores, even though the MMIO log contains a write.

@@ -140,7 +140,7 @@ static UINT run_nested(UINT mie_at_outer_di) {
   return mismatches;
 }
 
-static void ei_restores_the_state_di_saved_whatever_mie_is_before_it(void) {
+static void ei_restores_state_di_saved_whatever_mie_is_before_it(void) {
   UINT mask = 0;
   for (UINT row = 0; row < ROWS; ++row) {
     mask |= run_row(&s_rows[row]) << (row * CHECKS);
@@ -170,7 +170,7 @@ static void nested_di_ei_restores_each_saved_state(void) {
 // EI() that set MIE and then cleared it would. A software interrupt request
 // left pending through it shows such a moment: the trap would be taken there,
 // and the trap entry clears the request (mtrap_handler in start.S).
-static void an_ei_back_to_off_takes_no_pending_interrupt(void) {
+static void ei_back_to_off_takes_no_pending_interrupt(void) {
   const UW entry_msip = in_w(MSIP);
   UINT sources;
   asm volatile("csrrw %0, mie, zero" : "=r"(sources)::"memory");
@@ -200,13 +200,23 @@ static void an_ei_back_to_off_takes_no_pending_interrupt(void) {
                                   "EI() changed the interrupt sources");
 }
 
+// DI() fills the variable it is given, whatever its name. The macro used to
+// declare a local named status, so a caller's variable of that name was never
+// assigned, and EI() then worked from whatever it held.
+static void di_fills_variable_named_status(void) {
+  UINT status = 0xdeadbeefU;
+  DI(status);
+  UINT filled = status;
+  EI(status);
+  TEST_ASSERT_NOT_EQUAL_HEX32(0xdeadbeefU, filled);
+  TEST_ASSERT_FALSE(isDI(filled)); // Interrupts were on before the call.
+}
+
 static const test_case_t s_cases[] = {
-    {"ei_restores_the_state_di_saved_whatever_mie_is_before_it",
-     ei_restores_the_state_di_saved_whatever_mie_is_before_it},
-    {"nested_di_ei_restores_each_saved_state",
-     nested_di_ei_restores_each_saved_state},
-    {"an_ei_back_to_off_takes_no_pending_interrupt",
-     an_ei_back_to_off_takes_no_pending_interrupt},
+    CASE(di_fills_variable_named_status),
+    CASE(ei_restores_state_di_saved_whatever_mie_is_before_it),
+    CASE(nested_di_ei_restores_each_saved_state),
+    CASE(ei_back_to_off_takes_no_pending_interrupt),
 };
 
 TEST_SUITE_MAIN("interrupt-state", s_cases, 5000)
