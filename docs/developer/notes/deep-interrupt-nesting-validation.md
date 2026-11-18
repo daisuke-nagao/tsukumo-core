@@ -1,10 +1,10 @@
 # Deep interrupt nesting validation
 
-The [interrupt guide](../../kernel/interrupts.md#stack-size-and-nesting) sizes
-the 2048-byte interrupt stack for nesting as deep as the PLIC has priorities.
-This record shows how external interrupts were nested three to seven levels
-deep on QEMU `virt`, what each level was checked for, and how much of the
-stack the tested handlers used.
+The [interrupt guide](../../kernel/interrupts.md#stack-size-and-nesting)
+notes that external interrupts can nest as deep as the PLIC has priorities,
+all on the 2048-byte interrupt stack. This record shows how external
+interrupts were nested three to seven levels deep on QEMU `virt`, what each
+level was checked for, and how much of the stack the tested handlers used.
 
 ## Scope
 
@@ -149,9 +149,10 @@ records after it has put the devices, sources and handlers back.
     one task switch in that trap;
   - after a direct outer return, from the software trap that follows, with
     none in the external trap.
-- **Completion.** Each depth's trace test records the PLIC claim/complete
-  writes. `test/check_interrupt_completion.py` compares them per case, in
-  order, against the expected list:
+- **Completion.** Each depth's trace test records the writes to the PLIC
+  claim/complete register, which are the completions.
+  `test/check_interrupt_completion.py` compares them per case, in order,
+  against the expected list:
   - a plain chain completes the claims of levels 1 to N−2 from `EndOfInt`,
     then the deepest claim, then the claim of level N−1;
   - the late-request cases add one completion.
@@ -210,17 +211,18 @@ reporting and assertions, after the interrupted task resumes from dispatch.
 
 ### Reserved stack space
 
-The final ELF disassembly is checked separately for all five depths in all
-six cross presets. Starting at each recorded `ctx_sp`, add the largest fixed
-stack-frame chain among handler execution, prepare, finish and `tk_ret_int`.
-The outermost schedule wrapper is included too. The recorded context bases
-already include suspended handlers, their register waits and nested trap
-frames. The ASM entry and direct-return macro add no further frame.
+The final ELF disassembly was analyzed by hand, once, for all five depths in
+all six cross presets. No CTest repeats this analysis. Starting at each
+recorded `ctx_sp`, add the largest fixed stack-frame chain among handler
+execution, prepare, finish and `tk_ret_int`. The outermost schedule wrapper
+is included too. The recorded context bases already include suspended
+handlers, their register waits and nested trap frames. The ASM entry and
+direct-return macro add no further frame.
 
 Frame sizes come from each reachable function's stack adjustments. Branches
-and tail calls are conservatively combined. Unresolved calls, indirect
-transfers, dynamic or multiple unmodeled reservations and unrecognized SP
-writes require inspection. The final 30 ELFs pass these checks. Fatal invalid
+and tail calls are conservatively combined. Calls through registers, indirect
+transfers, dynamic reservations and other SP writes were traced to their
+targets by hand in all 30 ELFs. Fatal invalid
 context paths and restoring SP to an existing saved frame are outside the
 normal return budget.
 
@@ -287,8 +289,8 @@ At depth 7, the cases that set each preset's largest count are:
 - `relwithdebinfo-lto`: the cases with ASM on odd levels at 1600 bytes;
 - `minsizerel-lto`: the two late-request cases at 1640 bytes.
 
-Each level adds 288 bytes in `debug` and about 256 bytes in the optimized
-presets:
+Each level adds 288 bytes in `debug`, 256 to 272 bytes in `minsizerel`
+depending on the case, and 256 bytes in the other optimized presets:
 
 - the 128-byte trap frame;
 - the 32-byte entry record;
@@ -320,9 +322,8 @@ optimized presets. It is measured from the paint-preparation SP. The total
 task bounds above include the caller's already-live frames as well.
 
 The fixture keeps one C handler frame on each level, including ASM callbacks.
-The out-of-line boundary checker avoids retaining additional observation
-locals on every suspended level. The measured margin belongs to this
-fixture. Additional handler frames require a new reservation calculation.
+The measured margin belongs to this fixture. Additional handler frames
+require a new reservation calculation.
 
 ## Fault detection
 

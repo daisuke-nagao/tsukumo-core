@@ -303,10 +303,10 @@ boot stack below it.
 
 ### Stack size and nesting
 
-The stack is sized for nesting. A trap that starts inside a handler pushes a
-128-byte frame, a 32-byte external-entry record and its own handler's frames
-on the same stack. The PLIC has 7
-priorities. A chain admitted only at strictly increasing priorities can
+The stack held seven levels of the tested handlers in each of the six cross
+presets the record names (`release` was not run). A trap that starts inside a handler pushes a 128-byte frame, a
+32-byte external-entry record and its own handler's frames on the same stack.
+The PLIC has 7 priorities. A chain admitted only at strictly increasing priorities can
 therefore reach seven levels. Handler call frames also consume this stack.
 The [deep nesting record](../developer/notes/deep-interrupt-nesting-validation.md)
 gives the tested handlers' written high-water marks and separate bounds on
@@ -339,7 +339,7 @@ the two sources that the QEMU `virt` board lets software raise. They fail if
 a level's stack pointer leaves the interrupt stack, if the boot stack below
 it changes, or if the high-water mark reaches 2048 bytes. On 2026-11-18 the
 largest seven-level count was 1972 bytes in `debug` and 1600 to 1744 bytes in
-the optimized presets. The
+the `relwithdebinfo` and `minsizerel` presets and their LTO variants. The
 [deep nesting record](../developer/notes/deep-interrupt-nesting-validation.md)
 lists every depth and preset, and the limits of these figures.
 

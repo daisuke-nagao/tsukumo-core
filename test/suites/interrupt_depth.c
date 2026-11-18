@@ -91,10 +91,12 @@ static const UW MCAUSE_EXTERNAL = 0x8000000bu;
 #define PLIC_THRESHOLD_REG (PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET)
 
 // The schedule() wrap keeps the mcause of the first trap that switches tasks
-// after a case cleared it, and whether every switch ran on the interrupt stack
-// at depth 1: no level of a chain may switch tasks but the outermost exit (or
-// the software trap after a direct return).
+// after the chain of a case has started, and whether every switch ran on the
+// interrupt stack at depth 1: no level of a chain may switch tasks but the
+// outermost exit (or the software trap after a direct return).
 static volatile UW s_last_mcause;
+// Counts level entries and exits; 0 until level 1 enters.
+static volatile UINT s_order;
 static volatile UINT s_external_schedules, s_software_schedules;
 static volatile BOOL s_schedule_ok = TRUE;
 
@@ -106,7 +108,10 @@ void **__wrap_schedule(void *frame) {
   UW cause, sp;
   __asm__ volatile("csrr %0, mcause" : "=r"(cause));
   __asm__ volatile("mv %0, sp" : "=r"(sp));
-  if (s_last_mcause == 0) {
+  // Gated on the chain: before level 1 enters, a tick can wake the polling
+  // runner, and its timer-trap switch and the software-trap switch of its
+  // next tk_dly_tsk would be latched instead of the exit dispatch.
+  if (s_last_mcause == 0 && s_order != 0) {
     s_last_mcause = cause;
   }
   if (cause == MCAUSE_EXTERNAL) {
@@ -215,7 +220,6 @@ typedef struct {
 static level_t s_levels[NEST_DEPTH + 2];
 static late_t s_late;
 static const chain_case_t *s_case;
-static volatile UINT s_order;
 static volatile UINT s_next_level;
 static volatile BOOL s_abort;
 // Set by the deepest level before it raises the late request: any entry from
@@ -439,7 +443,8 @@ static BOOL paint_task_stack_prefix(task_view_t *view) {
 
 // The unpainted live-frame guard makes an untouched prefix a conservative
 // high-water bound; the saved outer trap frame narrows it when it extends
-// farther down the task stack.
+// farther down the task stack. A frame outside the stack counts as all of it
+// used, so that it fails the bound instead of shrinking it.
 static void measure_task_stack(task_view_t *view) {
   volatile UW *word = (volatile UW *)(view->task_bottom + sizeof(UW));
   while (word < (volatile UW *)view->task_paint_end && *word == PAINT) {
@@ -452,7 +457,7 @@ static void measure_task_stack(task_view_t *view) {
   UW frame = (UW)s_levels[1].ctx_frame;
   view->task_frame_sp = frame >= view->task_bottom && frame < view->task_top
                             ? frame
-                            : view->task_top;
+                            : view->task_bottom;
   view->task_frame_used = view->task_top - view->task_frame_sp;
   view->task_min_sp = view->task_painted_sp;
   if (view->task_frame_sp < view->task_min_sp) {
@@ -597,7 +602,10 @@ static void assert_the_chain(const task_view_t *view) {
   TEST_ASSERT_EQUAL_HEX32(MSTATUS_MIE, view->mstatus_prepaint & MSTATUS_MIE);
   TEST_ASSERT_EQUAL_HEX32(view->mstatus_prepaint & MSTATUS_MIE,
                           view->mstatus_postpaint & MSTATUS_MIE);
-  TEST_ASSERT_LESS_THAN_UINT_MESSAGE(TASK_STACK_SIZE, view->task_used,
+  // The scan starts above the canary word, so an overwritten lowest painted
+  // word reads as TASK_STACK_SIZE - 4 bytes used, never TASK_STACK_SIZE.
+  TEST_ASSERT_LESS_THAN_UINT_MESSAGE(TASK_STACK_SIZE - sizeof(UW),
+                                     view->task_used,
                                      "no room left on the task stack");
   TEST_ASSERT_EQUAL_HEX32_MESSAGE(0, view->probe,
                                   "the task's registers changed");
