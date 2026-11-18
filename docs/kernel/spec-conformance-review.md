@@ -72,8 +72,10 @@ difference, the kernel was fixed on that date, and the entry now passes. The
   calls associated with `TK_SUPPORT_INTCTRL`.
 - Assembly task and external-interrupt entries use the documented
   [RV32 assembly contract](assembly-entry.md). The remaining evidence gaps
-  concern interrupt nesting beyond two levels with the interrupt-stack margin,
-  real hardware and more than one hart.
+  concern three or more distinct active sources, handler stack use outside
+  the measured fixture, real hardware and more than one hart. The
+  [deep nesting record](../developer/notes/deep-interrupt-nesting-validation.md)
+  covers three-to-seven-level alternating-source chains.
 - The assembly-entry update passed 167 PC unit tests, three public consumers
   and all 104 RV32 CTests in each of six presets. Its
   [validation record](../developer/notes/assembly-entry-validation.md) includes
@@ -267,10 +269,11 @@ the review found the kernel's choice permitted.
 
 ### Interrupt nesting beyond two levels
 
-Target evidence covers external interrupts nested two levels deep. Three to
-seven levels and the margin of the interrupt stack still need verification;
-[interrupts](interrupts.md) explains why the QEMU `virt` machine cannot raise
-more than two sources from software.
+Target evidence now covers external interrupts nested three to seven levels
+deep on QEMU `virt`, with the two software-raised sources alternating (see the
+[deep nesting record](../developer/notes/deep-interrupt-nesting-validation.md)).
+Chains with more than two distinct active sources, and the stack use of
+handlers other than the tested ones, remain outside the evidence.
 
 ### Outside the collected evidence
 

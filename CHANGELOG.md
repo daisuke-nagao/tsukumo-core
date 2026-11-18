@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add QEMU tests that nest external interrupts three to seven levels deep with
+  high-level and assembly handlers, check the PLIC completion order and measure
+  the interrupt stack against the boot stack below it
+  (see [deep nesting validation](docs/developer/notes/deep-interrupt-nesting-validation.md))
+
 - Add `ClearInt` to discard one selected PLIC pending request while preserving
   other sources, controller settings and active interrupt contexts
   (see [pending clear](docs/kernel/interrupts.md#clearing-a-pending-request))

@@ -134,11 +134,16 @@ context record on the shared 2048-byte interrupt stack. A nested entry also
 needs its 128-byte saved frame and handler call frames. Interrupt-stack
 overflow is unchecked.
 
-The software-generated UART and RTC interrupts permit two-level nesting
-tests on QEMU `virt`. The seven PLIC priorities bound possible nesting, while
-actual safe depth also depends on handler stack use. Size application
-handlers for that stack budget. Hardware-device behavior and deeper nesting
-require platform-specific validation.
+The software-generated UART and RTC interrupts, alternated, permit nesting
+tests up to the seven PLIC priorities on QEMU `virt`. All-ASM chains,
+alternating ASM/high-level chains and both ASM exits were tested at three to
+seven levels (see the
+[deep nesting record](../developer/notes/deep-interrupt-nesting-validation.md)).
+Safe depth depends on handler stack use. The record distinguishes observed
+writes from reserved stack bounds, including handler and exit call frames.
+Size application handlers for that stack budget and repeat the measurement
+after compiler or handler changes. Hardware-device behavior requires
+platform-specific validation.
 
 ## Verification
 
