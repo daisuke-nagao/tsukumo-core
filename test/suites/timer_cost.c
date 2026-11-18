@@ -58,6 +58,7 @@
 #include <unity.h>
 
 #include "asm/rv32/address.h"
+#include "cost.h"
 #include "runner.h"
 #include "task.h"
 
@@ -68,9 +69,6 @@ enum {
   CHILD_PRIORITY = 2,
   SLEEP_MS = 50,
   TICK_MS = 10,
-  // The budget: a tenth of the 312500 instructions that a tick holds at the
-  // default -icount shift 5.
-  BUDGET_INSTRUCTIONS = 31250,
   // What 29 time-outs on a TA_CNT semaphore may cost beyond 29 tk_dly_tsk()
   // time-outs that end in the same call: a tenth of the budget. With the walk
   // of the wait queue that the kernel skips under TA_CNT, the 29 time-outs cost
@@ -128,15 +126,6 @@ static volatile UINT s_removed; // Entries that call took off the timer queue.
 static volatile UW s_worst;     // Instructions of the most expensive call.
 static volatile UINT s_edges;   // Most tick edges one call found passed.
 
-static UINT queue_length(void) {
-  UINT length = 0;
-  for (tkmc_list_head *link = tkmc_timer_queue.next; link != &tkmc_timer_queue;
-       link = link->next) {
-    ++length;
-  }
-  return length;
-}
-
 static UINT waiting_children(UINT watched) {
   const UINT wait = s_on_semaphore ? TTW_SEM : TTW_DLY;
   UINT waiting = 0;
@@ -152,7 +141,7 @@ static UINT waiting_children(UINT watched) {
 void __wrap_tkmc_timer_handler(void) {
   UINT watched = s_watched;
   UINT waiting_before = waiting_children(watched);
-  UINT length_before = queue_length();
+  UINT length_before = test_timer_queue_length();
   // The handler moves the compare value on by one tick for each edge it finds
   // passed.
   const UW compare_before = in_w(CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET);
@@ -174,7 +163,7 @@ void __wrap_tkmc_timer_handler(void) {
   }
   if (ended > s_ended) {
     s_ended = ended;
-    s_removed = length_before - queue_length();
+    s_removed = length_before - test_timer_queue_length();
   }
 }
 
@@ -382,20 +371,30 @@ static const scenario_t s_semaphore_late_most = {
     MOST_CHILDREN,
     MOST_CHILDREN};
 
-static void one_wait_ends_in_a_tick(void) { measure(&s_one); }
-static void eight_waits_end_in_one_tick(void) { measure(&s_eight); }
-static void the_most_waits_end_in_one_tick(void) { measure(&s_most); }
-static void the_most_waits_end_one_by_one(void) { measure(&s_apart); }
-static void waits_one_tick_apart_end_after_a_late_tick(void) {
+static void timer_one_wait_ends_in_one_tick_within_budget(void) {
+  measure(&s_one);
+}
+static void timer_eight_waits_end_in_one_tick_within_budget(void) {
+  measure(&s_eight);
+}
+static void timer_most_waits_end_in_one_tick_within_budget(void) {
+  measure(&s_most);
+}
+static void timer_most_waits_end_one_by_one_within_budget(void) {
+  measure(&s_apart);
+}
+static void timer_waits_one_tick_apart_end_after_late_tick_within_budget(void) {
   measure(&s_apart_late_1);
 }
-static void waits_one_tick_apart_all_end_after_a_late_interrupt(void) {
+static void
+timer_waits_one_tick_apart_all_end_after_late_interrupt_within_budget(void) {
   measure(&s_apart_late_most);
   s_delay_late_worst = s_worst;
 }
 // The same waits as the case before, on a TA_CNT semaphore: its time-outs may
 // cost a little more, for the semaphore, but not a walk of the wait queue each.
-static void semaphore_waits_all_time_out_after_a_late_interrupt(void) {
+static void
+timer_semaphore_waits_all_time_out_after_late_interrupt_within_budget(void) {
   measure(&s_semaphore_late_most);
   TEST_ASSERT_GREATER_THAN_UINT_MESSAGE(
       0, s_delay_late_worst, "the case to compare with did not run before");
@@ -403,28 +402,23 @@ static void semaphore_waits_all_time_out_after_a_late_interrupt(void) {
       s_delay_late_worst + SEMAPHORE_EXTRA_INSTRUCTIONS, s_worst,
       "time-outs on a TA_CNT semaphore cost more than the same delays");
 }
-static void a_short_late_interrupt_counts_the_missed_edges(void) {
+static void timer_short_late_interrupt_counts_missed_edges_within_budget(void) {
   measure_late_interrupt("no waits, 1 tick late", SHORT_LATE_TICKS);
 }
-static void a_long_late_interrupt_counts_the_missed_edges(void) {
+static void timer_long_late_interrupt_counts_missed_edges_within_budget(void) {
   measure_late_interrupt("no waits, 200 ticks late", LONG_LATE_TICKS);
 }
 
 static const test_case_t s_cases[] = {
-    {"one_wait_ends_in_a_tick", one_wait_ends_in_a_tick},
-    {"eight_waits_end_in_one_tick", eight_waits_end_in_one_tick},
-    {"the_most_waits_end_in_one_tick", the_most_waits_end_in_one_tick},
-    {"the_most_waits_end_one_by_one", the_most_waits_end_one_by_one},
-    {"waits_one_tick_apart_end_after_a_late_tick",
-     waits_one_tick_apart_end_after_a_late_tick},
-    {"waits_one_tick_apart_all_end_after_a_late_interrupt",
-     waits_one_tick_apart_all_end_after_a_late_interrupt},
-    {"semaphore_waits_all_time_out_after_a_late_interrupt",
-     semaphore_waits_all_time_out_after_a_late_interrupt},
-    {"a_short_late_interrupt_counts_the_missed_edges",
-     a_short_late_interrupt_counts_the_missed_edges},
-    {"a_long_late_interrupt_counts_the_missed_edges",
-     a_long_late_interrupt_counts_the_missed_edges},
+    CASE(timer_one_wait_ends_in_one_tick_within_budget),
+    CASE(timer_eight_waits_end_in_one_tick_within_budget),
+    CASE(timer_most_waits_end_in_one_tick_within_budget),
+    CASE(timer_most_waits_end_one_by_one_within_budget),
+    CASE(timer_waits_one_tick_apart_end_after_late_tick_within_budget),
+    CASE(timer_waits_one_tick_apart_all_end_after_late_interrupt_within_budget),
+    CASE(timer_semaphore_waits_all_time_out_after_late_interrupt_within_budget),
+    CASE(timer_short_late_interrupt_counts_missed_edges_within_budget),
+    CASE(timer_long_late_interrupt_counts_missed_edges_within_budget),
 };
 
 TEST_SUITE_MAIN("timer-cost", s_cases, 5000)

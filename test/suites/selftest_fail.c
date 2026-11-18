@@ -25,9 +25,9 @@ static void abort_effective(void) { TEST_ASSERT_EQUAL(0, g_after_fail); }
 static void pass_case(void) { TEST_ASSERT_EQUAL(1, 1); }
 
 static const test_case_t s_cases[] = {
-    {"fail_case", fail_case},
-    {"abort_effective", abort_effective},
-    {"pass_case", pass_case},
+    CASE(fail_case),
+    CASE(abort_effective),
+    CASE(pass_case),
 };
 
 TEST_SUITE_MAIN("selftest-fail", s_cases, 5000)

@@ -33,9 +33,9 @@ static void child_abort_effective(void) {
 static void pass_case(void) { TEST_ASSERT_EQUAL(1, 1); }
 
 static const test_case_t s_cases[] = {
-    {"child_fail_case", child_fail_case},
-    {"child_abort_effective", child_abort_effective},
-    {"pass_case", pass_case},
+    CASE(child_fail_case),
+    CASE(child_abort_effective),
+    CASE(pass_case),
 };
 
 TEST_SUITE_MAIN("selftest-child-fail", s_cases, 5000)

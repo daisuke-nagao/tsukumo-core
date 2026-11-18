@@ -23,9 +23,9 @@ static void hang_case(void) {
 static void marker(void) { TEST_ASSERT_EQUAL(1, 1); }
 
 static const test_case_t s_cases[] = {
-    {"pass_case", pass_case},
-    {"hang_case", hang_case},
-    {"marker", marker},
+    CASE(pass_case),
+    CASE(hang_case),
+    CASE(marker),
 };
 
 // A short limit keeps the expected timeout from slowing the ctest run.

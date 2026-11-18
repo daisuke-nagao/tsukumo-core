@@ -20,7 +20,7 @@ enum { LOAD_ACCESS_FAULT = 5 };
 // virt machine there is nothing.
 #define UNMAPPED_ADDRESS 0x00010000u
 
-static void load_access_fault(void) {
+static void panic_load_access_fault_reports_cause(void) {
   panic_expect.mcause = LOAD_ACCESS_FAULT;
   panic_expect.mtval = UNMAPPED_ADDRESS;
   // The address of the load is the expected mepc, stored just before.
@@ -34,7 +34,7 @@ static void load_access_fault(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"load_access_fault", load_access_fault},
+    CASE(panic_load_access_fault_reports_cause),
 };
 
 TEST_SUITE_MAIN("panic-load-fault", s_cases, 2000)

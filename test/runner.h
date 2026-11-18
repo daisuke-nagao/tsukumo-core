@@ -87,6 +87,50 @@ static inline UW test_instret(void) {
   return count;
 }
 
+/// Polls cond, sleeping one tick between polls (tk_dly_tsk(1) sleeps two
+/// ticks), until it holds or limit_ms has passed. The value is whether it
+/// held. A GNU statement expression, so cond is evaluated in the caller.
+#define TEST_WAIT_UNTIL(cond, limit_ms)                                        \
+  ({                                                                           \
+    UW start_ = test_mtime();                                                  \
+    BOOL ok_ = TRUE;                                                           \
+    while (!(cond)) {                                                          \
+      if ((UW)(test_mtime() - start_) > (limit_ms) * TEST_MTIME_PER_MS) {      \
+        ok_ = FALSE;                                                           \
+        break;                                                                 \
+      }                                                                        \
+      tk_dly_tsk(1);                                                           \
+    }                                                                          \
+    ok_;                                                                       \
+  })
+
+/// One entry of a case table, named after the case function.
+#define CASE(fn) {#fn, fn}
+
+/// The state of a task (TTS_*), read from the kernel's task table with
+/// interrupts off.
+extern UINT test_task_state(ID id);
+
+/// Byte copy and compare for snapshots of kernel state, which a suite may take
+/// inside a handler.
+static inline void test_copy_bytes(void *to, const void *from, UINT size) {
+  unsigned char *dst = to;
+  const unsigned char *src = from;
+  for (UINT i = 0; i < size; ++i) {
+    dst[i] = src[i];
+  }
+}
+
+static inline BOOL test_equal_bytes(const void *a, const void *b, UINT size) {
+  const unsigned char *left = a, *right = b;
+  for (UINT i = 0; i < size; ++i) {
+    if (left[i] != right[i]) {
+      return FALSE;
+    }
+  }
+  return TRUE;
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif /* __cplusplus */

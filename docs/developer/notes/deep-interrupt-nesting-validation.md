@@ -87,15 +87,15 @@ an ISR. Each depth runs nine cases:
 
 | Case | Odd levels | Even levels | Outermost exit |
 | --- | --- | --- | --- |
-| `c_handlers_nest_to_the_full_depth` | C | C | C return |
-| `asm_handlers_with_tk_ret_int_outside` | ASM | ASM | `tk_ret_int`; even levels return directly |
-| `asm_handlers_with_direct_return_outside` | ASM | ASM | direct return; even levels use `tk_ret_int` |
-| `c_odd_and_asm_even_levels_with_tk_ret_int` | C | ASM (`tk_ret_int`) | C return |
-| `c_odd_and_asm_even_levels_with_direct_return` | C | ASM (direct) | C return |
-| `asm_odd_and_c_even_levels_with_tk_ret_int` | ASM (`tk_ret_int`) | C | `tk_ret_int` |
-| `asm_odd_and_c_even_levels_with_direct_return` | ASM (direct) | C | direct return |
-| `a_same_priority_request_waits_for_the_deepest_level` | C | C | C return |
-| `a_lower_priority_request_waits_for_the_whole_chain` | C | C | C return |
+| `nested_interrupt_c_handlers_nest_to_full_depth` | C | C | C return |
+| `nested_interrupt_asm_handlers_with_tk_ret_int_outside` | ASM | ASM | `tk_ret_int`; even levels return directly |
+| `nested_interrupt_asm_handlers_with_direct_return_outside` | ASM | ASM | direct return; even levels use `tk_ret_int` |
+| `nested_interrupt_c_odd_asm_even_levels_with_tk_ret_int` | C | ASM (`tk_ret_int`) | C return |
+| `nested_interrupt_c_odd_asm_even_levels_with_direct_return` | C | ASM (direct) | C return |
+| `nested_interrupt_asm_odd_c_even_levels_with_tk_ret_int` | ASM (`tk_ret_int`) | C | `tk_ret_int` |
+| `nested_interrupt_asm_odd_c_even_levels_with_direct_return` | ASM (direct) | C | direct return |
+| `nested_interrupt_same_priority_request_waits_for_deepest_level` | C | C | C return |
+| `nested_interrupt_lower_priority_request_waits_for_whole_chain` | C | C | C return |
 
 The last two cases test requests that must wait:
 

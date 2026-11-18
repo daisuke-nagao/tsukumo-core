@@ -16,6 +16,7 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
+#include "fakes.h"
 #include "list.h"
 
 enum { NODES = 8, STEPS_PER_SEED = 300, SEEDS = 20 };
@@ -35,11 +36,6 @@ static UINT g_length;
 static UINT g_adds, g_add_tails, g_dels, g_sweeps, g_empties, g_singles;
 
 // A fixed generator, so a failing run can be reproduced from the seed.
-static UINT next_random(UINT *state) {
-  *state = *state * 1664525u + 1013904223u;
-  return *state >> 8;
-}
-
 static BOOL in_model(INT id) {
   for (UINT i = 0; i < g_length; ++i) {
     if (g_model[i] == id) {
@@ -104,7 +100,7 @@ static void sweep(UINT *state, const char *where) {
   tkmc_list_for_each_entry_safe(pos, n, &g_head, link) {
     TEST_ASSERT_LESS_THAN_UINT_MESSAGE(g_length, index, where);
     TEST_ASSERT_EQUAL_INT_MESSAGE(g_model[index], pos->id, where);
-    if (next_random(state) % 2 != 0) {
+    if (host_next_random(state) % 2 != 0) {
       tkmc_list_del(&pos->link);
       check_poisoned(where, pos->id);
     } else {
@@ -128,16 +124,16 @@ static void run_seed(UINT seed) {
     char where[40];
     snprintf(where, sizeof(where), "seed %u, step %u", seed, step);
 
-    UINT choice = next_random(&state) % 4;
+    UINT choice = host_next_random(&state) % 4;
     // A full list can only lose nodes and an empty one can only gain a node.
     if (g_length == NODES) {
-      choice = 2 + next_random(&state) % 2;
+      choice = 2 + host_next_random(&state) % 2;
     } else if (g_length == 0) {
-      choice = next_random(&state) % 2;
+      choice = host_next_random(&state) % 2;
     }
 
     if (choice == 2) {
-      INT id = g_model[next_random(&state) % g_length];
+      INT id = g_model[host_next_random(&state) % g_length];
       UINT position = 0;
       while (g_model[position] != id) {
         ++position;
@@ -157,7 +153,7 @@ static void run_seed(UINT seed) {
       }
     } else {
       // Pick a node that is not in the list.
-      INT id = (INT)(next_random(&state) % NODES);
+      INT id = (INT)(host_next_random(&state) % NODES);
       while (in_model(id)) {
         id = (id + 1) % NODES;
       }
@@ -178,7 +174,7 @@ static void run_seed(UINT seed) {
   }
 }
 
-void test_list_matches_a_model_under_random_operations(void) {
+static void test_list_matches_model_under_random_operations(void) {
   g_adds = g_add_tails = g_dels = g_sweeps = g_empties = g_singles = 0;
   for (UINT seed = 1; seed <= SEEDS; ++seed) {
     run_seed(seed);
@@ -207,7 +203,8 @@ void test_list_matches_a_model_under_random_operations(void) {
 // tried.
 enum { EXHAUSTIVE_LENGTH = 5 };
 
-void test_a_safe_traversal_survives_deleting_any_subset_of_nodes(void) {
+static void
+test_list_safe_traversal_survives_deleting_any_subset_of_nodes(void) {
   UINT cases = 0;
   for (UINT length = 0; length <= EXHAUSTIVE_LENGTH; ++length) {
     for (UINT deleted = 0; deleted < (1u << length); ++deleted) {
@@ -246,4 +243,10 @@ void test_a_safe_traversal_survives_deleting_any_subset_of_nodes(void) {
   }
   // 2^0 + 2^1 + ... + 2^5: no case was left out.
   TEST_ASSERT_EQUAL_UINT(63, cases);
+}
+
+void run_list_tests(void) {
+  UnitySetTestFile(__FILE__);
+  RUN_TEST(test_list_matches_model_under_random_operations);
+  RUN_TEST(test_list_safe_traversal_survives_deleting_any_subset_of_nodes);
 }

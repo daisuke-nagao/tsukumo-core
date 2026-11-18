@@ -35,7 +35,9 @@
 #include "../putstring.h"
 #include "asm/rv32/address.h"
 #include "panic.h"
+#include "qemu_virt.h"
 #include "runner.h"
+#include "spin_with_registers.h"
 #include "task.h"
 #include <tk/asm/rv32/interrupt.h>
 
@@ -46,23 +48,22 @@ extern unsigned char _isr_stack_start[];
 extern unsigned char _isr_stack_end[];
 
 enum {
-  UART_IRQ = 10, // The PLIC source of the UART on the QEMU virt board.
-  UART_BASE = 0x10000000,
-  UART_IER = UART_BASE + 1, // Interrupt enable register, a byte register.
-  IER_THRE = 0x02,          // Transmitter holding register empty.
   // The UART raises the interrupt only after the character in flight has left,
   // which takes a few ticks of the guest clock; the case polls for this long.
   WAIT_MS = 400,
   POLL_TICKS = 1, // tk_dly_tsk(1) sleeps two ticks (see test/runner.c).
   CHILD_PRIORITY = 2,
-  PLIC_PRIORITIES = 7 // The priorities 1 to 7 of the QEMU virt PLIC.
+  // The lowest PLIC priority, for a case that needs the source raised but not
+  // a particular level.
+  LOWEST_LEVEL = 1,
+  // Where the trap entry saves s0 and s2 in its frame, in words
+  // (SAVE_FRAME in kernel/asm/rv32/start.S).
+  FRAME_S0 = 4,
+  FRAME_S2 = 14,
 };
 _Static_assert(CHILD_PRIORITY < TEST_CASE_PRIORITY,
                "the child must wait on the semaphore before the case goes on");
 
-static const UW MCAUSE_SOFTWARE = 0x80000003u;
-static const UW MCAUSE_EXTERNAL = 0x8000000bu;
-static const UW MCAUSE_TIMER = 0x80000007u;
 static const UW MSTATUS_MIE_BIT = 1u << 3;
 
 static volatile UW s_last_mcause;
@@ -192,19 +193,7 @@ static void endint_hlng_handler(UINT intno) {
 
 // Polls, in task context with the idle task running in between, until the
 // condition holds or WAIT_MS has passed.
-#define WAIT_UNTIL(cond)                                                       \
-  ({                                                                           \
-    UW start_ = test_mtime();                                                  \
-    BOOL ok_ = TRUE;                                                           \
-    while (!(cond)) {                                                          \
-      if ((UW)(test_mtime() - start_) > WAIT_MS * TEST_MTIME_PER_MS) {         \
-        ok_ = FALSE;                                                           \
-        break;                                                                 \
-      }                                                                        \
-      tk_dly_tsk(POLL_TICKS);                                                  \
-    }                                                                          \
-    ok_;                                                                       \
-  })
+#define WAIT_UNTIL(cond) TEST_WAIT_UNTIL(cond, WAIT_MS)
 
 // Puts the interrupt back as the next case expects it: nothing raised, nothing
 // enabled, no handler. The order matters: the source goes quiet first.
@@ -228,7 +217,7 @@ static void handler_runs_with_its_interrupt_number(void) {
   reset_counters();
   s_handler_pending = TRUE;
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &s_uart_dint));
-  EnableInt(UART_IRQ, PLIC_PRIORITIES);
+  EnableInt(UART_IRQ, PLIC_MAX_PRIORITY);
   UW priority = in_w(PLIC_PRIORITY_REG(UART_IRQ));
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
@@ -236,7 +225,7 @@ static void handler_runs_with_its_interrupt_number(void) {
   out_b(UART_IER, IER_THRE);
   BOOL fired_again = WAIT_UNTIL(s_hits >= 2);
   clean_up();
-  TEST_ASSERT_EQUAL_UINT32_MESSAGE(PLIC_PRIORITIES, priority,
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(PLIC_MAX_PRIORITY, priority,
                                    "EnableInt() did not set the priority");
   TEST_ASSERT_TRUE_MESSAGE(fired, "the handler did not run");
   TEST_ASSERT_TRUE_MESSAGE(fired_again, "the interrupt was not completed");
@@ -246,7 +235,7 @@ static void handler_runs_with_its_interrupt_number(void) {
                             "a claimed source was still pending");
 }
 
-static void end_of_int_hlng_is_idempotent_with_a_disabled_source(void) {
+static void end_of_int_is_idempotent_for_hlng_with_disabled_source(void) {
   s_endint_hlng_hits = 0;
   s_endint_hlng_calls = 0;
   s_endint_hlng_retrigger = FALSE;
@@ -273,7 +262,7 @@ static void end_of_int_hlng_is_idempotent_with_a_disabled_source(void) {
                           mie_after_end & ((1u << 7) | (1u << 3)));
 }
 
-static void end_of_int_allows_a_still_asserted_source_to_be_raised_again(void) {
+static void end_of_int_lets_still_asserted_source_be_raised_again(void) {
   s_endint_hlng_hits = 0;
   s_endint_hlng_calls = 0;
   s_endint_hlng_retrigger = TRUE;
@@ -309,7 +298,7 @@ check_int_observes_disabled_pending_source_without_consuming_it(void) {
   __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus_before));
   __asm__ volatile("csrc mstatus, %0" : : "r"(MSTATUS_MIE_BIT) : "memory");
   BOOL pending_with_mie_off = CheckInt(UART_IRQ);
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   BOOL enabled_pending_with_mie_off = CheckInt(UART_IRQ);
   UW mstatus_after_check;
   __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus_after_check));
@@ -362,8 +351,7 @@ static void sleeping_child(void *arg) {
   test_checkpoint();
 }
 
-static void
-handler_runs_as_an_isr_and_its_wakeup_switches_at_the_trap_exit(void) {
+static void handler_runs_as_isr_and_its_wakeup_switches_at_trap_exit(void) {
   reset_counters();
   s_isr_flag = 0;
   s_handler_mstatus = MSTATUS_MIE_BIT;
@@ -376,7 +364,7 @@ handler_runs_as_an_isr_and_its_wakeup_switches_at_the_trap_exit(void) {
 
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = waking_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   clean_up();
@@ -400,10 +388,10 @@ handler_runs_as_an_isr_and_its_wakeup_switches_at_the_trap_exit(void) {
           : "the task was switched to in another trap");
 }
 
-static void a_disabled_source_waits_until_it_is_enabled(void) {
+static void enable_int_delivers_request_that_waited_while_disabled(void) {
   reset_counters();
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &s_uart_dint));
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   DisableInt(UART_IRQ);
   out_b(UART_IER, IER_THRE);
   // The source is pending but must not be served. A wait that ended only
@@ -411,7 +399,7 @@ static void a_disabled_source_waits_until_it_is_enabled(void) {
   BOOL pending = WAIT_UNTIL(source_is_pending(UART_IRQ));
   tk_dly_tsk(POLL_TICKS);
   UINT hits_while_disabled = s_hits;
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   clean_up();
   TEST_ASSERT_TRUE_MESSAGE(pending, "the UART never raised the interrupt");
@@ -420,11 +408,11 @@ static void a_disabled_source_waits_until_it_is_enabled(void) {
   TEST_ASSERT_TRUE_MESSAGE(fired, "the enabled source was not served");
 }
 
-static void a_new_definition_replaces_the_old_one(void) {
+static void tk_def_int_replaces_old_definition(void) {
   reset_counters();
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &s_uart_dint));
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &s_second_dint));
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_second_hits >= 1);
   clean_up();
@@ -432,12 +420,11 @@ static void a_new_definition_replaces_the_old_one(void) {
   TEST_ASSERT_EQUAL_UINT_MESSAGE(0, s_hits, "the old handler ran");
 }
 
-static void
-without_a_handler_the_source_is_switched_off_and_served_once_defined(void) {
+static void tk_def_int_serves_source_that_waited_without_handler(void) {
   reset_counters();
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &s_uart_dint));
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, NULL));
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   BOOL was_enabled = source_is_enabled(UART_IRQ);
   out_b(UART_IER, IER_THRE);
   BOOL switched_off = WAIT_UNTIL(!source_is_enabled(UART_IRQ));
@@ -445,7 +432,7 @@ without_a_handler_the_source_is_switched_off_and_served_once_defined(void) {
   out_b(UART_IER, 0);
   UINT hits_before = s_hits;
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &s_uart_dint));
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   clean_up();
@@ -467,15 +454,15 @@ static void disabling_handler(UINT intno) {
 
 // A driver masks its source until the deferred work is done. The kernel still
 // completes the source, and it is served again once it is enabled.
-static void a_source_a_handler_switched_off_is_served_again_when_enabled(void) {
+static void enable_int_serves_again_source_that_handler_switched_off(void) {
   reset_counters();
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = disabling_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   BOOL stayed_off = !source_is_enabled(UART_IRQ);
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired_again = WAIT_UNTIL(s_hits >= 2);
   clean_up();
@@ -495,7 +482,7 @@ static void defining_handler(UINT intno) {
 }
 
 // The refused calls also leave the definition made before them in place.
-static void bad_definitions_are_refused(void) {
+static void tk_def_int_refuses_bad_definitions_and_keeps_old_one(void) {
   reset_counters();
   T_DINT no_handler = {.intatr = TA_HLNG, .inthdr = NULL};
   T_DINT unknown_bit = {.intatr = TA_HLNG | 0x2, .inthdr = second_handler};
@@ -511,7 +498,7 @@ static void bad_definitions_are_refused(void) {
   };
   static const ER expected[] = {E_PAR, E_PAR, E_PAR,  E_PAR,
                                 E_PAR, E_PAR, E_RSATR};
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   clean_up();
@@ -523,13 +510,12 @@ static void bad_definitions_are_refused(void) {
   TEST_ASSERT_EQUAL_UINT_MESSAGE(0, s_second_hits, "a refused handler ran");
 }
 
-static void
-a_handler_cannot_be_defined_from_an_isr_or_with_interrupts_off(void) {
+static void tk_def_int_refuses_calls_from_isr_or_with_interrupts_off(void) {
   reset_counters();
   s_handler_er = E_OK;
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = defining_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   clean_up();
@@ -549,17 +535,17 @@ a_handler_cannot_be_defined_from_an_isr_or_with_interrupts_off(void) {
 // EnableInt() has no error code, and the spec leaves a bad number open. It must
 // not write registers it does not own: the PLIC has more sources than the
 // handler table, and a priority of 0 or above 7 is no priority.
-static void a_bad_number_or_level_changes_nothing(void) {
+static void enable_int_with_bad_number_or_level_changes_nothing(void) {
   const UW priority_before = 3;
   out_w(PLIC_PRIORITY_REG(UART_IRQ), priority_before);
   // Source 32 has priority 0 and cannot fire; only its enable bit is watched.
   out_w(PLIC_ENABLE_REG(CFN_MAX_INTNO), 1);
-  EnableInt(0, 1);
-  EnableInt(CFN_MAX_INTNO, 1);
-  EnableInt(CFN_MAX_INTNO + 1, 1);
-  EnableInt(0xffffffffu, 1);
+  EnableInt(0, LOWEST_LEVEL);
+  EnableInt(CFN_MAX_INTNO, LOWEST_LEVEL);
+  EnableInt(CFN_MAX_INTNO + 1, LOWEST_LEVEL);
+  EnableInt(0xffffffffu, LOWEST_LEVEL);
   EnableInt(UART_IRQ, 0);
-  EnableInt(UART_IRQ, PLIC_PRIORITIES + 1);
+  EnableInt(UART_IRQ, PLIC_MAX_PRIORITY + 1);
   EnableInt(UART_IRQ, -1);
   DisableInt(0);
   DisableInt(CFN_MAX_INTNO);
@@ -597,10 +583,7 @@ static void waking_flag_handler(UINT intno) {
   tk_sig_sem(s_sem, 1);
 }
 
-extern UW test_spin_with_registers(volatile UW *flag, UW deadline,
-                                   volatile UB *reg, UB value);
-
-// Spins in the stub of test/spin_with_registers.S, which holds a pattern in the
+// Spins in the stub of test/spin_with_registers.h, which holds a pattern in the
 // registers that a trap entry could change, through one UART interrupt that it
 // arms itself once the patterns are loaded, and returns what the stub returns.
 // With a_task_is_woken the handler wakes a task that outranks this one, so the
@@ -615,7 +598,7 @@ static UW registers_after_an_interrupt(FP handler, BOOL a_task_is_woken) {
   }
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   reset_trap_records();
   UW changed = test_spin_with_registers(
       &s_flag, test_mtime() + WAIT_MS * TEST_MTIME_PER_MS,
@@ -633,7 +616,7 @@ static UW registers_after_an_interrupt(FP handler, BOOL a_task_is_woken) {
   return changed;
 }
 
-static void a_task_keeps_its_registers_through_an_interrupt(void) {
+static void interrupt_keeps_task_registers(void) {
   UW changed = registers_after_an_interrupt((FP)flag_handler, FALSE);
   TEST_ASSERT_EQUAL_HEX32_MESSAGE(0, changed,
                                   "a register changed (bit 31: no interrupt)");
@@ -642,7 +625,7 @@ static void a_task_keeps_its_registers_through_an_interrupt(void) {
 // The child that the handler wakes ends after it has run, and its end resumes
 // the case from the frame of the external trap (__launch_task): the second
 // check of that path besides timer_switch.c. Keep it so.
-static void a_task_keeps_its_registers_through_a_switch_at_the_trap_exit(void) {
+static void trap_exit_switch_keeps_task_registers(void) {
   UW changed = registers_after_an_interrupt((FP)waking_flag_handler, TRUE);
   TEST_ASSERT_EQUAL_HEX32_MESSAGE(0, changed,
                                   "a register changed (bit 31: no interrupt)");
@@ -661,13 +644,13 @@ static void depth_handler(UINT intno) {
 // value was: a trap that wrote 1 and then 0 would pass the cases that start
 // from 0. Only the external source is on and the task calls no kernel
 // function while the depth is not 0, so nothing else enters the kernel.
-static void a_trap_adds_one_to_the_depth_and_takes_it_off(void) {
+static void isr_depth_rises_by_one_per_trap_and_drops_back(void) {
   enum { DEPTH = 5 };
   reset_counters();
   s_depth_in_handler = 0;
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = depth_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   UW saved_mie;
   __asm__ volatile("csrrw %0, mie, %1"
                    : "=r"(saved_mie)
@@ -741,7 +724,7 @@ static void timed_waiter(void *arg) {
   test_checkpoint();
 }
 
-static void the_interrupt_stack_has_room_for_the_deepest_paths(void) {
+static void interrupt_stack_has_room_for_deepest_paths(void) {
   reset_counters();
   s_mbx = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = TA_TFIFO});
   s_sem = tk_cre_sem(
@@ -754,7 +737,7 @@ static void the_interrupt_stack_has_room_for_the_deepest_paths(void) {
   test_spawn(timed_waiter, CHILD_PRIORITY, NULL);
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = mailbox_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   clean_up();
@@ -784,7 +767,7 @@ static BOOL every_trap_has_run_schedule(void) {
 // The external trap is made to switch tasks by a handler that wakes one; the
 // timer trap by the wake-up of the polling case, and the software interrupt by
 // the child that waits for the semaphore.
-static void schedule_runs_on_the_interrupt_stack_in_every_trap(void) {
+static void interrupt_stack_runs_schedule_in_every_trap(void) {
   reset_counters();
   reset_trap_records();
   s_sem = tk_cre_sem(
@@ -793,7 +776,7 @@ static void schedule_runs_on_the_interrupt_stack_in_every_trap(void) {
   test_spawn(sleeping_child, CHILD_PRIORITY, NULL);
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = waking_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL seen = WAIT_UNTIL(every_trap_has_run_schedule());
   clean_up();
@@ -825,7 +808,7 @@ static void schedule_runs_on_the_interrupt_stack_in_every_trap(void) {
 }
 
 // Most timer interrupts switch no task, so schedule() says nothing about them.
-static void the_timer_handler_runs_on_the_interrupt_stack(void) {
+static void interrupt_stack_runs_timer_handler(void) {
   reset_trap_records();
   BOOL seen = WAIT_UNTIL(s_timer_handler_calls >= 3);
   TEST_ASSERT_TRUE_MESSAGE(seen, "no timer interrupt");
@@ -833,29 +816,14 @@ static void the_timer_handler_runs_on_the_interrupt_stack(void) {
                            "the timer handler: wrong stack or depth");
 }
 
-// ---- Nested external interrupts -------------------------------------------
+// ---- A second source, and ClearInt -----------------------------------------
 //
-// A handler that turns interrupts on (EI) is interrupted by a source of a
-// higher priority and by no other: the kernel raises the PLIC threshold to the
-// priority of the source it serves. The outer source is the UART at a fixed
-// level, the inner one the RTC. Like the UART, the RTC is raised by software:
-// an alarm at a time that has already passed is due as soon as it is enabled,
-// which does not depend on the clock the machine runs on (an alarm in the
-// future would, because the RTC counts the host's time).
-//
-// The handlers record what they find in an event log, which the case checks
-// after it has put the machine back: asserts come last, as in the other cases.
+// The RTC is the second external source. Like the UART, it is raised by
+// software: an alarm at a time that has already passed is due as soon as it is
+// enabled, which does not depend on the clock the machine runs on (an alarm in
+// the future would, because the RTC counts the host's time).
 
 enum {
-  RTC_IRQ = 11, // The PLIC source of the goldfish RTC on the QEMU virt board.
-  RTC_BASE = 0x101000,
-  RTC_TIME_LOW = RTC_BASE + 0x00,
-  RTC_TIME_HIGH = RTC_BASE + 0x04,
-  RTC_ALARM_LOW = RTC_BASE + 0x08,
-  RTC_ALARM_HIGH = RTC_BASE + 0x0c,
-  RTC_IRQ_ENABLED = RTC_BASE + 0x10,
-  RTC_CLEAR_ALARM = RTC_BASE + 0x14,
-  RTC_CLEAR_INTERRUPT = RTC_BASE + 0x1c,
   OUTER_LEVEL = 2,
   HIGHER_LEVEL = 5,
   MIE_TIMER_AND_SOFTWARE = (1u << 7) | (1u << 3),
@@ -981,34 +949,54 @@ static void clear_int_rtc_handler(UINT intno) {
 static const T_DINT s_clear_int_rtc_dint = {.intatr = TA_HLNG,
                                             .inthdr = clear_int_rtc_handler};
 
+// What ClearInt(UART_IRQ) left. clear_the_pending_uart() makes the UART
+// interrupt pending with MIE off (the caller turned it off), quiets the UART
+// again, calls ClearInt() and samples the PLIC and mstatus at once.
+typedef struct {
+  BOOL pending_before;
+  BOOL pending_after;
+  BOOL enabled_after;
+  UW priority_after;
+  UW threshold_after;
+  UW mstatus_after;
+} uart_clear_t;
+
+static uart_clear_t clear_the_pending_uart(void) {
+  uart_clear_t c;
+  out_b(UART_IER, IER_THRE);
+  c.pending_before = wait_for_pending_without_switch(UART_IRQ);
+  out_b(UART_IER, 0);
+  ClearInt(UART_IRQ);
+  c.pending_after = source_is_pending(UART_IRQ);
+  c.enabled_after = source_is_enabled(UART_IRQ);
+  c.priority_after = in_w(PLIC_PRIORITY_REG(UART_IRQ));
+  c.threshold_after = in_w(PLIC_THRESHOLD_REG);
+  c.mstatus_after = read_mstatus();
+  return c;
+}
+
 static void clear_int_discards_disabled_pending_uart(void) {
   reset_counters();
   ER defined = tk_def_int(UART_IRQ, &s_uart_dint);
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   DisableInt(UART_IRQ);
   UW priority_before = in_w(PLIC_PRIORITY_REG(UART_IRQ));
   UW mstatus_before = read_mstatus();
   set_mstatus_mie(FALSE);
-  out_b(UART_IER, IER_THRE);
-  BOOL pending_before = wait_for_pending_without_switch(UART_IRQ);
-  out_b(UART_IER, 0);
-  ClearInt(UART_IRQ);
-  BOOL pending_after = source_is_pending(UART_IRQ);
-  BOOL enabled_after = source_is_enabled(UART_IRQ);
-  UW priority_after = in_w(PLIC_PRIORITY_REG(UART_IRQ));
-  UW mstatus_after = read_mstatus();
+  const uart_clear_t c = clear_the_pending_uart();
   DisableInt(UART_IRQ);
   set_mstatus_mie((mstatus_before & MSTATUS_MIE_BIT) != 0);
   clear_int_cleanup();
 
   TEST_ASSERT_EQUAL(E_OK, defined);
-  TEST_ASSERT_TRUE_MESSAGE(pending_before,
+  TEST_ASSERT_TRUE_MESSAGE(c.pending_before,
                            "the disabled UART never became pending");
-  TEST_ASSERT_FALSE_MESSAGE(pending_after, "ClearInt() left the UART pending");
-  TEST_ASSERT_FALSE_MESSAGE(enabled_after,
+  TEST_ASSERT_FALSE_MESSAGE(c.pending_after,
+                            "ClearInt() left the UART pending");
+  TEST_ASSERT_FALSE_MESSAGE(c.enabled_after,
                             "ClearInt() enabled the disabled UART");
-  TEST_ASSERT_EQUAL_UINT32(priority_before, priority_after);
-  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_UINT32(priority_before, c.priority_after);
+  TEST_ASSERT_EQUAL_HEX32(0, c.mstatus_after & MSTATUS_MIE_BIT);
   TEST_ASSERT_EQUAL_UINT(0, s_hits);
 }
 
@@ -1018,14 +1006,7 @@ static void clear_int_discards_enabled_pending_uart(void) {
   UW mstatus_before = read_mstatus();
   set_mstatus_mie(FALSE);
   EnableInt(UART_IRQ, 3);
-  out_b(UART_IER, IER_THRE);
-  BOOL pending_before = wait_for_pending_without_switch(UART_IRQ);
-  out_b(UART_IER, 0);
-  ClearInt(UART_IRQ);
-  BOOL pending_after = source_is_pending(UART_IRQ);
-  BOOL enabled_after = source_is_enabled(UART_IRQ);
-  UW priority_after = in_w(PLIC_PRIORITY_REG(UART_IRQ));
-  UW mstatus_after = read_mstatus();
+  const uart_clear_t c = clear_the_pending_uart();
   set_mstatus_mie(TRUE);
   tk_dly_tsk(POLL_TICKS);
   UINT hits_after_restore = s_hits;
@@ -1033,33 +1014,28 @@ static void clear_int_discards_enabled_pending_uart(void) {
   set_mstatus_mie((mstatus_before & MSTATUS_MIE_BIT) != 0);
 
   TEST_ASSERT_EQUAL(E_OK, defined);
-  TEST_ASSERT_TRUE_MESSAGE(pending_before,
+  TEST_ASSERT_TRUE_MESSAGE(c.pending_before,
                            "the enabled UART never became pending");
-  TEST_ASSERT_FALSE_MESSAGE(pending_after, "ClearInt() left the UART pending");
-  TEST_ASSERT_TRUE_MESSAGE(enabled_after,
+  TEST_ASSERT_FALSE_MESSAGE(c.pending_after,
+                            "ClearInt() left the UART pending");
+  TEST_ASSERT_TRUE_MESSAGE(c.enabled_after,
                            "ClearInt() disabled the enabled UART");
-  TEST_ASSERT_EQUAL_UINT32(3, priority_after);
-  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_UINT32(3, c.priority_after);
+  TEST_ASSERT_EQUAL_HEX32(0, c.mstatus_after & MSTATUS_MIE_BIT);
   TEST_ASSERT_EQUAL_UINT_MESSAGE(0, hits_after_restore,
                                  "ClearInt() let the UART handler run");
 }
 
-static void clear_int_claims_a_pending_source_below_the_threshold(void) {
+static void clear_int_claims_pending_source_below_threshold(void) {
   reset_counters();
   ER defined = tk_def_int(UART_IRQ, &s_uart_dint);
   UW mstatus_before = read_mstatus();
   UW threshold_before = in_w(PLIC_THRESHOLD_REG);
   set_mstatus_mie(FALSE);
   out_w(PLIC_THRESHOLD_REG, 0);
-  EnableInt(UART_IRQ, 1);
-  out_w(PLIC_THRESHOLD_REG, 7);
-  out_b(UART_IER, IER_THRE);
-  BOOL pending_before = wait_for_pending_without_switch(UART_IRQ);
-  out_b(UART_IER, 0);
-  ClearInt(UART_IRQ);
-  BOOL pending_after = source_is_pending(UART_IRQ);
-  BOOL enabled_after = source_is_enabled(UART_IRQ);
-  UW threshold_after = in_w(PLIC_THRESHOLD_REG);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  out_w(PLIC_THRESHOLD_REG, PLIC_MAX_PRIORITY);
+  const uart_clear_t c = clear_the_pending_uart();
   UINT hits_before_restore = s_hits;
   DisableInt(UART_IRQ);
   out_w(PLIC_THRESHOLD_REG, threshold_before);
@@ -1067,12 +1043,12 @@ static void clear_int_claims_a_pending_source_below_the_threshold(void) {
   clear_int_cleanup();
 
   TEST_ASSERT_EQUAL(E_OK, defined);
-  TEST_ASSERT_TRUE_MESSAGE(pending_before,
+  TEST_ASSERT_TRUE_MESSAGE(c.pending_before,
                            "the below-threshold UART never became pending");
-  TEST_ASSERT_FALSE_MESSAGE(pending_after,
+  TEST_ASSERT_FALSE_MESSAGE(c.pending_after,
                             "ClearInt() left the below-threshold UART pending");
-  TEST_ASSERT_TRUE(enabled_after);
-  TEST_ASSERT_EQUAL_UINT32(7, threshold_after);
+  TEST_ASSERT_TRUE(c.enabled_after);
+  TEST_ASSERT_EQUAL_UINT32(PLIC_MAX_PRIORITY, c.threshold_after);
   TEST_ASSERT_EQUAL_UINT(0, hits_before_restore);
 }
 
@@ -1083,14 +1059,7 @@ static void clear_int_discards_pending_uart_with_zero_priority(void) {
   set_mstatus_mie(FALSE);
   EnableInt(UART_IRQ, 3);
   out_w(PLIC_PRIORITY_REG(UART_IRQ), 0);
-  out_b(UART_IER, IER_THRE);
-  BOOL pending_before = wait_for_pending_without_switch(UART_IRQ);
-  out_b(UART_IER, 0);
-  ClearInt(UART_IRQ);
-  BOOL pending_after = source_is_pending(UART_IRQ);
-  BOOL enabled_after = source_is_enabled(UART_IRQ);
-  UW priority_after = in_w(PLIC_PRIORITY_REG(UART_IRQ));
-  UW mstatus_after = read_mstatus();
+  const uart_clear_t c = clear_the_pending_uart();
   set_mstatus_mie(TRUE);
   tk_dly_tsk(POLL_TICKS);
   UINT hits_after_restore = s_hits;
@@ -1098,18 +1067,19 @@ static void clear_int_discards_pending_uart_with_zero_priority(void) {
   set_mstatus_mie((mstatus_before & MSTATUS_MIE_BIT) != 0);
 
   TEST_ASSERT_EQUAL(E_OK, defined);
-  TEST_ASSERT_TRUE_MESSAGE(pending_before,
+  TEST_ASSERT_TRUE_MESSAGE(c.pending_before,
                            "the priority-0 UART never became pending");
-  TEST_ASSERT_FALSE_MESSAGE(pending_after, "ClearInt() left the UART pending");
-  TEST_ASSERT_TRUE_MESSAGE(enabled_after,
+  TEST_ASSERT_FALSE_MESSAGE(c.pending_after,
+                            "ClearInt() left the UART pending");
+  TEST_ASSERT_TRUE_MESSAGE(c.enabled_after,
                            "ClearInt() disabled the enabled UART");
-  TEST_ASSERT_EQUAL_UINT32(0, priority_after);
-  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_UINT32(0, c.priority_after);
+  TEST_ASSERT_EQUAL_HEX32(0, c.mstatus_after & MSTATUS_MIE_BIT);
   TEST_ASSERT_EQUAL_UINT_MESSAGE(0, hits_after_restore,
                                  "ClearInt() let the UART handler run");
 }
 
-static void clear_int_preserves_a_simultaneous_non_target_request(void) {
+static void clear_int_preserves_simultaneous_non_target_request(void) {
   reset_counters();
   s_handler_pending = TRUE;
   ER uart_defined = tk_def_int(UART_IRQ, &s_uart_dint);
@@ -1186,7 +1156,7 @@ static void clear_int_with_no_pending_source_has_no_completion(void) {
   TEST_ASSERT_EQUAL_UINT(0, s_hits);
 }
 
-static void clear_int_does_not_complete_an_active_uncompleted_claim(void) {
+static void clear_int_does_not_complete_active_uncompleted_claim(void) {
   reset_counters();
   s_clear_uart_hits = 0;
   ER defined = tk_def_int(
@@ -1214,7 +1184,7 @@ static void clear_int_does_not_complete_an_active_uncompleted_claim(void) {
   TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
 }
 
-static void clear_int_handles_a_new_pending_request_after_end_of_int(void) {
+static void clear_int_handles_new_pending_request_after_end_of_int(void) {
   reset_counters();
   s_clear_completed_hits = 0;
   s_clear_completed_end_calls = 0;
@@ -1253,6 +1223,16 @@ static void clear_int_handles_a_new_pending_request_after_end_of_int(void) {
   TEST_ASSERT_EQUAL_HEX32(0, mstatus_before & MSTATUS_MIE_BIT);
   TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
 }
+
+// ---- Nested external interrupts -------------------------------------------
+//
+// A handler that turns interrupts on (EI) is interrupted by a source of a
+// higher priority and by no other: the kernel raises the PLIC threshold to the
+// priority of the source it serves. The outer source is the UART at a fixed
+// level, the inner one the RTC.
+//
+// The handlers record what they find in an event log, which the case checks
+// after it has put the machine back: asserts come last, as in the other cases.
 
 enum { EV_OUTER_START = 1, EV_INNER, EV_OUTER_END, EV_CHILD, EV_MAX = 6 };
 static volatile UINT s_events[EV_MAX];
@@ -1459,7 +1439,7 @@ static void assert_events(const UINT *expected, UINT count) {
   }
 }
 
-static void a_source_of_a_higher_priority_interrupts_a_handler(void) {
+static void nested_interrupt_higher_priority_source_interrupts_handler(void) {
   const nest_t nest = {.rtc_level = HIGHER_LEVEL, .wait_for_inner = TRUE};
   nested_set_up(&nest);
   BOOL done = nested_run(3);
@@ -1481,8 +1461,7 @@ static void a_source_of_a_higher_priority_interrupts_a_handler(void) {
                                  "the threshold was not given back");
 }
 
-static void
-clear_int_from_inner_handler_preserves_the_active_outer_claim(void) {
+static void clear_int_from_inner_handler_preserves_active_outer_claim(void) {
   const nest_t nest = {
       .rtc_level = HIGHER_LEVEL, .wait_for_inner = TRUE, .inner_wakes = FALSE};
   nested_set_up(&nest);
@@ -1516,7 +1495,7 @@ clear_int_from_inner_handler_preserves_the_active_outer_claim(void) {
 // that writes the threshold. It is served once the handler returns; without
 // that check the wait could end for the wrong reason.
 static void
-a_source_of_the_same_or_a_lower_priority_waits_for_the_handler(void) {
+nested_interrupt_same_or_lower_priority_source_waits_for_handler(void) {
   for (INT level = OUTER_LEVEL; level >= 1; --level) {
     const nest_t nest = {.rtc_level = level, .spin_ms = 15};
     nested_set_up(&nest);
@@ -1535,8 +1514,7 @@ a_source_of_the_same_or_a_lower_priority_waits_for_the_handler(void) {
 // A task that a nested handler wakes is switched to once, at the exit of the
 // outermost trap, after the outer handler has returned: the nested trap leaves
 // the switch to the outer one.
-static void
-a_task_a_nested_handler_wakes_runs_after_the_outermost_handler(void) {
+static void nested_interrupt_woken_task_runs_after_outermost_handler(void) {
   const nest_t nest = {
       .rtc_level = HIGHER_LEVEL, .wait_for_inner = TRUE, .inner_wakes = TRUE};
   nested_set_up(&nest);
@@ -1556,7 +1534,7 @@ a_task_a_nested_handler_wakes_runs_after_the_outermost_handler(void) {
 // The timer and the software interrupt are masked in mie while a handler has
 // interrupts on, so the kernel's own traps do not run under the outer handler.
 // They are served once it has returned, and mie is as it was.
-static void the_timer_waits_for_a_handler_that_has_interrupts_on(void) {
+static void timer_waits_for_handler_that_has_interrupts_on(void) {
   const nest_t nest = {.rtc_level = HIGHER_LEVEL, .spin_ms = 15};
   UW mie_before = read_mie();
   nested_set_up(&nest);
@@ -1582,7 +1560,7 @@ static void the_timer_waits_for_a_handler_that_has_interrupts_on(void) {
                                   "the timer and software bits are off");
 }
 
-static void a_task_keeps_its_registers_through_a_nested_interrupt(void) {
+static void nested_interrupt_keeps_task_registers(void) {
   const nest_t nest = {.rtc_level = HIGHER_LEVEL, .wait_for_inner = TRUE};
   nested_set_up(&nest);
   UW changed = test_spin_with_registers(
@@ -1596,7 +1574,7 @@ static void a_task_keeps_its_registers_through_a_nested_interrupt(void) {
                                   "a register changed (bit 31: no interrupt)");
 }
 
-static void the_interrupt_stack_holds_nested_handlers(void) {
+static void interrupt_stack_holds_nested_handlers(void) {
   const nest_t nest = {
       .rtc_level = HIGHER_LEVEL, .wait_for_inner = TRUE, .inner_wakes = TRUE};
   nested_set_up(&nest);
@@ -1616,301 +1594,8 @@ static void the_interrupt_stack_holds_nested_handlers(void) {
       NESTED_HIGH_WATER_MAX, used, "two levels use too much of the stack");
 }
 
-// ---- A task that ends while an external interrupt is pending ----------------
-//
-// tk_ext_tsk() and tk_exd_tsk() make the task dormant (or free its TCB) and
-// then switch away. A handler that runs after the state change and before the
-// switch can start the task again (or create a task in the freed TCB and start
-// it), and the new run must begin at its entry with the new start code. The old
-// run must never go on.
-//
-// The window is made wide and certain without help from the kernel: the task
-// turns off the software, timer and external bits of mie, waits until the UART
-// interrupt is pending in mip, and only then ends. The exit must switch tasks
-// without taking an interrupt; the case it switches to turns the bits back on,
-// and the handler runs then. Code that returns from the exit instead turns on
-// only MEIE, so the external trap is the one trap that can come, whatever order
-// the machine gives to pending interrupts, and it comes with the software
-// interrupt that the exit raised still pending.
-//
-// The exiting run waits on a deep stack: the trap frame it leaves behind must
-// lie below the frame that tk_sta_tsk() builds at the top of the same stack, or
-// the old run would resume from a frame of 0xdeadbeef words and stop in a fatal
-// trap instead of failing an assert. After an exit that returned, the code
-// reads no local and never returns: what the frames above it held may be gone.
-//
-// The tasks here are not the runner's: the restarted task must see its start
-// code, which test_spawn() does not pass on. The case ends all of them itself,
-// before its asserts, so that a failure leaves no task behind.
-
-enum {
-  EXIT_TASK_PRIORITY = 2,
-  DUMMY_PRIORITY = 3,
-  EXIT_RESTART_CODE = 7,
-  EXIT_CLEANUP_CODE = -1,
-  EXIT_STACK_WORDS = 256,
-  DUMMY_STACK_WORDS = 128,
-  // What the exiting run reports instead of exiting.
-  EXIT_NO_PENDING_INTERRUPT = 1,
-  EXIT_SHALLOW_STACK,
-  MIE_SOFTWARE_TIMER_EXTERNAL = (1u << 3) | (1u << 7) | (1u << 11),
-  MIP_EXTERNAL = 1u << 11
-};
-_Static_assert(TEST_RUNNER_PRIORITY < EXIT_TASK_PRIORITY &&
-                   EXIT_TASK_PRIORITY < DUMMY_PRIORITY &&
-                   DUMMY_PRIORITY < TEST_CASE_PRIORITY,
-               "the exiting task must preempt the case and the dummies must "
-               "run as soon as they start, and the runner outranks them all");
-
-static _Alignas(16) UW s_exit_stack[EXIT_STACK_WORDS];
-static _Alignas(16) UW s_restarted_stack[EXIT_STACK_WORDS];
-static _Alignas(16) UW s_dummy_stack[DUMMY_STACK_WORDS];
-static ID s_dummies[CFN_MAX_TSKID];
-static ID s_exit_task;
-static volatile BOOL s_exit_deletes;
-static volatile UINT s_exit_entries;
-static volatile BOOL s_exit_went_on;
-static volatile UINT s_exit_failure;
-static volatile UINT s_exit_handler_runs;
-static volatile ER s_exit_handler_er;
-static volatile ID s_exit_handler_id;
-
-static UINT task_state(ID id) {
-  UINT intsts;
-  DI(intsts);
-  UINT state = tkmc_tcbs[id - 1].tskstat;
-  EI(intsts);
-  return state;
-}
-
-static __attribute__((noinline, __noreturn__)) void
-exit_with_an_external_interrupt_pending(void) {
-  // The pad's address escapes into the asm, so the whole of it is on the stack
-  // at every optimization level (a volatile array that is never read is not).
-  UW pad[64];
-  __asm__ volatile("" ::"r"(pad) : "memory");
-  UW sp;
-  __asm__ volatile("mv %0, sp" : "=r"(sp));
-  if (sp > (UW)&s_exit_stack[EXIT_STACK_WORDS] - 128) {
-    s_exit_failure = EXIT_SHALLOW_STACK;
-    tk_exd_tsk();
-  }
-  UW mie;
-  __asm__ volatile("csrrc %0, mie, %1"
-                   : "=r"(mie)
-                   : "r"(MIE_SOFTWARE_TIMER_EXTERNAL)
-                   : "memory");
-  out_b(UART_IER, IER_THRE);
-  UW start = test_mtime();
-  while ((read_mip() & MIP_EXTERNAL) == 0) {
-    if ((UW)(test_mtime() - start) > WAIT_MS * TEST_MTIME_PER_MS) {
-      out_b(UART_IER, 0);
-      __asm__ volatile("csrs mie, %0" ::"r"(mie) : "memory");
-      s_exit_failure = EXIT_NO_PENDING_INTERRUPT;
-      tk_exd_tsk();
-    }
-  }
-  if (s_exit_deletes) {
-    tk_exd_tsk();
-  } else {
-    tk_ext_tsk();
-  }
-  __asm__ volatile("csrs mie, %0" ::"r"(MIE_EXTERNAL) : "memory");
-  s_exit_went_on = TRUE;
-  __asm__ volatile("csrs mie, %0" ::"r"(MIE_TIMER_AND_SOFTWARE) : "memory");
-  tk_exd_tsk();
-  for (;;) {
-  }
-}
-
-static void exiting_task(INT stacd, void *exinf) {
-  (void)exinf;
-  if (stacd == EXIT_RESTART_CODE) {
-    s_exit_entries += 1;
-    tk_exd_tsk();
-  }
-  if (stacd == EXIT_CLEANUP_CODE) {
-    tk_exd_tsk();
-  }
-  exit_with_an_external_interrupt_pending();
-}
-
-// FormalASM task entry points record the startup ABI and then take one of the
-// three supported termination paths. The assembly leaves gp/tp untouched.
-extern void asm_task_return_entry(void);
-extern void asm_task_ext_entry(void);
-extern void asm_task_exd_entry(void);
-
-volatile UW asm_task_seen_stacd;
-volatile UW asm_task_seen_exinf;
-volatile UW asm_task_seen_sp;
-volatile UW asm_task_entry_count;
-
-enum {
-  ASM_TASK_PRIORITY = 2,
-  ASM_TASK_STACK_WORDS = 128,
-  ASM_TASK_CLEANUP_STACD = 0x41534d
-};
-
-static _Alignas(16) UW s_asm_return_stack[ASM_TASK_STACK_WORDS];
-static _Alignas(16) UW s_asm_ext_stack[ASM_TASK_STACK_WORDS];
-static _Alignas(16) UW s_asm_exd_stack[ASM_TASK_STACK_WORDS];
-static _Alignas(16) UW s_asm_restart_stack[ASM_TASK_STACK_WORDS];
-static _Alignas(16) UW s_asm_reused_stack[ASM_TASK_STACK_WORDS];
-static _Alignas(16) UW s_asm_filler_stacks[CFN_MAX_TSKID][ASM_TASK_STACK_WORDS];
-static ID s_asm_filler_ids[CFN_MAX_TSKID];
-static const UW s_asm_exinf_one, s_asm_exinf_two, s_asm_exinf_three;
-
-static ID create_asm_task(void (*entry)(void), void *exinf, UW *stack,
-                          SZ stack_size) {
-  return tk_cre_tsk(&(T_CTSK){.exinf = exinf,
-                              .tskatr = TA_ASM | TA_USERBUF,
-                              .task = (FP)entry,
-                              .itskpri = ASM_TASK_PRIORITY,
-                              .stksz = stack_size,
-                              .bufptr = stack});
-}
-
-typedef struct {
-  INT stacd;
-  UW exinf;
-  UW sp;
-  UINT entries;
-  UINT state;
-} asm_entry_observation_t;
-
-static asm_entry_observation_t observe_asm_entry(ID id) {
-  BOOL ended =
-      WAIT_UNTIL(task_state(id) == TTS_DMT || task_state(id) == TTS_NOEXS);
-  TEST_ASSERT_TRUE_MESSAGE(ended, "the ASM task did not terminate");
-  return (asm_entry_observation_t){
-      .stacd = (INT)asm_task_seen_stacd,
-      .exinf = asm_task_seen_exinf,
-      .sp = asm_task_seen_sp,
-      .entries = asm_task_entry_count,
-      .state = task_state(id),
-  };
-}
-
-static void assert_asm_entry(asm_entry_observation_t observed, INT stacd,
-                             void *exinf, UW *stack, UINT expected_entries,
-                             UINT expected_state) {
-  TEST_ASSERT_EQUAL_UINT(expected_state, observed.state);
-  TEST_ASSERT_EQUAL_UINT(expected_entries, observed.entries);
-  TEST_ASSERT_EQUAL_HEX32((UW)stacd, (UW)observed.stacd);
-  TEST_ASSERT_EQUAL_HEX32((UW)exinf, observed.exinf);
-  UW begin = (UW)stack;
-  UW end = begin + ASM_TASK_STACK_WORDS * sizeof(UW);
-  TEST_ASSERT_TRUE_MESSAGE(observed.sp >= begin && observed.sp <= end,
-                           "the ASM task stack pointer is outside its stack");
-  TEST_ASSERT_EQUAL_HEX32(0, observed.sp % 16);
-  TEST_ASSERT_EQUAL_HEX32(end, observed.sp);
-}
-
-static void cleanup_dormant_asm_task(ID id) {
-  if (task_state(id) == TTS_NOEXS) {
-    return;
-  }
-  TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, ASM_TASK_CLEANUP_STACD));
-  BOOL deleted = WAIT_UNTIL(task_state(id) == TTS_NOEXS);
-  TEST_ASSERT_TRUE_MESSAGE(deleted,
-                           "the ASM task cleanup did not free its TCB");
-}
-
-static void asm_task_entry_and_termination_paths(void) {
-  struct {
-    void (*entry)(void);
-    void *exinf;
-    UW *stack;
-    INT stacd;
-    UINT state;
-  } cases[] = {{asm_task_return_entry, (void *)&s_asm_exinf_one,
-                s_asm_return_stack, 37, TTS_DMT},
-               {asm_task_ext_entry, (void *)&s_asm_exinf_two, s_asm_ext_stack,
-                -41, TTS_DMT},
-               {asm_task_exd_entry, (void *)&s_asm_exinf_three, s_asm_exd_stack,
-                -53, TTS_NOEXS}};
-  ID ids[sizeof(cases) / sizeof(cases[0])];
-  asm_entry_observation_t observed[sizeof(cases) / sizeof(cases[0])];
-  for (UINT i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
-    asm_task_entry_count = 0;
-    ID id = create_asm_task(cases[i].entry, cases[i].exinf, cases[i].stack,
-                            sizeof(s_asm_return_stack));
-    TEST_ASSERT_GREATER_THAN(0, id);
-    ids[i] = id;
-    TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, cases[i].stacd));
-    observed[i] = observe_asm_entry(id);
-  }
-  cleanup_dormant_asm_task(ids[0]);
-  cleanup_dormant_asm_task(ids[1]);
-  for (UINT i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
-    assert_asm_entry(observed[i], cases[i].stacd, cases[i].exinf,
-                     cases[i].stack, 1, cases[i].state);
-  }
-}
-
-static void asm_task_restart_rebuilds_entry_and_arguments(void) {
-  asm_task_entry_count = 0;
-  ID id = create_asm_task(asm_task_return_entry, (void *)&s_asm_exinf_one,
-                          s_asm_restart_stack, sizeof(s_asm_restart_stack));
-  TEST_ASSERT_GREATER_THAN(0, id);
-  TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, 123));
-  asm_entry_observation_t first = observe_asm_entry(id);
-  TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(id, -321));
-  asm_entry_observation_t second = observe_asm_entry(id);
-  cleanup_dormant_asm_task(id);
-  assert_asm_entry(first, 123, (void *)&s_asm_exinf_one, s_asm_restart_stack, 1,
-                   TTS_DMT);
-  assert_asm_entry(second, -321, (void *)&s_asm_exinf_one, s_asm_restart_stack,
-                   2, TTS_DMT);
-}
-
-static void asm_task_tcb_reuse_starts_with_fresh_arguments(void) {
-  asm_task_entry_count = 0;
-  ID deleted = create_asm_task(asm_task_exd_entry, (void *)&s_asm_exinf_one,
-                               s_asm_exd_stack, sizeof(s_asm_exd_stack));
-  TEST_ASSERT_GREATER_THAN(0, deleted);
-
-  UINT fillers = 0;
-  while (fillers < CFN_MAX_TSKID) {
-    ID id =
-        create_asm_task(asm_task_exd_entry, NULL, s_asm_filler_stacks[fillers],
-                        sizeof(s_asm_filler_stacks[fillers]));
-    if (id == E_LIMIT) {
-      break;
-    }
-    TEST_ASSERT_GREATER_THAN(0, id);
-    s_asm_filler_ids[fillers++] = id;
-  }
-  TEST_ASSERT_LESS_THAN(CFN_MAX_TSKID, fillers);
-
-  TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(deleted, -101));
-  asm_entry_observation_t deleted_run = observe_asm_entry(deleted);
-  ID reused = create_asm_task(asm_task_exd_entry, (void *)&s_asm_exinf_two,
-                              s_asm_reused_stack, sizeof(s_asm_reused_stack));
-  BOOL reused_same_id = deleted == reused;
-  ER reused_start = reused > 0 ? tk_sta_tsk(reused, 202) : E_ID;
-  asm_entry_observation_t reused_run = {0};
-  if (reused_start == E_OK) {
-    reused_run = observe_asm_entry(reused);
-  }
-
-  for (UINT i = 0; i < fillers; ++i) {
-    TEST_ASSERT_EQUAL(E_OK, tk_sta_tsk(s_asm_filler_ids[i], (INT)i));
-    TEST_ASSERT_EQUAL_UINT(TTS_NOEXS, task_state(s_asm_filler_ids[i]));
-  }
-  TEST_ASSERT_TRUE_MESSAGE(reused_same_id, "the freed TCB was not reused");
-  TEST_ASSERT_EQUAL(E_OK, reused_start);
-  assert_asm_entry(deleted_run, -101, (void *)&s_asm_exinf_one, s_asm_exd_stack,
-                   1, TTS_NOEXS);
-  assert_asm_entry(reused_run, 202, (void *)&s_asm_exinf_two,
-                   s_asm_reused_stack, 2, TTS_NOEXS);
-}
-
 extern void asm_irq_ret_entry(void);
 extern void asm_irq_direct_entry(void);
-extern UW test_spin_with_registers(volatile UW *flag, UW deadline,
-                                   volatile UB *reg, UB value);
 
 volatile UW asm_irq_seen_intno;
 volatile UW asm_irq_seen_frame;
@@ -1950,8 +1635,8 @@ void asm_irq_callback(UINT intno, void *frame) {
   out_b(UART_IER, 0);
   asm_irq_seen_pending = CheckInt(intno);
   const UW *saved_frame = frame;
-  asm_irq_seen_s0 = saved_frame[4];
-  asm_irq_seen_s2 = saved_frame[14];
+  asm_irq_seen_s0 = saved_frame[FRAME_S0];
+  asm_irq_seen_s2 = saved_frame[FRAME_S2];
   if (s_asm_nested_outer) {
     s_last_mcause = 0;
     s_mixed_external_start = s_schedule_calls[TRAP_EXTERNAL];
@@ -2029,7 +1714,7 @@ static void run_asm_irq_exit(BOOL direct, UINT manual_eoi_calls) {
       .intatr = TA_ASM,
       .inthdr = (FP)(direct ? asm_irq_direct_entry : asm_irq_ret_entry)};
   ER defined = tk_def_int(UART_IRQ, &dint);
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   reset_trap_records();
   s_last_mcause = 0;
   UW mie_before = read_mie();
@@ -2044,7 +1729,7 @@ static void run_asm_irq_exit(BOOL direct, UINT manual_eoi_calls) {
   BOOL disabled = !source_is_enabled(UART_IRQ);
 
   // Prove a second claim of the same source can run after the first complete.
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   s_flag = 0;
   s_asm_irq_disable_source = FALSE;
   s_asm_irq_wake_child = FALSE;
@@ -2074,8 +1759,8 @@ static void run_asm_irq_exit(BOOL direct, UINT manual_eoi_calls) {
       asm_irq_seen_sp >= (UW)_isr_stack_start &&
           asm_irq_seen_sp + TKMC_IRQCTX_SIZE <= (UW)_isr_stack_end,
       "the raw entry context was outside the interrupt stack");
-  TEST_ASSERT_EQUAL_HEX32(0x7e570000 + 11, asm_irq_seen_s0);
-  TEST_ASSERT_EQUAL_HEX32(0x7e570000 + 13, asm_irq_seen_s2);
+  TEST_ASSERT_EQUAL_HEX32(TEST_SPIN_PATTERN(11), asm_irq_seen_s0);
+  TEST_ASSERT_EQUAL_HEX32(TEST_SPIN_PATTERN(13), asm_irq_seen_s2);
   TEST_ASSERT_EQUAL_HEX32(mie_before, mie_after);
   TEST_ASSERT_EQUAL_HEX32(mie_before_again, mie_after_again);
   TEST_ASSERT_EQUAL_UINT(0, tkmc_isr_depth);
@@ -2167,32 +1852,39 @@ static void run_mixed_nested_entries(BOOL asm_outer, BOOL direct_asm_inner) {
   s_asm_nested_outer = FALSE;
 }
 
-static void asm_outer_and_hlng_inner_dispatch_at_the_outer_exit(void) {
+static void
+nested_interrupt_asm_outer_hlng_inner_dispatches_at_outer_exit(void) {
   s_endint_outer_on_inner = FALSE;
   run_mixed_nested_entries(TRUE, FALSE);
 }
 
-static void hlng_outer_and_asm_inner_direct_return_defers_dispatch(void) {
+static void
+nested_interrupt_hlng_outer_asm_inner_direct_return_defers_dispatch(void) {
   s_endint_outer_on_inner = FALSE;
   run_mixed_nested_entries(FALSE, TRUE);
 }
 
-static void hlng_outer_and_asm_inner_tk_ret_int_defers_dispatch(void) {
+static void
+nested_interrupt_hlng_outer_asm_inner_tk_ret_int_defers_dispatch(void) {
   s_endint_outer_on_inner = FALSE;
   run_mixed_nested_entries(FALSE, FALSE);
 }
 
-static void asm_outer_hlng_inner_end_outer_before_inner_exit(void) {
+static void
+nested_interrupt_asm_outer_hlng_inner_end_outer_before_inner_exit(void) {
   s_endint_outer_on_inner = TRUE;
   run_mixed_nested_entries(TRUE, FALSE);
 }
 
-static void hlng_outer_asm_inner_end_outer_before_inner_exit(void) {
+static void
+nested_interrupt_hlng_outer_asm_inner_end_outer_before_inner_exit(void) {
   s_endint_outer_on_inner = TRUE;
   run_mixed_nested_entries(FALSE, TRUE);
 }
 
-static void hlng_outer_asm_inner_tk_ret_int_end_outer_before_inner_exit(void) {
+static void
+nested_interrupt_hlng_outer_asm_inner_tk_ret_int_end_outer_before_inner_exit(
+    void) {
   s_endint_outer_on_inner = TRUE;
   run_mixed_nested_entries(FALSE, FALSE);
 }
@@ -2205,21 +1897,132 @@ static void end_of_int_from_direct_return_is_idempotent(void) {
   run_asm_irq_exit(TRUE, 2);
 }
 
-static void end_of_int_from_tk_ret_int_single_call(void) {
+static void end_of_int_from_tk_ret_int_completes_with_single_call(void) {
   run_asm_irq_exit(FALSE, 1);
 }
 
-static void end_of_int_from_direct_return_single_call(void) {
+static void end_of_int_from_direct_return_completes_with_single_call(void) {
   run_asm_irq_exit(TRUE, 1);
 }
 
-static void
-asm_tk_ret_int_restores_frame_and_dispatches_in_external_trap(void) {
+static void tk_ret_int_restores_frame_and_dispatches_in_external_trap(void) {
   run_asm_irq_exit(FALSE, 0);
 }
 
-static void asm_direct_return_restores_frame_and_leaves_dispatch_pending(void) {
+static void
+asm_handler_direct_return_restores_frame_and_leaves_dispatch_pending(void) {
   run_asm_irq_exit(TRUE, 0);
+}
+
+// ---- A task that ends while an external interrupt is pending ----------------
+//
+// tk_ext_tsk() and tk_exd_tsk() make the task dormant (or free its TCB) and
+// then switch away. A handler that runs after the state change and before the
+// switch can start the task again (or create a task in the freed TCB and start
+// it), and the new run must begin at its entry with the new start code. The old
+// run must never go on.
+//
+// The window is made wide and certain without help from the kernel: the task
+// turns off the software, timer and external bits of mie, waits until the UART
+// interrupt is pending in mip, and only then ends. The exit must switch tasks
+// without taking an interrupt; the case it switches to turns the bits back on,
+// and the handler runs then. Code that returns from the exit instead turns on
+// only MEIE, so the external trap is the one trap that can come, whatever order
+// the machine gives to pending interrupts, and it comes with the software
+// interrupt that the exit raised still pending.
+//
+// The exiting run waits on a deep stack: the trap frame it leaves behind must
+// lie below the frame that tk_sta_tsk() builds at the top of the same stack, or
+// the old run would resume from a frame of 0xdeadbeef words and stop in a fatal
+// trap instead of failing an assert. After an exit that returned, the code
+// reads no local and never returns: what the frames above it held may be gone.
+//
+// The tasks here are not the runner's: the restarted task must see its start
+// code, which test_spawn() does not pass on. The case ends all of them itself,
+// before its asserts, so that a failure leaves no task behind.
+
+enum {
+  EXIT_TASK_PRIORITY = 2,
+  DUMMY_PRIORITY = 3,
+  EXIT_RESTART_CODE = 7,
+  EXIT_CLEANUP_CODE = -1,
+  EXIT_STACK_WORDS = 256,
+  DUMMY_STACK_WORDS = 128,
+  // What the exiting run reports instead of exiting.
+  EXIT_NO_PENDING_INTERRUPT = 1,
+  EXIT_SHALLOW_STACK,
+  MIE_SOFTWARE_TIMER_EXTERNAL = (1u << 3) | (1u << 7) | (1u << 11),
+  MIP_EXTERNAL = 1u << 11
+};
+_Static_assert(TEST_RUNNER_PRIORITY < EXIT_TASK_PRIORITY &&
+                   EXIT_TASK_PRIORITY < DUMMY_PRIORITY &&
+                   DUMMY_PRIORITY < TEST_CASE_PRIORITY,
+               "the exiting task must preempt the case and the dummies must "
+               "run as soon as they start, and the runner outranks them all");
+
+static _Alignas(16) UW s_exit_stack[EXIT_STACK_WORDS];
+static _Alignas(16) UW s_restarted_stack[EXIT_STACK_WORDS];
+static _Alignas(16) UW s_dummy_stack[DUMMY_STACK_WORDS];
+static ID s_dummies[CFN_MAX_TSKID];
+static ID s_exit_task;
+static volatile BOOL s_exit_deletes;
+static volatile UINT s_exit_entries;
+static volatile BOOL s_exit_went_on;
+static volatile UINT s_exit_failure;
+static volatile UINT s_exit_handler_runs;
+static volatile ER s_exit_handler_er;
+static volatile ID s_exit_handler_id;
+
+static __attribute__((noinline, __noreturn__)) void
+exit_with_an_external_interrupt_pending(void) {
+  // The pad's address escapes into the asm, so the whole of it is on the stack
+  // at every optimization level (a volatile array that is never read is not).
+  UW pad[64];
+  __asm__ volatile("" ::"r"(pad) : "memory");
+  UW sp;
+  __asm__ volatile("mv %0, sp" : "=r"(sp));
+  if (sp > (UW)&s_exit_stack[EXIT_STACK_WORDS] - 128) {
+    s_exit_failure = EXIT_SHALLOW_STACK;
+    tk_exd_tsk();
+  }
+  UW mie;
+  __asm__ volatile("csrrc %0, mie, %1"
+                   : "=r"(mie)
+                   : "r"(MIE_SOFTWARE_TIMER_EXTERNAL)
+                   : "memory");
+  out_b(UART_IER, IER_THRE);
+  UW start = test_mtime();
+  while ((read_mip() & MIP_EXTERNAL) == 0) {
+    if ((UW)(test_mtime() - start) > WAIT_MS * TEST_MTIME_PER_MS) {
+      out_b(UART_IER, 0);
+      __asm__ volatile("csrs mie, %0" ::"r"(mie) : "memory");
+      s_exit_failure = EXIT_NO_PENDING_INTERRUPT;
+      tk_exd_tsk();
+    }
+  }
+  if (s_exit_deletes) {
+    tk_exd_tsk();
+  } else {
+    tk_ext_tsk();
+  }
+  __asm__ volatile("csrs mie, %0" ::"r"(MIE_EXTERNAL) : "memory");
+  s_exit_went_on = TRUE;
+  __asm__ volatile("csrs mie, %0" ::"r"(MIE_TIMER_AND_SOFTWARE) : "memory");
+  tk_exd_tsk();
+  for (;;) {
+  }
+}
+
+static void exiting_task(INT stacd, void *exinf) {
+  (void)exinf;
+  if (stacd == EXIT_RESTART_CODE) {
+    s_exit_entries += 1;
+    tk_exd_tsk();
+  }
+  if (stacd == EXIT_CLEANUP_CODE) {
+    tk_exd_tsk();
+  }
+  exit_with_an_external_interrupt_pending();
 }
 
 static void dummy_task(INT stacd, void *exinf) {
@@ -2291,7 +2094,7 @@ static void restart_from_an_isr_right_after_the_exit(BOOL deletes) {
   }
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = restarting_handler};
   ER defined = tk_def_int(UART_IRQ, &dint);
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   ER started = tk_sta_tsk(s_exit_task, 0);
   // Here the task has ended: it outranks the case. An exit that switched
   // without taking an interrupt left the three bits of mie off.
@@ -2300,16 +2103,16 @@ static void restart_from_an_isr_right_after_the_exit(BOOL deletes) {
   BOOL settled =
       WAIT_UNTIL(s_exit_entries >= 1 || s_exit_went_on || s_exit_failure != 0);
   clean_up();
-  if (task_state(s_exit_task) == TTS_DMT) {
+  if (test_task_state(s_exit_task) == TTS_DMT) {
     tk_sta_tsk(s_exit_task, EXIT_CLEANUP_CODE);
   }
-  BOOL ended = WAIT_UNTIL(task_state(s_exit_task) == TTS_NOEXS);
+  BOOL ended = WAIT_UNTIL(test_task_state(s_exit_task) == TTS_NOEXS);
   for (UINT i = 0; i < dummies; ++i) {
     tk_sta_tsk(s_dummies[i], 0);
   }
   BOOL dummies_ended = TRUE;
   for (UINT i = 0; i < dummies; ++i) {
-    dummies_ended = dummies_ended && task_state(s_dummies[i]) == TTS_NOEXS;
+    dummies_ended = dummies_ended && test_task_state(s_dummies[i]) == TTS_NOEXS;
   }
   TEST_ASSERT_EQUAL(E_OK, defined);
   TEST_ASSERT_EQUAL(E_OK, started);
@@ -2331,30 +2134,18 @@ static void restart_from_an_isr_right_after_the_exit(BOOL deletes) {
                                  "the new run did not start at its entry");
 }
 
-static void
-a_task_restarted_by_an_isr_right_after_tk_ext_tsk_starts_anew(void) {
+static void tk_sta_tsk_by_isr_right_after_tk_ext_tsk_starts_task_anew(void) {
   restart_from_an_isr_right_after_the_exit(FALSE);
 }
 
 static void
-a_task_created_by_an_isr_in_the_tcb_tk_exd_tsk_freed_starts_anew(void) {
+tk_cre_tsk_by_isr_in_tcb_freed_by_tk_exd_tsk_starts_task_anew(void) {
   restart_from_an_isr_right_after_the_exit(TRUE);
 }
 
 // The cases above turn interrupts off and leave the runner unable to time them
-// out, so a fault or a kernel stop must end the run with a message, not hang
-// it.
-__attribute__((__noreturn__)) void tkmc_panic(UW mcause, UW mepc, UW mtval) {
-  putstring(":FAIL: unexpected CPU exception mcause=");
-  puthex(mcause);
-  putstring(" mepc=");
-  puthex(mepc);
-  putstring(" mtval=");
-  puthex(mtval);
-  putstring("\n");
-  test_exit(1);
-}
-
+// out, so a kernel stop must end the run with a message, not hang it (a fault
+// does too: test/panic_fail.c).
 __attribute__((__noreturn__)) void tkmc_context_panic(tkmc_context_api api) {
   putstring(":FAIL: a kernel call stopped the system, api=");
   puthex((UW)api);
@@ -2363,107 +2154,56 @@ __attribute__((__noreturn__)) void tkmc_context_panic(tkmc_context_api api) {
 }
 
 static const test_case_t s_cases[] = {
-    {"handler_runs_with_its_interrupt_number",
-     handler_runs_with_its_interrupt_number},
-    {"end_of_int_hlng_is_idempotent_with_a_disabled_source",
-     end_of_int_hlng_is_idempotent_with_a_disabled_source},
-    {"end_of_int_allows_a_still_asserted_source_to_be_raised_again",
-     end_of_int_allows_a_still_asserted_source_to_be_raised_again},
-    {"handler_runs_as_an_isr_and_its_wakeup_switches_at_the_trap_exit",
-     handler_runs_as_an_isr_and_its_wakeup_switches_at_the_trap_exit},
-    {"a_disabled_source_waits_until_it_is_enabled",
-     a_disabled_source_waits_until_it_is_enabled},
-    {"check_int_observes_disabled_pending_source_without_consuming_it",
-     check_int_observes_disabled_pending_source_without_consuming_it},
-    {"clear_int_discards_disabled_pending_uart",
-     clear_int_discards_disabled_pending_uart},
-    {"clear_int_discards_enabled_pending_uart",
-     clear_int_discards_enabled_pending_uart},
-    {"clear_int_claims_a_pending_source_below_the_threshold",
-     clear_int_claims_a_pending_source_below_the_threshold},
-    {"clear_int_discards_pending_uart_with_zero_priority",
-     clear_int_discards_pending_uart_with_zero_priority},
-    {"clear_int_preserves_a_simultaneous_non_target_request",
-     clear_int_preserves_a_simultaneous_non_target_request},
-    {"clear_int_with_no_pending_source_has_no_completion",
-     clear_int_with_no_pending_source_has_no_completion},
-    {"clear_int_does_not_complete_an_active_uncompleted_claim",
-     clear_int_does_not_complete_an_active_uncompleted_claim},
-    {"clear_int_handles_a_new_pending_request_after_end_of_int",
-     clear_int_handles_a_new_pending_request_after_end_of_int},
-    {"a_new_definition_replaces_the_old_one",
-     a_new_definition_replaces_the_old_one},
-    {"without_a_handler_the_source_is_switched_off_and_served_once_defined",
-     without_a_handler_the_source_is_switched_off_and_served_once_defined},
-    {"bad_definitions_are_refused", bad_definitions_are_refused},
-    {"a_handler_cannot_be_defined_from_an_isr_or_with_interrupts_off",
-     a_handler_cannot_be_defined_from_an_isr_or_with_interrupts_off},
-    {"a_source_a_handler_switched_off_is_served_again_when_enabled",
-     a_source_a_handler_switched_off_is_served_again_when_enabled},
-    {"a_bad_number_or_level_changes_nothing",
-     a_bad_number_or_level_changes_nothing},
-    {"schedule_runs_on_the_interrupt_stack_in_every_trap",
-     schedule_runs_on_the_interrupt_stack_in_every_trap},
-    {"the_timer_handler_runs_on_the_interrupt_stack",
-     the_timer_handler_runs_on_the_interrupt_stack},
-    {"a_task_keeps_its_registers_through_an_interrupt",
-     a_task_keeps_its_registers_through_an_interrupt},
-    {"a_task_keeps_its_registers_through_a_switch_at_the_trap_exit",
-     a_task_keeps_its_registers_through_a_switch_at_the_trap_exit},
-    {"a_trap_adds_one_to_the_depth_and_takes_it_off",
-     a_trap_adds_one_to_the_depth_and_takes_it_off},
-    {"the_interrupt_stack_has_room_for_the_deepest_paths",
-     the_interrupt_stack_has_room_for_the_deepest_paths},
-    {"the_timer_waits_for_a_handler_that_has_interrupts_on",
-     the_timer_waits_for_a_handler_that_has_interrupts_on},
-    {"a_source_of_a_higher_priority_interrupts_a_handler",
-     a_source_of_a_higher_priority_interrupts_a_handler},
-    {"clear_int_from_inner_handler_preserves_the_active_outer_claim",
-     clear_int_from_inner_handler_preserves_the_active_outer_claim},
-    {"a_source_of_the_same_or_a_lower_priority_waits_for_the_handler",
-     a_source_of_the_same_or_a_lower_priority_waits_for_the_handler},
-    {"a_task_a_nested_handler_wakes_runs_after_the_outermost_handler",
-     a_task_a_nested_handler_wakes_runs_after_the_outermost_handler},
-    {"a_task_keeps_its_registers_through_a_nested_interrupt",
-     a_task_keeps_its_registers_through_a_nested_interrupt},
-    {"the_interrupt_stack_holds_nested_handlers",
-     the_interrupt_stack_holds_nested_handlers},
-    {"asm_task_entry_and_termination_paths",
-     asm_task_entry_and_termination_paths},
-    {"asm_task_restart_rebuilds_entry_and_arguments",
-     asm_task_restart_rebuilds_entry_and_arguments},
-    {"asm_task_tcb_reuse_starts_with_fresh_arguments",
-     asm_task_tcb_reuse_starts_with_fresh_arguments},
-    {"asm_tk_ret_int_restores_frame_and_dispatches_in_external_trap",
-     asm_tk_ret_int_restores_frame_and_dispatches_in_external_trap},
-    {"asm_direct_return_restores_frame_and_leaves_dispatch_pending",
-     asm_direct_return_restores_frame_and_leaves_dispatch_pending},
-    {"asm_outer_and_hlng_inner_dispatch_at_the_outer_exit",
-     asm_outer_and_hlng_inner_dispatch_at_the_outer_exit},
-    {"hlng_outer_and_asm_inner_direct_return_defers_dispatch",
-     hlng_outer_and_asm_inner_direct_return_defers_dispatch},
-    {"hlng_outer_and_asm_inner_tk_ret_int_defers_dispatch",
-     hlng_outer_and_asm_inner_tk_ret_int_defers_dispatch},
-    {"asm_outer_hlng_inner_end_outer_before_inner_exit",
-     asm_outer_hlng_inner_end_outer_before_inner_exit},
-    {"hlng_outer_asm_inner_end_outer_before_inner_exit",
-     hlng_outer_asm_inner_end_outer_before_inner_exit},
-    {"hlng_outer_asm_inner_tk_ret_int_end_outer_before_inner_exit",
-     hlng_outer_asm_inner_tk_ret_int_end_outer_before_inner_exit},
-    {"end_of_int_from_tk_ret_int_is_idempotent",
-     end_of_int_from_tk_ret_int_is_idempotent},
-    {"end_of_int_from_direct_return_is_idempotent",
-     end_of_int_from_direct_return_is_idempotent},
-    {"end_of_int_from_tk_ret_int_single_call",
-     end_of_int_from_tk_ret_int_single_call},
-    {"end_of_int_from_direct_return_single_call",
-     end_of_int_from_direct_return_single_call},
+    CASE(handler_runs_with_its_interrupt_number),
+    CASE(end_of_int_is_idempotent_for_hlng_with_disabled_source),
+    CASE(end_of_int_lets_still_asserted_source_be_raised_again),
+    CASE(handler_runs_as_isr_and_its_wakeup_switches_at_trap_exit),
+    CASE(enable_int_delivers_request_that_waited_while_disabled),
+    CASE(check_int_observes_disabled_pending_source_without_consuming_it),
+    CASE(clear_int_discards_disabled_pending_uart),
+    CASE(clear_int_discards_enabled_pending_uart),
+    CASE(clear_int_claims_pending_source_below_threshold),
+    CASE(clear_int_discards_pending_uart_with_zero_priority),
+    CASE(clear_int_preserves_simultaneous_non_target_request),
+    CASE(clear_int_with_no_pending_source_has_no_completion),
+    CASE(clear_int_does_not_complete_active_uncompleted_claim),
+    CASE(clear_int_handles_new_pending_request_after_end_of_int),
+    CASE(tk_def_int_replaces_old_definition),
+    CASE(tk_def_int_serves_source_that_waited_without_handler),
+    CASE(tk_def_int_refuses_bad_definitions_and_keeps_old_one),
+    CASE(tk_def_int_refuses_calls_from_isr_or_with_interrupts_off),
+    CASE(enable_int_serves_again_source_that_handler_switched_off),
+    CASE(enable_int_with_bad_number_or_level_changes_nothing),
+    CASE(interrupt_stack_runs_schedule_in_every_trap),
+    CASE(interrupt_stack_runs_timer_handler),
+    CASE(interrupt_keeps_task_registers),
+    CASE(trap_exit_switch_keeps_task_registers),
+    CASE(isr_depth_rises_by_one_per_trap_and_drops_back),
+    CASE(interrupt_stack_has_room_for_deepest_paths),
+    CASE(timer_waits_for_handler_that_has_interrupts_on),
+    CASE(nested_interrupt_higher_priority_source_interrupts_handler),
+    CASE(clear_int_from_inner_handler_preserves_active_outer_claim),
+    CASE(nested_interrupt_same_or_lower_priority_source_waits_for_handler),
+    CASE(nested_interrupt_woken_task_runs_after_outermost_handler),
+    CASE(nested_interrupt_keeps_task_registers),
+    CASE(interrupt_stack_holds_nested_handlers),
+    CASE(tk_ret_int_restores_frame_and_dispatches_in_external_trap),
+    CASE(asm_handler_direct_return_restores_frame_and_leaves_dispatch_pending),
+    CASE(nested_interrupt_asm_outer_hlng_inner_dispatches_at_outer_exit),
+    CASE(nested_interrupt_hlng_outer_asm_inner_direct_return_defers_dispatch),
+    CASE(nested_interrupt_hlng_outer_asm_inner_tk_ret_int_defers_dispatch),
+    CASE(nested_interrupt_asm_outer_hlng_inner_end_outer_before_inner_exit),
+    CASE(nested_interrupt_hlng_outer_asm_inner_end_outer_before_inner_exit),
+    CASE(
+        nested_interrupt_hlng_outer_asm_inner_tk_ret_int_end_outer_before_inner_exit),
+    CASE(end_of_int_from_tk_ret_int_is_idempotent),
+    CASE(end_of_int_from_direct_return_is_idempotent),
+    CASE(end_of_int_from_tk_ret_int_completes_with_single_call),
+    CASE(end_of_int_from_direct_return_completes_with_single_call),
     // Last: they take every TCB for a while, and a failure that left them
     // taken would fail every case after it.
-    {"a_task_restarted_by_an_isr_right_after_tk_ext_tsk_starts_anew",
-     a_task_restarted_by_an_isr_right_after_tk_ext_tsk_starts_anew},
-    {"a_task_created_by_an_isr_in_the_tcb_tk_exd_tsk_freed_starts_anew",
-     a_task_created_by_an_isr_in_the_tcb_tk_exd_tsk_freed_starts_anew},
+    CASE(tk_sta_tsk_by_isr_right_after_tk_ext_tsk_starts_task_anew),
+    CASE(tk_cre_tsk_by_isr_in_tcb_freed_by_tk_exd_tsk_starts_task_anew),
 };
 
 TEST_SUITE_MAIN("interrupt", s_cases, 5000)

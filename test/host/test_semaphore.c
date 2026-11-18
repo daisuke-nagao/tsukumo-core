@@ -30,7 +30,7 @@
 #include "task.h"
 #include "timer.h"
 
-enum { HIGH_PRIORITY = 4, LOW_PRIORITY = 5, LIMIT = 32767 };
+enum { LIMIT = 32767 };
 
 static T_CSEM packet(INT isemcnt, INT maxsem) {
   return (T_CSEM){
@@ -66,7 +66,7 @@ static void check_create_refused(const T_CSEM *pk, ER expected) {
   host_check_kernel_queues();
 }
 
-void test_a_null_semaphore_packet_preserves_state_and_free_slots(void) {
+static void test_tk_cre_sem_refuses_null_packet_and_keeps_free_slots(void) {
   for (UINT disabled = 0; disabled < 2; ++disabled) {
     host_reset();
     UINT intsts;
@@ -115,56 +115,44 @@ static const counts_t bad_counts[] = {
     {32768, 32768}, // both above the limit
 };
 
-enum { BAD_COUNTS = sizeof(bad_counts) / sizeof(bad_counts[0]) };
+enum { BAD_COUNTS = HOST_COUNT(bad_counts) };
 
-void test_a_semaphore_count_outside_its_range_is_refused(void) {
+// Offers every pair of bad counts with the attributes, and checks each refusal.
+static void check_bad_counts_refused(ATR sematr, ER expected) {
   for (UINT i = 0; i < BAD_COUNTS; ++i) {
     T_CSEM pk = packet(bad_counts[i].isemcnt, bad_counts[i].maxsem);
-    check_create_refused(&pk, E_PAR);
+    pk.sematr = sematr;
+    check_create_refused(&pk, expected);
   }
 }
 
-void test_an_attribute_error_comes_before_a_count_error(void) {
-  for (UINT i = 0; i < BAD_COUNTS; ++i) {
-    T_CSEM pk = packet(bad_counts[i].isemcnt, bad_counts[i].maxsem);
-    pk.sematr = TA_TPRI | TA_DSNAME; // a bit the kernel does not support
-    check_create_refused(&pk, E_RSATR);
-  }
+static void test_tk_cre_sem_refuses_count_outside_range(void) {
+  check_bad_counts_refused(TA_TFIFO, E_PAR);
+  TEST_ASSERT_EQUAL(1, create_semaphore(0, 1));
+  TEST_ASSERT_EQUAL(CFN_MAX_SEMID - 1, host_count_creatable_semaphores());
 }
 
-void test_a_count_error_comes_before_running_out_of_semaphores(void) {
+static void test_tk_cre_sem_reports_attribute_error_before_count_error(void) {
+  // TA_DSNAME is a bit the kernel does not support.
+  check_bad_counts_refused(TA_TPRI | TA_DSNAME, E_RSATR);
+}
+
+static void test_tk_cre_sem_reports_count_error_before_exhausted_slots(void) {
   for (UINT i = 0; i < CFN_MAX_SEMID; ++i) {
     create_semaphore(0, 1);
   }
-  for (UINT i = 0; i < BAD_COUNTS; ++i) {
-    T_CSEM pk = packet(bad_counts[i].isemcnt, bad_counts[i].maxsem);
-    check_create_refused(&pk, E_PAR);
-  }
+  check_bad_counts_refused(TA_TFIFO, E_PAR);
   T_CSEM good = packet(0, 1);
   check_create_refused(&good, E_LIMIT);
 }
 
-void test_refused_creations_use_up_no_semaphore(void) {
-  for (UINT i = 0; i < BAD_COUNTS; ++i) {
-    T_CSEM pk = packet(bad_counts[i].isemcnt, bad_counts[i].maxsem);
-    TEST_ASSERT_EQUAL(E_PAR, tk_cre_sem(&pk));
-  }
-  // The first semaphore after a boot is still ID 1, and all of them are left.
-  TEST_ASSERT_EQUAL(1, create_semaphore(0, 1));
-  for (UINT i = 1; i < CFN_MAX_SEMID; ++i) {
-    create_semaphore(0, 1);
-  }
-  T_CSEM good = packet(0, 1);
-  TEST_ASSERT_EQUAL(E_LIMIT, tk_cre_sem(&good));
-}
-
 // Each accepted pair starts with its initial count, takes signals up to its
 // maximum and refuses one more.
-void test_the_counts_at_both_ends_of_the_range_are_accepted(void) {
-  host_set_current(host_make_task(HIGH_PRIORITY));
+static void test_tk_cre_sem_accepts_counts_at_both_ends_of_range(void) {
+  host_set_current(host_make_task(HOST_HIGH_PRIORITY));
   static const counts_t good[] = {
       {0, 1}, {1, 1}, {0, LIMIT}, {LIMIT, LIMIT}, {1, 3}};
-  for (UINT i = 0; i < sizeof(good) / sizeof(good[0]); ++i) {
+  for (UINT i = 0; i < HOST_COUNT(good); ++i) {
     ID semid = create_semaphore(good[i].isemcnt, good[i].maxsem);
     check_count(semid, good[i].isemcnt);
 
@@ -175,8 +163,8 @@ void test_the_counts_at_both_ends_of_the_range_are_accepted(void) {
   }
 }
 
-void test_a_signal_past_the_maximum_is_refused_and_keeps_the_count(void) {
-  host_set_current(host_make_task(HIGH_PRIORITY));
+static void test_tk_sig_sem_refuses_signal_past_maximum_and_keeps_count(void) {
+  host_set_current(host_make_task(HOST_HIGH_PRIORITY));
   static const struct {
     INT isemcnt;
     INT maxsem;
@@ -193,7 +181,7 @@ void test_a_signal_past_the_maximum_is_refused_and_keeps_the_count(void) {
       {0, 1, -1, E_PAR},           // a negative count
       {0, 1, INT_MIN, E_PAR},      // the most negative count
   };
-  for (UINT i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i) {
+  for (UINT i = 0; i < HOST_COUNT(rows); ++i) {
     ID semid = create_semaphore(rows[i].isemcnt, rows[i].maxsem);
     check_signal_refused(semid, rows[i].cnt, rows[i].expected);
     check_count(semid, rows[i].isemcnt);
@@ -203,15 +191,15 @@ void test_a_signal_past_the_maximum_is_refused_and_keeps_the_count(void) {
 
 // A task that waits for units of the semaphore, and another one to run.
 static ID make_waiter(ID semid, INT cnt, ID *other) {
-  ID waiter = host_make_task(HIGH_PRIORITY);
-  *other = host_make_task(LOW_PRIORITY);
+  ID waiter = host_make_task(HOST_HIGH_PRIORITY);
+  *other = host_make_task(HOST_LOW_PRIORITY);
   host_set_current(waiter);
   HOST_EXPECT_WAIT(tk_wai_sem(semid, cnt, TMO_FEVR));
   host_set_current(*other);
   return waiter;
 }
 
-void test_a_signal_past_the_maximum_wakes_no_waiter(void) {
+static void test_tk_sig_sem_past_maximum_wakes_no_waiter(void) {
   ID semid = create_semaphore(0, 1);
   ID other;
   ID waiter = make_waiter(semid, 1, &other);
@@ -223,7 +211,7 @@ void test_a_signal_past_the_maximum_wakes_no_waiter(void) {
 
 // The maximum bounds the count before any of it is given to the waiters, even
 // units a waiter would take at once.
-void test_the_maximum_counts_units_before_they_go_to_waiters(void) {
+static void test_tk_sig_sem_counts_maximum_before_serving_waiters(void) {
   ID semid = tk_cre_sem(&(T_CSEM){
       .exinf = 0, .sematr = TA_TFIFO | TA_FIRST, .isemcnt = 2, .maxsem = 3});
   TEST_ASSERT_GREATER_THAN(0, semid);
@@ -239,8 +227,8 @@ void test_the_maximum_counts_units_before_they_go_to_waiters(void) {
   check_count(semid, 0);
 }
 
-void test_a_signal_refused_with_interrupts_off_leaves_them_off(void) {
-  host_set_current(host_make_task(HIGH_PRIORITY));
+static void test_tk_sig_sem_refused_with_interrupts_off_leaves_them_off(void) {
+  host_set_current(host_make_task(HOST_HIGH_PRIORITY));
   ID semid = create_semaphore(1, 1);
   host_snapshot_t before;
   host_take_snapshot(&before);
@@ -275,7 +263,7 @@ typedef enum { TAKES, REFUSED } order_t;
 
 typedef struct {
   ATR sematr;
-  PRI priority; // of the new request; the head waits at HIGH_PRIORITY
+  PRI priority; // of the new request; the head waits at HOST_HIGH_PRIORITY
   INT units;    // the head waits for all of them, and they are the maximum
   INT left;     // units left while the head waits
   INT request;  // units the new request asks for
@@ -287,33 +275,33 @@ typedef struct {
   {sematr, priority, 2, left, 1, expected}
 
 static const order_row_t order_rows[] = {
-    ONE_OF_TWO(TA_TFIFO | TA_FIRST, HIGH_PRIORITY - 1, 1, REFUSED),
-    ONE_OF_TWO(TA_TFIFO | TA_FIRST, HIGH_PRIORITY, 1, REFUSED),
-    ONE_OF_TWO(TA_TFIFO | TA_FIRST, LOW_PRIORITY, 1, REFUSED),
-    ONE_OF_TWO(TA_TPRI | TA_FIRST, HIGH_PRIORITY - 1, 1, TAKES),
-    ONE_OF_TWO(TA_TPRI | TA_FIRST, HIGH_PRIORITY, 1, REFUSED),
-    ONE_OF_TWO(TA_TPRI | TA_FIRST, LOW_PRIORITY, 1, REFUSED),
-    ONE_OF_TWO(TA_TFIFO | TA_CNT, HIGH_PRIORITY - 1, 1, TAKES),
-    ONE_OF_TWO(TA_TFIFO | TA_CNT, HIGH_PRIORITY, 1, TAKES),
-    ONE_OF_TWO(TA_TFIFO | TA_CNT, LOW_PRIORITY, 1, TAKES),
-    ONE_OF_TWO(TA_TPRI | TA_CNT, HIGH_PRIORITY - 1, 1, TAKES),
-    ONE_OF_TWO(TA_TPRI | TA_CNT, HIGH_PRIORITY, 1, TAKES),
-    ONE_OF_TWO(TA_TPRI | TA_CNT, LOW_PRIORITY, 1, TAKES),
+    ONE_OF_TWO(TA_TFIFO | TA_FIRST, HOST_HIGH_PRIORITY - 1, 1, REFUSED),
+    ONE_OF_TWO(TA_TFIFO | TA_FIRST, HOST_HIGH_PRIORITY, 1, REFUSED),
+    ONE_OF_TWO(TA_TFIFO | TA_FIRST, HOST_LOW_PRIORITY, 1, REFUSED),
+    ONE_OF_TWO(TA_TPRI | TA_FIRST, HOST_HIGH_PRIORITY - 1, 1, TAKES),
+    ONE_OF_TWO(TA_TPRI | TA_FIRST, HOST_HIGH_PRIORITY, 1, REFUSED),
+    ONE_OF_TWO(TA_TPRI | TA_FIRST, HOST_LOW_PRIORITY, 1, REFUSED),
+    ONE_OF_TWO(TA_TFIFO | TA_CNT, HOST_HIGH_PRIORITY - 1, 1, TAKES),
+    ONE_OF_TWO(TA_TFIFO | TA_CNT, HOST_HIGH_PRIORITY, 1, TAKES),
+    ONE_OF_TWO(TA_TFIFO | TA_CNT, HOST_LOW_PRIORITY, 1, TAKES),
+    ONE_OF_TWO(TA_TPRI | TA_CNT, HOST_HIGH_PRIORITY - 1, 1, TAKES),
+    ONE_OF_TWO(TA_TPRI | TA_CNT, HOST_HIGH_PRIORITY, 1, TAKES),
+    ONE_OF_TWO(TA_TPRI | TA_CNT, HOST_LOW_PRIORITY, 1, TAKES),
     // With no unit left, not even a request that may go first takes one.
-    ONE_OF_TWO(TA_TPRI | TA_FIRST, HIGH_PRIORITY - 1, 0, REFUSED),
-    ONE_OF_TWO(TA_TFIFO | TA_CNT, HIGH_PRIORITY - 1, 0, REFUSED),
-    ONE_OF_TWO(TA_TPRI | TA_CNT, HIGH_PRIORITY - 1, 0, REFUSED),
+    ONE_OF_TWO(TA_TPRI | TA_FIRST, HOST_HIGH_PRIORITY - 1, 0, REFUSED),
+    ONE_OF_TWO(TA_TFIFO | TA_CNT, HOST_HIGH_PRIORITY - 1, 0, REFUSED),
+    ONE_OF_TWO(TA_TPRI | TA_CNT, HOST_HIGH_PRIORITY - 1, 0, REFUSED),
     // A request for more than one unit: the head waits for three, two are left.
     // The units a request asks for decide, as well as the order, whether it
     // takes them: three are not there, however the order would let it pass.
-    {TA_TFIFO | TA_FIRST, HIGH_PRIORITY - 1, 3, 2, 2, REFUSED},
-    {TA_TPRI | TA_FIRST, HIGH_PRIORITY - 1, 3, 2, 2, TAKES},
-    {TA_TPRI | TA_FIRST, HIGH_PRIORITY, 3, 2, 2, REFUSED},
-    {TA_TFIFO | TA_CNT, HIGH_PRIORITY, 3, 2, 2, TAKES},
-    {TA_TFIFO | TA_FIRST, HIGH_PRIORITY - 1, 3, 2, 3, REFUSED},
-    {TA_TPRI | TA_FIRST, HIGH_PRIORITY - 1, 3, 2, 3, REFUSED},
-    {TA_TFIFO | TA_CNT, HIGH_PRIORITY, 3, 2, 3, REFUSED},
-    {TA_TPRI | TA_CNT, HIGH_PRIORITY - 1, 3, 2, 3, REFUSED},
+    {TA_TFIFO | TA_FIRST, HOST_HIGH_PRIORITY - 1, 3, 2, 2, REFUSED},
+    {TA_TPRI | TA_FIRST, HOST_HIGH_PRIORITY - 1, 3, 2, 2, TAKES},
+    {TA_TPRI | TA_FIRST, HOST_HIGH_PRIORITY, 3, 2, 2, REFUSED},
+    {TA_TFIFO | TA_CNT, HOST_HIGH_PRIORITY, 3, 2, 2, TAKES},
+    {TA_TFIFO | TA_FIRST, HOST_HIGH_PRIORITY - 1, 3, 2, 3, REFUSED},
+    {TA_TPRI | TA_FIRST, HOST_HIGH_PRIORITY - 1, 3, 2, 3, REFUSED},
+    {TA_TFIFO | TA_CNT, HOST_HIGH_PRIORITY, 3, 2, 3, REFUSED},
+    {TA_TPRI | TA_CNT, HOST_HIGH_PRIORITY - 1, 3, 2, 3, REFUSED},
 };
 
 static UINT count_in_queue(const tkmc_list_head *head) {
@@ -322,15 +310,6 @@ static UINT count_in_queue(const tkmc_list_head *head) {
     ++n;
   }
   return n;
-}
-
-static BOOL in_queue(const tkmc_list_head *head, const tkmc_list_head *node) {
-  for (const tkmc_list_head *pos = head->next; pos != head; pos = pos->next) {
-    if (pos == node) {
-      return TRUE;
-    }
-  }
-  return FALSE;
 }
 
 static TCB *first_waiter(SEMCB *semcb) {
@@ -404,8 +383,8 @@ static void check_poll(const order_row_t *row, const char *label) {
   check_took(semid, head, row->left - row->request, label);
   // The units are all the request changed. Giving them back asks for no switch
   // only while the late task is the highest priority ready one: the task that
-  // make_waiter() left ready runs at LOW_PRIORITY and was queued first.
-  if (row->priority < LOW_PRIORITY) {
+  // make_waiter() left ready runs at HOST_LOW_PRIORITY and was queued first.
+  if (row->priority < HOST_LOW_PRIORITY) {
     TEST_ASSERT_EQUAL(E_OK, tk_sig_sem(semid, row->request));
     host_assert_unchanged(&before, label);
   }
@@ -431,7 +410,7 @@ static void check_wait_with_limit(const order_row_t *row, TMO tmout,
   // leaves the units it found.
   TCB *tcb = &tkmc_tcbs[late - 1];
   BOOL goes_first =
-      (row->sematr & TA_TPRI) != 0 && row->priority < HIGH_PRIORITY;
+      (row->sematr & TA_TPRI) != 0 && row->priority < HOST_HIGH_PRIORITY;
   TEST_ASSERT_EQUAL_MESSAGE(row->left, semcb->semcnt, label);
   TEST_ASSERT_EQUAL_UINT_MESSAGE(2, count_in_queue(&semcb->wait_queue), label);
   TEST_ASSERT_EQUAL_PTR_MESSAGE(goes_first ? tcb : &tkmc_tcbs[head - 1],
@@ -449,7 +428,8 @@ static void check_wait_with_limit(const order_row_t *row, TMO tmout,
   } else {
     TEST_ASSERT_EQUAL_UINT_MESSAGE(tkmc_ms_to_ticks(tmout), tcb->delay_ticks,
                                    label);
-    TEST_ASSERT_TRUE_MESSAGE(in_queue(&tkmc_timer_queue, &tcb->head), label);
+    TEST_ASSERT_TRUE_MESSAGE(host_in_queue(&tkmc_timer_queue, &tcb->head),
+                             label);
   }
   host_check_kernel_queues();
 }
@@ -457,14 +437,15 @@ static void check_wait_with_limit(const order_row_t *row, TMO tmout,
 // A poll the order refuses is E_TMOUT and changes nothing; a request with a
 // time limit, or for ever, that the order refuses waits in the queue. A request
 // the order allows takes its units either way.
-void test_a_new_request_takes_units_only_in_the_order_of_the_semaphore(void) {
-  for (UINT i = 0; i < sizeof(order_rows) / sizeof(order_rows[0]); ++i) {
+static void
+test_tk_wai_sem_new_request_takes_units_only_in_semaphore_order(void) {
+  for (UINT i = 0; i < HOST_COUNT(order_rows); ++i) {
     const order_row_t *row = &order_rows[i];
     char label[112];
     snprintf(label, sizeof(label),
              "%s, priority %d against %d, %d left, asks for %d",
              attribute_name(row->sematr), (int)row->priority,
-             (int)HIGH_PRIORITY, (int)row->left, (int)row->request);
+             (int)HOST_HIGH_PRIORITY, (int)row->left, (int)row->request);
 
     // The label names the run, as Unity reports nothing else about a failure.
     char run[128];
@@ -483,28 +464,28 @@ void test_a_new_request_takes_units_only_in_the_order_of_the_semaphore(void) {
 // Under TA_TPRI the request is weighed against the head of the queue, not
 // against any waiter: one that outranks a waiter further back but not the head
 // would be queued behind the head, so it takes nothing. The queue holds the
-// head (at HIGH_PRIORITY - 1, for two units) and a later waiter (at
-// LOW_PRIORITY, for one), and one unit is left.
+// head (at HOST_HIGH_PRIORITY - 1, for two units) and a later waiter (at
+// HOST_LOW_PRIORITY, for one), and one unit is left.
 typedef struct {
   PRI priority; // of the new request, which asks for one unit
   order_t expected;
 } later_row_t;
 
 static const later_row_t later_rows[] = {
-    {HIGH_PRIORITY - 2, TAKES},   // outranks both waiters
-    {HIGH_PRIORITY - 1, REFUSED}, // as the head
-    {HIGH_PRIORITY, REFUSED},     // outranks the later waiter only
-    {LOW_PRIORITY, REFUSED},      // as the later waiter
-    {LOW_PRIORITY + 1, REFUSED},
+    {HOST_HIGH_PRIORITY - 2, TAKES},   // outranks both waiters
+    {HOST_HIGH_PRIORITY - 1, REFUSED}, // as the head
+    {HOST_HIGH_PRIORITY, REFUSED},     // outranks the later waiter only
+    {HOST_LOW_PRIORITY, REFUSED},      // as the later waiter
+    {HOST_LOW_PRIORITY + 1, REFUSED},
 };
 
 static ID two_waiters_and_a_request_at(PRI priority) {
   ID semid = tk_cre_sem(&(T_CSEM){
       .exinf = 0, .sematr = TA_TPRI | TA_FIRST, .isemcnt = 0, .maxsem = 2});
   TEST_ASSERT_GREATER_THAN(0, semid);
-  ID head = host_make_task(HIGH_PRIORITY - 1);
-  ID later = host_make_task(LOW_PRIORITY);
-  ID other = host_make_task(LOW_PRIORITY + 1);
+  ID head = host_make_task(HOST_HIGH_PRIORITY - 1);
+  ID later = host_make_task(HOST_LOW_PRIORITY);
+  ID other = host_make_task(HOST_LOW_PRIORITY + 1);
   host_set_current(head);
   HOST_EXPECT_WAIT(tk_wai_sem(semid, 2, TMO_FEVR));
   host_set_current(later);
@@ -517,13 +498,14 @@ static ID two_waiters_and_a_request_at(PRI priority) {
   return semid;
 }
 
-void test_a_request_is_weighed_against_the_head_not_a_later_waiter(void) {
-  for (UINT i = 0; i < sizeof(later_rows) / sizeof(later_rows[0]); ++i) {
+static void
+test_tk_wai_sem_weighs_request_against_queue_head_not_later_waiter(void) {
+  for (UINT i = 0; i < HOST_COUNT(later_rows); ++i) {
     const later_row_t *row = &later_rows[i];
     char label[64];
     snprintf(label, sizeof(label),
              "request at priority %d, waiters at %d and %d", (int)row->priority,
-             (int)HIGH_PRIORITY - 1, (int)LOW_PRIORITY);
+             (int)HOST_HIGH_PRIORITY - 1, (int)HOST_LOW_PRIORITY);
 
     host_reset();
     ID semid = two_waiters_and_a_request_at(row->priority);
@@ -552,7 +534,7 @@ void test_a_request_is_weighed_against_the_head_not_a_later_waiter(void) {
       TEST_ASSERT_EQUAL_UINT_MESSAGE(3, count_in_queue(&semcb->wait_queue),
                                      label);
       TEST_ASSERT_TRUE_MESSAGE(
-          in_queue(&semcb->wait_queue, &current->winfo.wait_queue), label);
+          host_in_queue(&semcb->wait_queue, &current->winfo.wait_queue), label);
     } else {
       TEST_ASSERT_EQUAL_MESSAGE(E_OK, tk_wai_sem(semid, 1, WAIT_MS), label);
       TEST_ASSERT_EQUAL_MESSAGE(0, semcb->semcnt, label);
@@ -566,12 +548,12 @@ void test_a_request_is_weighed_against_the_head_not_a_later_waiter(void) {
 // With no task waiting, every attribute lets a request take its units at once,
 // and the count goes down by the request, once: 3 - 2 is 1, where taking one
 // unit or taking two twice would leave 2 or less than 0.
-void test_a_request_that_finds_no_waiter_takes_its_units_at_once(void) {
+static void test_tk_wai_sem_takes_units_at_once_when_no_waiter(void) {
   static const ATR attributes[] = {TA_TFIFO | TA_FIRST, TA_TPRI | TA_FIRST,
                                    TA_TFIFO | TA_CNT, TA_TPRI | TA_CNT};
   static const TMO limits[] = {TMO_POL, WAIT_MS, TMO_FEVR};
-  for (UINT i = 0; i < sizeof(attributes) / sizeof(attributes[0]); ++i) {
-    for (UINT j = 0; j < sizeof(limits) / sizeof(limits[0]); ++j) {
+  for (UINT i = 0; i < HOST_COUNT(attributes); ++i) {
+    for (UINT j = 0; j < HOST_COUNT(limits); ++j) {
       char label[64];
       snprintf(label, sizeof(label), "%s, limit %d",
                attribute_name(attributes[i]), (int)limits[j]);
@@ -579,7 +561,7 @@ void test_a_request_that_finds_no_waiter_takes_its_units_at_once(void) {
       ID semid = tk_cre_sem(&(T_CSEM){
           .exinf = 0, .sematr = attributes[i], .isemcnt = 3, .maxsem = 3});
       TEST_ASSERT_GREATER_THAN(0, semid);
-      host_set_current(host_make_task(HIGH_PRIORITY));
+      host_set_current(host_make_task(HOST_HIGH_PRIORITY));
       host_snapshot_t before;
       host_take_snapshot(&before);
 
@@ -596,11 +578,11 @@ void test_a_request_that_finds_no_waiter_takes_its_units_at_once(void) {
 // A request for more units than the semaphore can ever hold is a parameter
 // error, whatever the time limit: it could only wait for ever. The kernel used
 // to queue it.
-void test_a_request_above_the_maximum_is_refused(void) {
+static void test_tk_wai_sem_refuses_request_above_maximum(void) {
   ID semid = create_semaphore(1, 1);
-  host_set_current(host_make_task(HIGH_PRIORITY));
+  host_set_current(host_make_task(HOST_HIGH_PRIORITY));
   static const TMO limits[] = {TMO_POL, WAIT_MS, TMO_FEVR};
-  for (UINT i = 0; i < sizeof(limits) / sizeof(limits[0]); ++i) {
+  for (UINT i = 0; i < HOST_COUNT(limits); ++i) {
     host_snapshot_t before;
     host_take_snapshot(&before);
     TEST_ASSERT_EQUAL(E_PAR, tk_wai_sem(semid, 2, limits[i]));
@@ -616,9 +598,9 @@ void test_a_request_above_the_maximum_is_refused(void) {
 // the one for 3 waiting, and both of the others are served. A signal that
 // stopped after the first request it served would leave the last one waiting
 // for units that are there.
-void test_a_cnt_signal_serves_every_request_the_units_cover(void) {
+static void test_tk_sig_sem_with_ta_cnt_serves_every_request_units_cover(void) {
   static const ATR attributes[] = {TA_TFIFO | TA_CNT, TA_TPRI | TA_CNT};
-  for (UINT i = 0; i < sizeof(attributes) / sizeof(attributes[0]); ++i) {
+  for (UINT i = 0; i < HOST_COUNT(attributes); ++i) {
     const char *label = attribute_name(attributes[i]);
     host_reset();
     ID semid = tk_cre_sem(&(T_CSEM){
@@ -626,10 +608,10 @@ void test_a_cnt_signal_serves_every_request_the_units_cover(void) {
     TEST_ASSERT_GREATER_THAN(0, semid);
     ID other;
     ID first = make_waiter(semid, 1, &other);
-    ID middle = host_make_task(HIGH_PRIORITY);
+    ID middle = host_make_task(HOST_HIGH_PRIORITY);
     host_set_current(middle);
     HOST_EXPECT_WAIT(tk_wai_sem(semid, 3, TMO_FEVR));
-    ID last = host_make_task(HIGH_PRIORITY);
+    ID last = host_make_task(HOST_HIGH_PRIORITY);
     host_set_current(last);
     HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, TMO_FEVR));
     host_set_current(other);
@@ -649,7 +631,8 @@ void test_a_cnt_signal_serves_every_request_the_units_cover(void) {
 // go: under TA_FIRST it stops at the first request it cannot cover, under
 // TA_CNT it skips that request and goes on. The head waits for two units and
 // the task behind it for one.
-void test_a_signal_serves_the_waiters_in_queue_order_as_far_as_it_goes(void) {
+static void
+test_tk_sig_sem_serves_waiters_in_queue_order_as_far_as_units_go(void) {
   static const struct {
     ATR sematr;
     INT cnt;
@@ -661,7 +644,7 @@ void test_a_signal_serves_the_waiters_in_queue_order_as_far_as_it_goes(void) {
       {TA_TFIFO | TA_CNT, 1, TTS_WAI, TTS_RDY},
       {TA_TFIFO | TA_CNT, 2, TTS_RDY, TTS_WAI},
   };
-  for (UINT i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i) {
+  for (UINT i = 0; i < HOST_COUNT(rows); ++i) {
     char label[64];
     snprintf(label, sizeof(label), "%s, signal %d",
              attribute_name(rows[i].sematr), (int)rows[i].cnt);
@@ -671,7 +654,7 @@ void test_a_signal_serves_the_waiters_in_queue_order_as_far_as_it_goes(void) {
     TEST_ASSERT_GREATER_THAN(0, semid);
     ID other;
     ID head = make_waiter(semid, 2, &other);
-    ID second = host_make_task(HIGH_PRIORITY);
+    ID second = host_make_task(HOST_HIGH_PRIORITY);
     host_set_current(second);
     HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, TMO_FEVR));
     host_set_current(other);
@@ -687,4 +670,318 @@ void test_a_signal_serves_the_waiters_in_queue_order_as_far_as_it_goes(void) {
                               tkmc_semcbs[semid - 1].semcnt, label);
     host_check_kernel_queues();
   }
+}
+
+// On a TA_FIRST semaphore the head of the queue holds back the waiters behind
+// it. When the head leaves without its units (its time limit runs out, or
+// tk_rel_wai()), the units it could not use go to the waiters behind it, as far
+// as they go, at that moment: a signal that came while the head waited is not
+// lost until the next one. The kernel used to leave the next waiter waiting
+// with the units lying there, and refused every new request meanwhile.
+//
+// A semaphore of two units: head waits for two, next waits for one, and one
+// unit is signalled, which the head cannot use. The head has the lowest
+// priority of the three tasks, so its own departure asks for no task switch:
+// a switch request afterwards can only come from serving the next waiter.
+static ID head_blocks_the_next_waiter(ID *head, ID *next_waiter, TMO next_ms) {
+  ID semid = tk_cre_sem(&(T_CSEM){
+      .exinf = 0, .sematr = TA_TFIFO | TA_FIRST, .isemcnt = 0, .maxsem = 2});
+  TEST_ASSERT_GREATER_THAN(0, semid);
+  *head = host_make_task(HOST_LOW_PRIORITY + 1);
+  *next_waiter = host_make_task(HOST_HIGH_PRIORITY);
+  ID other = host_make_task(HOST_LOW_PRIORITY);
+  host_set_current(*head);
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, 2, 100)); // 11 ticks
+  host_set_current(*next_waiter);
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, next_ms));
+  host_set_current(other);
+  TEST_ASSERT_EQUAL(E_OK, tk_sig_sem(semid, 1));
+  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(*head)->tskstat);
+  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(*next_waiter)->tskstat);
+  TEST_ASSERT_EQUAL(1, tkmc_semcbs[semid - 1].semcnt);
+  return semid;
+}
+
+// requests_before is the number of switch requests before the head left.
+static void check_next_waiter_was_served(ID semid, ID next_waiter,
+                                         UINT requests_before) {
+  TCB *tcb = host_tcb(next_waiter);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, tcb->tskstat);
+  TEST_ASSERT_EQUAL(E_OK, tcb->wupcause);
+  TEST_ASSERT_EQUAL(0, tkmc_semcbs[semid - 1].semcnt);
+  TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_semcbs[semid - 1].wait_queue));
+  TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_timer_queue));
+  TEST_ASSERT_EQUAL_UINT(requests_before + 1, host_write_count(HOST_MSIP));
+  TEST_ASSERT_EQUAL_PTR(tcb, next);
+  host_check_kernel_state();
+}
+
+extern void tkmc_timer_handler(void);
+
+// One delayed interrupt reaches both deadlines. B's earlier deadline must
+// release it before A leaves; otherwise A hands the unit to an expired B.
+static void test_semaphore_late_interrupt_expires_successor_before_head(void) {
+  ID head, next_waiter;
+  ID semid = head_blocks_the_next_waiter(&head, &next_waiter, 20);
+  UINT requests = host_write_count(HOST_MSIP);
+
+  host_mtime = 11 * HOST_TICK;
+  tkmc_timer_handler();
+
+  TEST_ASSERT_EQUAL(E_TMOUT, host_tcb(head)->wupcause);
+  TEST_ASSERT_EQUAL(E_TMOUT, host_tcb(next_waiter)->wupcause);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(head)->tskstat);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(next_waiter)->tskstat);
+  TEST_ASSERT_EQUAL(1, tkmc_semcbs[semid - 1].semcnt);
+  TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_semcbs[semid - 1].wait_queue));
+  TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_timer_queue));
+  TEST_ASSERT_EQUAL_UINT(requests + 1, host_write_count(HOST_MSIP));
+  TEST_ASSERT_EQUAL_PTR(host_tcb(next_waiter), next);
+  host_check_kernel_state();
+}
+
+// Reversing the deadlines must still hand the unit on when A expires, even
+// though B's later deadline has also passed by the time the interrupt runs.
+static void
+test_semaphore_late_interrupt_serves_successor_before_its_later_deadline(void) {
+  ID head, next_waiter;
+  ID semid = head_blocks_the_next_waiter(&head, &next_waiter, 200);
+  UINT requests = host_write_count(HOST_MSIP);
+
+  host_mtime = 21 * HOST_TICK;
+  tkmc_timer_handler();
+
+  TEST_ASSERT_EQUAL(E_TMOUT, host_tcb(head)->wupcause);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(head)->tskstat);
+  check_next_waiter_was_served(semid, next_waiter, requests);
+}
+
+// The head a leaves by a time-out or tk_rel_wai(). Usually a outranks b and
+// the caller, so the departure itself asks for a switch to a. In the last row
+// a has the lowest priority of the three: its departure asks for no switch,
+// and the one switch request can only come from serving b. Only a TA_TFIFO
+// queue keeps a at the head then.
+typedef struct {
+  ATR attr;
+  PRI a_prio;
+} departure_row_t;
+
+enum { HEAD_HIGHEST = 3, B_PRIORITY = 4, CALLER_PRIORITY = 5, HEAD_LOWEST = 6 };
+
+static const departure_row_t leave_rows[] = {
+    {TA_TFIFO | TA_FIRST, HEAD_HIGHEST}, {TA_TPRI | TA_FIRST, HEAD_HIGHEST},
+    {TA_TFIFO | TA_CNT, HEAD_HIGHEST},   {TA_TPRI | TA_CNT, HEAD_HIGHEST},
+    {TA_TFIFO | TA_FIRST, HEAD_LOWEST},
+};
+
+static void check_departure_waiter(ID id, ID semid, BOOL waiting, BOOL timed,
+                                   ER cause) {
+  TCB *tcb = host_tcb(id);
+  TEST_ASSERT_EQUAL_UINT(waiting ? TTS_WAI : TTS_RDY, tcb->tskstat);
+  TEST_ASSERT_EQUAL(waiting && timed,
+                    host_in_queue(&tkmc_timer_queue, &tcb->head));
+  if (waiting) {
+    TEST_ASSERT_EQUAL_UINT(TTW_SEM, tcb->tskwait);
+    TEST_ASSERT_TRUE(host_in_queue(&tkmc_semcbs[semid - 1].wait_queue,
+                                   &tcb->winfo.wait_queue));
+    TEST_ASSERT_EQUAL(timed, tcb->delay_ticks != 0);
+  } else {
+    TEST_ASSERT_TRUE(tkmc_list_empty(&tcb->winfo.wait_queue));
+    TEST_ASSERT_EQUAL(cause, tcb->wupcause);
+  }
+  // A ready task on the ready queue of its priority, waiting for nothing and
+  // with no time limit: host_check_kernel_queues() checks that.
+  host_check_kernel_queues();
+}
+
+static ID departure_fixture(ATR attr, PRI a_prio, TMO b_timeout, ID *a, ID *b,
+                            ID *caller) {
+  host_reset();
+  ID semid = tk_cre_sem(&(T_CSEM){.sematr = attr, .maxsem = 2});
+  TEST_ASSERT_GREATER_THAN(0, semid);
+  *a = host_make_task(a_prio);
+  *b = host_make_task(B_PRIORITY);
+  *caller = host_make_task(CALLER_PRIORITY);
+  host_set_current(*a);
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, 2, 100));
+  host_set_current(*b);
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, b_timeout));
+  host_set_current(*caller);
+  TEST_ASSERT_EQUAL_PTR(&host_tcb(*a)->winfo.wait_queue,
+                        tkmc_semcbs[semid - 1].wait_queue.next);
+  TEST_ASSERT_EQUAL(0, tkmc_semcbs[semid - 1].semcnt);
+  check_departure_waiter(*a, semid, TRUE, TRUE, 0);
+  check_departure_waiter(*b, semid, TRUE, b_timeout > 0, 0);
+  return semid;
+}
+
+static void signal_before_departure(ID semid, ATR attr, ID a, ID b,
+                                    BOOL b_timed, ID caller) {
+  BOOL cnt = (attr & TA_CNT) != 0;
+  UINT requests = host_write_count(HOST_MSIP);
+  TEST_ASSERT_EQUAL(E_OK, tk_sig_sem(semid, 1));
+  TEST_ASSERT_EQUAL(cnt ? 0 : 1, tkmc_semcbs[semid - 1].semcnt);
+  check_departure_waiter(a, semid, TRUE, TRUE, 0);
+  check_departure_waiter(b, semid, !cnt, b_timed, E_OK);
+  TEST_ASSERT_EQUAL_UINT(requests + (cnt ? 1 : 0), host_write_count(HOST_MSIP));
+  TEST_ASSERT_EQUAL_PTR(host_tcb(caller), current);
+  TEST_ASSERT_EQUAL_PTR(host_tcb(cnt ? b : caller), next);
+  TEST_ASSERT_TRUE(host_interrupts_enabled());
+}
+
+static void
+test_semaphore_head_timeout_hands_units_to_next_waiter_per_attribute(void) {
+  for (UINT row = 0; row < HOST_COUNT(leave_rows); ++row) {
+    for (UINT irq = 0; irq < 2; ++irq) {
+      ATR attr = leave_rows[row].attr;
+      ID a, b, caller;
+      ID semid =
+          departure_fixture(attr, leave_rows[row].a_prio, 200, &a, &b, &caller);
+      ID expected_next = leave_rows[row].a_prio < B_PRIORITY ? a : b;
+      signal_before_departure(semid, attr, a, b, TRUE, caller);
+      UINT requests = host_write_count(HOST_MSIP);
+      UINT saved = 0;
+      if (!irq) {
+        DI(saved);
+      }
+      host_tick(10);
+      TEST_ASSERT_EQUAL_UINT(1, host_tcb(a)->delay_ticks);
+      check_departure_waiter(a, semid, TRUE, TRUE, 0);
+      check_departure_waiter(b, semid, (attr & TA_CNT) == 0, TRUE, E_OK);
+      TEST_ASSERT_EQUAL_UINT(requests, host_write_count(HOST_MSIP));
+      host_tick(1);
+      TEST_ASSERT_EQUAL(irq, host_interrupts_enabled());
+      check_departure_waiter(a, semid, FALSE, FALSE, E_TMOUT);
+      check_departure_waiter(b, semid, FALSE, FALSE, E_OK);
+      TEST_ASSERT_EQUAL(0, tkmc_semcbs[semid - 1].semcnt);
+      TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_semcbs[semid - 1].wait_queue));
+      TEST_ASSERT_EQUAL_UINT(requests + 1, host_write_count(HOST_MSIP));
+      TEST_ASSERT_EQUAL_PTR(host_tcb(expected_next), next);
+      TEST_ASSERT_EQUAL_PTR(host_tcb(caller), current);
+      if (!irq) {
+        EI(saved);
+      }
+      host_check_kernel_state();
+    }
+  }
+}
+
+static void
+test_tk_rel_wai_on_semaphore_head_hands_units_to_next_waiter_per_attribute(
+    void) {
+  for (UINT row = 0; row < HOST_COUNT(leave_rows); ++row) {
+    for (UINT irq = 0; irq < 2; ++irq) {
+      ATR attr = leave_rows[row].attr;
+      ID a, b, caller;
+      ID semid = departure_fixture(attr, leave_rows[row].a_prio, TMO_FEVR, &a,
+                                   &b, &caller);
+      ID expected_next = leave_rows[row].a_prio < B_PRIORITY ? a : b;
+      signal_before_departure(semid, attr, a, b, FALSE, caller);
+      UINT requests = host_write_count(HOST_MSIP);
+      UINT saved = 0;
+      if (!irq) {
+        DI(saved);
+      }
+      TEST_ASSERT_EQUAL(E_OK, tk_rel_wai(a));
+      TEST_ASSERT_EQUAL(irq, host_interrupts_enabled());
+      check_departure_waiter(a, semid, FALSE, FALSE, E_RLWAI);
+      check_departure_waiter(b, semid, FALSE, FALSE, E_OK);
+      TEST_ASSERT_EQUAL(0, tkmc_semcbs[semid - 1].semcnt);
+      TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_semcbs[semid - 1].wait_queue));
+      TEST_ASSERT_EQUAL_UINT(requests + 1, host_write_count(HOST_MSIP));
+      TEST_ASSERT_EQUAL_PTR(host_tcb(expected_next), next);
+      TEST_ASSERT_EQUAL_PTR(host_tcb(caller), current);
+      if (!irq) {
+        EI(saved);
+      }
+      host_check_kernel_state();
+    }
+  }
+}
+
+// Deleting the semaphore releases both with E_DLT: the head's departure hands
+// nothing on, as the semaphore is going away with every waiter. The last row
+// has a head of the lowest priority and a next waiter without a time limit.
+static void
+test_tk_del_sem_releases_head_and_next_waiter_with_e_dlt_handing_nothing_on(
+    void) {
+  static const struct {
+    ATR attr;
+    PRI a_prio;
+    TMO b_timeout;
+  } rows[] = {
+      {TA_TFIFO | TA_FIRST, HEAD_HIGHEST, 200},
+      {TA_TPRI | TA_FIRST, HEAD_HIGHEST, 200},
+      {TA_TFIFO | TA_CNT, HEAD_HIGHEST, 200},
+      {TA_TPRI | TA_CNT, HEAD_HIGHEST, 200},
+      {TA_TFIFO | TA_FIRST, HEAD_LOWEST, TMO_FEVR},
+  };
+  for (UINT row = 0; row < HOST_COUNT(rows); ++row) {
+    for (UINT signalled = 0; signalled < 2; ++signalled) {
+      for (UINT irq = 0; irq < 2; ++irq) {
+        ATR attr = rows[row].attr;
+        ID a, b, caller;
+        ID semid = departure_fixture(attr, rows[row].a_prio,
+                                     rows[row].b_timeout, &a, &b, &caller);
+        ID expected_next = rows[row].a_prio < B_PRIORITY ? a : b;
+        if (signalled) {
+          signal_before_departure(semid, attr, a, b, rows[row].b_timeout > 0,
+                                  caller);
+        }
+        BOOL b_served = signalled && (attr & TA_CNT);
+        UINT requests = host_write_count(HOST_MSIP);
+        UINT saved = 0;
+        if (!irq) {
+          DI(saved);
+        }
+        TEST_ASSERT_EQUAL(E_OK, tk_del_sem(semid));
+        TEST_ASSERT_EQUAL(irq, host_interrupts_enabled());
+        check_departure_waiter(a, semid, FALSE, FALSE, E_DLT);
+        check_departure_waiter(b, semid, FALSE, FALSE, b_served ? E_OK : E_DLT);
+        TEST_ASSERT_EQUAL_UINT(requests + 1, host_write_count(HOST_MSIP));
+        TEST_ASSERT_EQUAL_PTR(host_tcb(expected_next), next);
+        TEST_ASSERT_EQUAL_PTR(host_tcb(caller), current);
+        if (!irq) {
+          EI(saved);
+        }
+        host_snapshot_t snapshot;
+        host_take_snapshot(&snapshot);
+        DI(saved);
+        host_tick(1);
+        EI(saved);
+        host_assert_unchanged(&snapshot, "deleted waiters must have no timer");
+        TEST_ASSERT_EQUAL_UINT(CFN_MAX_SEMID,
+                               host_count_creatable_semaphores());
+        host_check_kernel_state();
+      }
+    }
+  }
+}
+
+void run_semaphore_tests(void) {
+  UnitySetTestFile(__FILE__);
+  RUN_TEST(test_tk_cre_sem_refuses_count_outside_range);
+  RUN_TEST(test_tk_cre_sem_reports_attribute_error_before_count_error);
+  RUN_TEST(test_tk_cre_sem_reports_count_error_before_exhausted_slots);
+  RUN_TEST(test_tk_cre_sem_accepts_counts_at_both_ends_of_range);
+  RUN_TEST(test_tk_sig_sem_refuses_signal_past_maximum_and_keeps_count);
+  RUN_TEST(test_tk_sig_sem_past_maximum_wakes_no_waiter);
+  RUN_TEST(test_tk_sig_sem_counts_maximum_before_serving_waiters);
+  RUN_TEST(test_tk_sig_sem_refused_with_interrupts_off_leaves_them_off);
+  RUN_TEST(test_tk_wai_sem_new_request_takes_units_only_in_semaphore_order);
+  RUN_TEST(test_tk_wai_sem_weighs_request_against_queue_head_not_later_waiter);
+  RUN_TEST(test_tk_wai_sem_takes_units_at_once_when_no_waiter);
+  RUN_TEST(test_tk_wai_sem_refuses_request_above_maximum);
+  RUN_TEST(test_tk_sig_sem_serves_waiters_in_queue_order_as_far_as_units_go);
+  RUN_TEST(test_tk_sig_sem_with_ta_cnt_serves_every_request_units_cover);
+  RUN_TEST(test_tk_cre_sem_refuses_null_packet_and_keeps_free_slots);
+  RUN_TEST(test_semaphore_late_interrupt_expires_successor_before_head);
+  RUN_TEST(
+      test_semaphore_late_interrupt_serves_successor_before_its_later_deadline);
+  RUN_TEST(
+      test_semaphore_head_timeout_hands_units_to_next_waiter_per_attribute);
+  RUN_TEST(
+      test_tk_rel_wai_on_semaphore_head_hands_units_to_next_waiter_per_attribute);
+  RUN_TEST(
+      test_tk_del_sem_releases_head_and_next_waiter_with_e_dlt_handing_nothing_on);
 }

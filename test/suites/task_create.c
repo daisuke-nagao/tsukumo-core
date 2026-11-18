@@ -56,40 +56,40 @@ static void check_refused(const T_CTSK *pk) {
   TEST_ASSERT_EQUAL_PTR(next_free, tkmc_free_tcb.next);
 }
 
-static void priority_zero(void) {
+static void tk_cre_tsk_refuses_priority_zero(void) {
   T_CTSK pk = packet(0, s_stack, sizeof(s_stack));
   check_refused(&pk);
 }
 
-static void priority_above_the_lowest(void) {
+static void tk_cre_tsk_refuses_priority_above_lowest(void) {
   T_CTSK pk = packet(CFN_MAX_PRI + 1, s_stack, sizeof(s_stack));
   check_refused(&pk);
 }
 
-static void null_entry(void) {
+static void tk_cre_tsk_refuses_null_entry(void) {
   T_CTSK pk = packet(2, s_stack, sizeof(s_stack));
   pk.task = NULL;
   check_refused(&pk);
 }
 
-static void null_buffer(void) {
+static void tk_cre_tsk_refuses_null_buffer(void) {
   // 256 bytes from address 0 end on a boundary and hold the frame.
   T_CTSK pk = packet(2, NULL, 256);
   check_refused(&pk);
 }
 
-static void size_16(void) {
+static void tk_cre_tsk_refuses_stack_size_16(void) {
   T_CTSK pk = packet(2, s_stack, 16);
   check_refused(&pk);
 }
 
-static void size_112(void) {
+static void tk_cre_tsk_refuses_stack_size_112(void) {
   T_CTSK pk = packet(2, s_stack, 112);
   check_refused(&pk);
 }
 
 // The frame fits exactly, and nothing is left for the task.
-static void size_of_the_frame(void) {
+static void tk_cre_tsk_refuses_stack_size_equal_to_frame(void) {
   T_CTSK pk = packet(2, s_stack, FRAME_BYTES);
   check_refused(&pk);
 }
@@ -99,12 +99,12 @@ static void size_of_the_frame(void) {
 // From a low address the end of a negative size does not wrap and is aligned,
 // so only the size rule can refuse it. (From a RAM address the overflow check
 // refuses it too.) The address is not used as memory.
-static void negative_size_at_a_low_address(void) {
+static void tk_cre_tsk_refuses_negative_size_at_low_address(void) {
   T_CTSK pk = packet(2, (void *)0x1000, -2147483647 - 1);
   check_refused(&pk);
 }
 
-static void end_not_on_a_16_byte_boundary(void) {
+static void tk_cre_tsk_refuses_end_not_on_16_byte_boundary(void) {
   T_CTSK pk = packet(2, s_stack, 520);
   check_refused(&pk);
 }
@@ -112,12 +112,12 @@ static void end_not_on_a_16_byte_boundary(void) {
 // A stack from 256 bytes below the top of the 32 bit address space ends at
 // 2^32, which is 0 after the wrap; it is aligned and large enough. The address
 // is not used as memory.
-static void end_wrapping_around_the_address_space(void) {
+static void tk_cre_tsk_refuses_end_wrapping_around_address_space(void) {
   T_CTSK pk = packet(2, (void *)(addr_t)(ADDR_MAX - 255), 256);
   check_refused(&pk);
 }
 
-static void smallest_stack_takes_the_next_free_slot(void) {
+static void tk_cre_tsk_smallest_stack_takes_next_free_slot(void) {
   ID expected = tkmc_list_first_entry(&tkmc_free_tcb, TCB, head)->tskid;
 
   // The refusals above, and one more here, left the free list as it was.
@@ -129,19 +129,17 @@ static void smallest_stack_takes_the_next_free_slot(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"priority_zero", priority_zero},
-    {"priority_above_the_lowest", priority_above_the_lowest},
-    {"null_entry", null_entry},
-    {"null_buffer", null_buffer},
-    {"size_16", size_16},
-    {"size_112", size_112},
-    {"size_of_the_frame", size_of_the_frame},
-    {"negative_size_at_a_low_address", negative_size_at_a_low_address},
-    {"end_not_on_a_16_byte_boundary", end_not_on_a_16_byte_boundary},
-    {"end_wrapping_around_the_address_space",
-     end_wrapping_around_the_address_space},
-    {"smallest_stack_takes_the_next_free_slot",
-     smallest_stack_takes_the_next_free_slot},
+    CASE(tk_cre_tsk_refuses_priority_zero),
+    CASE(tk_cre_tsk_refuses_priority_above_lowest),
+    CASE(tk_cre_tsk_refuses_null_entry),
+    CASE(tk_cre_tsk_refuses_null_buffer),
+    CASE(tk_cre_tsk_refuses_stack_size_16),
+    CASE(tk_cre_tsk_refuses_stack_size_112),
+    CASE(tk_cre_tsk_refuses_stack_size_equal_to_frame),
+    CASE(tk_cre_tsk_refuses_negative_size_at_low_address),
+    CASE(tk_cre_tsk_refuses_end_not_on_16_byte_boundary),
+    CASE(tk_cre_tsk_refuses_end_wrapping_around_address_space),
+    CASE(tk_cre_tsk_smallest_stack_takes_next_free_slot),
 };
 
 TEST_SUITE_MAIN("task-create", s_cases, 5000)

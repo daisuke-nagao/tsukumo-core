@@ -5,8 +5,9 @@
  */
 
 // Tests of tkmc_memset(). The copy of kernel/memset.c in this ELF is built with
-// the shift check in trap mode, because the undefined shift in it leaves the
-// bytes right, and only the check can see it: the first bad shift executes
+// the shift check in trap mode. kernel/memset.c builds its fill word by a
+// multiplication; an undefined shift there would leave the bytes right, and
+// only the check could see it: the first bad shift executes
 // unimp (the trap instruction of RISC-V clang), the kernel stops at the trap,
 // and test/panic_hook.c prints the cause (mcause 2, illegal instruction) and
 // ends the run with a failure status. The same matrix runs on
@@ -17,10 +18,12 @@
 #include "../memset_matrix.h"
 #include "../runner.h"
 
-static void fills_exactly_the_requested_range(void) { memset_matrix_check(); }
+static void tkmc_memset_fills_exactly_requested_range(void) {
+  memset_matrix_check();
+}
 
 static const test_case_t s_cases[] = {
-    {"fills_exactly_the_requested_range", fills_exactly_the_requested_range},
+    CASE(tkmc_memset_fills_exactly_requested_range),
 };
 
 // The matrix runs about 250 million instructions. With -icount guest time is 32

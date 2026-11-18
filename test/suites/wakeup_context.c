@@ -6,8 +6,9 @@
 
 // tk_wup_tsk() called from a real timer interrupt: the ISR that interrupted a
 // task may queue a wake-up request for that task, while the task itself may not
-// (see test/suites/task_timer.c, task_cannot_wake_itself). The kernel tells
-// the two apart by the ISR state of the RV32 trap entries, not by MIE.
+// (see test/suites/task_timer.c, tk_wup_tsk_refuses_task_waking_itself). The
+// kernel tells the two apart by the ISR state of the RV32 trap entries, not by
+// MIE.
 //
 // The timer trap is the real one. Its C handler is wrapped at link time
 // (--wrap=tkmc_timer_handler), so the call under test runs on the trap path
@@ -83,28 +84,7 @@ static struct {
 } s_before;
 
 static __attribute__((__noreturn__)) void fail(const char *reason) {
-  putstring("WAKEUP CONTEXT :FAIL: ");
-  putstring(reason);
-  putstring("\n");
-  test_exit(1);
-}
-
-static void copy_bytes(void *to, const void *from, UINT size) {
-  unsigned char *dst = to;
-  const unsigned char *src = from;
-  for (UINT i = 0; i < size; ++i) {
-    dst[i] = src[i];
-  }
-}
-
-static BOOL equal_bytes(const void *a, const void *b, UINT size) {
-  const unsigned char *left = a, *right = b;
-  for (UINT i = 0; i < size; ++i) {
-    if (left[i] != right[i]) {
-      return FALSE;
-    }
-  }
-  return TRUE;
+  test_fail("WAKEUP CONTEXT :FAIL: ", reason);
 }
 
 static BOOL irq_enabled(void) {
@@ -114,9 +94,9 @@ static BOOL irq_enabled(void) {
 }
 
 static void capture(void) {
-  copy_bytes(s_before.tasks, tkmc_tcbs, sizeof(s_before.tasks));
-  copy_bytes(s_before.ready, tkmc_ready_queue, sizeof(s_before.ready));
-  copy_bytes(&s_before.timer, &tkmc_timer_queue, sizeof(s_before.timer));
+  test_copy_bytes(s_before.tasks, tkmc_tcbs, sizeof(s_before.tasks));
+  test_copy_bytes(s_before.ready, tkmc_ready_queue, sizeof(s_before.ready));
+  test_copy_bytes(&s_before.timer, &tkmc_timer_queue, sizeof(s_before.timer));
   s_before.running = current;
   s_before.scheduled = next;
 }
@@ -128,28 +108,21 @@ static BOOL unchanged_but_for_the_count_of(ID target) {
     const unsigned char *was = (const unsigned char *)&s_before.tasks[i];
     const unsigned char *now = (const unsigned char *)&tkmc_tcbs[i];
     if (i + 1 != (UINT)target) {
-      if (!equal_bytes(was, now, sizeof(TCB))) {
+      if (!test_equal_bytes(was, now, sizeof(TCB))) {
         return FALSE;
       }
-    } else if (!equal_bytes(was, now, SKIP) ||
-               !equal_bytes(was + SKIP + sizeof(UINT),
-                            now + SKIP + sizeof(UINT),
-                            sizeof(TCB) - SKIP - sizeof(UINT))) {
+    } else if (!test_equal_bytes(was, now, SKIP) ||
+               !test_equal_bytes(was + SKIP + sizeof(UINT),
+                                 now + SKIP + sizeof(UINT),
+                                 sizeof(TCB) - SKIP - sizeof(UINT))) {
       return FALSE;
     }
   }
-  return equal_bytes(s_before.ready, tkmc_ready_queue,
-                     sizeof(s_before.ready)) &&
-         equal_bytes(&s_before.timer, &tkmc_timer_queue,
-                     sizeof(s_before.timer)) &&
+  return test_equal_bytes(s_before.ready, tkmc_ready_queue,
+                          sizeof(s_before.ready)) &&
+         test_equal_bytes(&s_before.timer, &tkmc_timer_queue,
+                          sizeof(s_before.timer)) &&
          s_before.running == current && s_before.scheduled == next;
-}
-
-__attribute__((__noreturn__)) void tkmc_panic(UW cause, UW epc, UW value) {
-  (void)cause;
-  (void)epc;
-  (void)value;
-  fail("unexpected CPU exception");
 }
 
 void __wrap_tkmc_timer_handler(void) {
@@ -260,21 +233,21 @@ static void isr_wakes_the_interrupted_task(UINT seed, BOOL enable_mie) {
   TEST_ASSERT_EQUAL(E_TMOUT, tk_slp_tsk(TMO_POL));
 }
 
-static void isr_queues_a_wakeup_for_the_interrupted_task(void) {
+static void tk_wup_tsk_from_isr_queues_wakeup_for_interrupted_task(void) {
   isr_wakes_the_interrupted_task(0, FALSE);
 }
 
-static void isr_queues_the_last_wakeup_slot(void) {
+static void tk_wup_tsk_from_isr_queues_last_wakeup_slot(void) {
   isr_wakes_the_interrupted_task(WAKEUP_LIMIT - 1, FALSE);
 }
 
-static void isr_refuses_a_wakeup_past_the_limit(void) {
+static void tk_wup_tsk_from_isr_refuses_wakeup_past_limit(void) {
   isr_wakes_the_interrupted_task(WAKEUP_LIMIT, FALSE);
 }
 
 // MIE is on while the ISR calls, as a handler that enabled interrupts would
 // have it. The kernel still sees an ISR: it does not decide by MIE.
-static void isr_with_mie_on_is_still_an_isr(void) {
+static void tk_wup_tsk_from_isr_with_mie_on_is_still_isr(void) {
   isr_wakes_the_interrupted_task(0, TRUE);
 }
 
@@ -290,7 +263,7 @@ static void sleeping_child(void *arg) {
   test_checkpoint();
 }
 
-static void isr_wakes_a_sleeping_task(void) {
+static void tk_wup_tsk_from_isr_wakes_sleeping_task(void) {
   ID child = test_spawn(sleeping_child, CHILD_PRIORITY, NULL);
   arm(child, FALSE, -1);
   wait_for_the_trap();
@@ -312,13 +285,11 @@ static void isr_wakes_a_sleeping_task(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"isr_queues_a_wakeup_for_the_interrupted_task",
-     isr_queues_a_wakeup_for_the_interrupted_task},
-    {"isr_queues_the_last_wakeup_slot", isr_queues_the_last_wakeup_slot},
-    {"isr_refuses_a_wakeup_past_the_limit",
-     isr_refuses_a_wakeup_past_the_limit},
-    {"isr_with_mie_on_is_still_an_isr", isr_with_mie_on_is_still_an_isr},
-    {"isr_wakes_a_sleeping_task", isr_wakes_a_sleeping_task},
+    CASE(tk_wup_tsk_from_isr_queues_wakeup_for_interrupted_task),
+    CASE(tk_wup_tsk_from_isr_queues_last_wakeup_slot),
+    CASE(tk_wup_tsk_from_isr_refuses_wakeup_past_limit),
+    CASE(tk_wup_tsk_from_isr_with_mie_on_is_still_isr),
+    CASE(tk_wup_tsk_from_isr_wakes_sleeping_task),
 };
 
 // Five cases, one stack each, and one child in the last: far below the runner's

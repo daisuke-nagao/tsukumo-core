@@ -19,7 +19,7 @@ enum { ILLEGAL_INSTRUCTION = 2 };
 // All ones: no instruction has this encoding.
 #define ILLEGAL_WORD 0xffffffffu
 
-static void illegal_instruction(void) {
+static void panic_illegal_instruction_reports_cause_and_address(void) {
   panic_expect.mcause = ILLEGAL_INSTRUCTION;
   panic_expect.mtval = ILLEGAL_WORD;
   // The address of the illegal word is the expected mepc, stored just before.
@@ -32,7 +32,7 @@ static void illegal_instruction(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"illegal_instruction", illegal_instruction},
+    CASE(panic_illegal_instruction_reports_cause_and_address),
 };
 
 TEST_SUITE_MAIN("panic-illegal", s_cases, 2000)

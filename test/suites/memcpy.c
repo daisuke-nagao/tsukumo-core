@@ -82,7 +82,7 @@ static void check_copy(UINT length, UINT src_offset, UINT dst_offset) {
 
 // The byte and word paths, aligned or not, and every length up to past two
 // 32 byte blocks.
-static void copies_exactly_the_requested_range(void) {
+static void tkmc_memcpy_copies_exactly_requested_range(void) {
   for (UINT src_offset = 0; src_offset <= MAX_OFFSET; ++src_offset) {
     for (UINT dst_offset = 0; dst_offset <= MAX_OFFSET; ++dst_offset) {
       for (UINT length = 0; length <= MAX_LENGTH; ++length) {
@@ -179,7 +179,7 @@ static void read_record(record_t *observed, const record_t *target) {
   }
 }
 
-static void copy_reaches_objects_of_every_type(void) {
+static void tkmc_memcpy_reaches_objects_of_every_type(void) {
   COPY_ARRAY(UW, 8);
   COPY_ARRAY(float, 8);
   COPY_ARRAY(double, 4);
@@ -193,7 +193,7 @@ static void copy_reaches_objects_of_every_type(void) {
   check_same_bytes(&observed, &expected, sizeof observed);
 }
 
-static void fill_reaches_objects_of_every_type(void) {
+static void tkmc_memset_reaches_objects_of_every_type(void) {
   FILL_ARRAY(UW, 8);
   FILL_ARRAY(float, 8);
   FILL_ARRAY(double, 4);
@@ -207,9 +207,9 @@ static void fill_reaches_objects_of_every_type(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"copies_exactly_the_requested_range", copies_exactly_the_requested_range},
-    {"copy_reaches_objects_of_every_type", copy_reaches_objects_of_every_type},
-    {"fill_reaches_objects_of_every_type", fill_reaches_objects_of_every_type},
+    CASE(tkmc_memcpy_copies_exactly_requested_range),
+    CASE(tkmc_memcpy_reaches_objects_of_every_type),
+    CASE(tkmc_memset_reaches_objects_of_every_type),
 };
 
 TEST_SUITE_MAIN("memcpy", s_cases, 5000)

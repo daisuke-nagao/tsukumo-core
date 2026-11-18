@@ -30,7 +30,7 @@ review found no blocking issues. Formatting, REUSE and Markdown hooks passed.
 ## Host observations
 
 `test_check_int_reads_one_pending_word_without_claiming` in
-`test/host/test_intctl.c` checks the first source and source 31, including the
+`test/host/test_pending_int.c` checks the first source and source 31, including the
 unsigned high bit. With the current `CFN_MAX_INTNO=32`, source 33 is outside
 the supported range.
 

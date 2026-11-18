@@ -8,9 +8,9 @@
 #include <unity.h>
 
 #include "runner.h"
+#include "sem_request.h"
 
 enum {
-  UNSET = 1,
   HEAD_LIMIT_MS = 1000,
   OBSERVE_LIMIT_MS = 2000,
   HEAD_PRIORITY = 2,
@@ -19,31 +19,14 @@ enum {
 _Static_assert(HEAD_PRIORITY < NEXT_PRIORITY &&
                    NEXT_PRIORITY < TEST_CASE_PRIORITY,
                "both waiters must run before the case resumes");
-_Static_assert(UNSET > E_OK, "UNSET cannot be a wait result");
-
-typedef struct {
-  ID semid;
-  INT units;
-  TMO timeout;
-  volatile ER result;
-} request_t;
 
 static request_t head_request, next_request;
-
-static void request_units(void *arg) {
-  request_t *request = arg;
-  request->result =
-      tk_wai_sem(request->semid, request->units, request->timeout);
-  test_checkpoint();
-}
 
 static ID start_waiters(ATR attr, TMO timeout, ID *head) {
   ID semid = tk_cre_sem(&(T_CSEM){.sematr = attr, .maxsem = 2});
   TEST_ASSERT_GREATER_THAN(0, semid);
-  head_request = (request_t){semid, 2, timeout, UNSET};
-  next_request = (request_t){semid, 1, TMO_FEVR, UNSET};
-  *head = test_spawn(request_units, HEAD_PRIORITY, &head_request);
-  test_spawn(request_units, NEXT_PRIORITY, &next_request);
+  *head = start_request(&head_request, semid, 2, timeout, HEAD_PRIORITY);
+  start_request(&next_request, semid, 1, TMO_FEVR, NEXT_PRIORITY);
   return semid;
 }
 
@@ -58,7 +41,7 @@ static void check_departure(ATR attr, BOOL timeout) {
   ER released = E_OK;
   if (timeout) {
     UW started = test_mtime();
-    while (head_request.result == UNSET &&
+    while (head_request.result == REQUEST_UNSET &&
            (UW)(test_mtime() - started) <
                OBSERVE_LIMIT_MS * TEST_MTIME_PER_MS) {
       tk_dly_tsk(10);
@@ -73,11 +56,11 @@ static void check_departure(ATR attr, BOOL timeout) {
   // Clean up before asserting, so a broken handoff cannot strand a child.
   ER deleted = tk_del_sem(semid);
   test_join_expect(2);
-  TEST_ASSERT_EQUAL(UNSET, head_before);
-  TEST_ASSERT_EQUAL(UNSET, next_before);
+  TEST_ASSERT_EQUAL(REQUEST_UNSET, head_before);
+  TEST_ASSERT_EQUAL(REQUEST_UNSET, next_before);
   TEST_ASSERT_EQUAL(E_OK, signalled);
-  TEST_ASSERT_EQUAL(UNSET, head_after_signal);
-  TEST_ASSERT_EQUAL((attr & TA_CNT) ? E_OK : UNSET, next_after_signal);
+  TEST_ASSERT_EQUAL(REQUEST_UNSET, head_after_signal);
+  TEST_ASSERT_EQUAL((attr & TA_CNT) ? E_OK : REQUEST_UNSET, next_after_signal);
   TEST_ASSERT_EQUAL(E_OK, released);
   TEST_ASSERT_EQUAL(timeout ? E_TMOUT : E_RLWAI, head_after);
   TEST_ASSERT_EQUAL(E_OK, next_after);
@@ -103,55 +86,69 @@ static void check_delete(ATR attr) {
   }
   for (UINT signal = 0; signal < 2; ++signal) {
     BOOL served = signal && (attr & TA_CNT);
-    TEST_ASSERT_EQUAL(UNSET, head_before[signal]);
-    TEST_ASSERT_EQUAL(UNSET, next_before[signal]);
+    TEST_ASSERT_EQUAL(REQUEST_UNSET, head_before[signal]);
+    TEST_ASSERT_EQUAL(REQUEST_UNSET, next_before[signal]);
     TEST_ASSERT_EQUAL(E_OK, signalled[signal]);
-    TEST_ASSERT_EQUAL(UNSET, head_after_signal[signal]);
-    TEST_ASSERT_EQUAL(served ? E_OK : UNSET, next_after_signal[signal]);
+    TEST_ASSERT_EQUAL(REQUEST_UNSET, head_after_signal[signal]);
+    TEST_ASSERT_EQUAL(served ? E_OK : REQUEST_UNSET, next_after_signal[signal]);
     TEST_ASSERT_EQUAL(E_OK, deleted[signal]);
     TEST_ASSERT_EQUAL(E_DLT, head_after[signal]);
     TEST_ASSERT_EQUAL(served ? E_OK : E_DLT, next_after[signal]);
   }
 }
 
-static void fifo_first_timeout(void) {
+static void semaphore_fifo_first_timeout_hands_units_to_next_waiter(void) {
   check_departure(TA_TFIFO | TA_FIRST, TRUE);
 }
-static void tpri_first_timeout(void) {
+static void semaphore_tpri_first_timeout_hands_units_to_next_waiter(void) {
   check_departure(TA_TPRI | TA_FIRST, TRUE);
 }
-static void fifo_cnt_timeout(void) { check_departure(TA_TFIFO | TA_CNT, TRUE); }
-static void tpri_cnt_timeout(void) { check_departure(TA_TPRI | TA_CNT, TRUE); }
-static void fifo_first_release(void) {
+static void semaphore_fifo_cnt_timeout_hands_units_to_next_waiter(void) {
+  check_departure(TA_TFIFO | TA_CNT, TRUE);
+}
+static void semaphore_tpri_cnt_timeout_hands_units_to_next_waiter(void) {
+  check_departure(TA_TPRI | TA_CNT, TRUE);
+}
+static void semaphore_fifo_first_release_hands_units_to_next_waiter(void) {
   check_departure(TA_TFIFO | TA_FIRST, FALSE);
 }
-static void tpri_first_release(void) {
+static void semaphore_tpri_first_release_hands_units_to_next_waiter(void) {
   check_departure(TA_TPRI | TA_FIRST, FALSE);
 }
-static void fifo_cnt_release(void) {
+static void semaphore_fifo_cnt_release_hands_units_to_next_waiter(void) {
   check_departure(TA_TFIFO | TA_CNT, FALSE);
 }
-static void tpri_cnt_release(void) { check_departure(TA_TPRI | TA_CNT, FALSE); }
-static void fifo_first_delete(void) { check_delete(TA_TFIFO | TA_FIRST); }
-static void tpri_first_delete(void) { check_delete(TA_TPRI | TA_FIRST); }
-static void fifo_cnt_delete(void) { check_delete(TA_TFIFO | TA_CNT); }
-static void tpri_cnt_delete(void) { check_delete(TA_TPRI | TA_CNT); }
+static void semaphore_tpri_cnt_release_hands_units_to_next_waiter(void) {
+  check_departure(TA_TPRI | TA_CNT, FALSE);
+}
+static void semaphore_fifo_first_delete_releases_all_waiters(void) {
+  check_delete(TA_TFIFO | TA_FIRST);
+}
+static void semaphore_tpri_first_delete_releases_all_waiters(void) {
+  check_delete(TA_TPRI | TA_FIRST);
+}
+static void semaphore_fifo_cnt_delete_releases_all_waiters(void) {
+  check_delete(TA_TFIFO | TA_CNT);
+}
+static void semaphore_tpri_cnt_delete_releases_all_waiters(void) {
+  check_delete(TA_TPRI | TA_CNT);
+}
 
 // A case and its children take at most 5 of the runner's 48 stacks
 // (check_delete starts four children); the pool starts afresh for each case.
 static const test_case_t s_cases[] = {
-    {"fifo_first_timeout", fifo_first_timeout},
-    {"tpri_first_timeout", tpri_first_timeout},
-    {"fifo_cnt_timeout", fifo_cnt_timeout},
-    {"tpri_cnt_timeout", tpri_cnt_timeout},
-    {"fifo_first_release", fifo_first_release},
-    {"tpri_first_release", tpri_first_release},
-    {"fifo_cnt_release", fifo_cnt_release},
-    {"tpri_cnt_release", tpri_cnt_release},
-    {"fifo_first_delete", fifo_first_delete},
-    {"tpri_first_delete", tpri_first_delete},
-    {"fifo_cnt_delete", fifo_cnt_delete},
-    {"tpri_cnt_delete", tpri_cnt_delete},
+    CASE(semaphore_fifo_first_timeout_hands_units_to_next_waiter),
+    CASE(semaphore_tpri_first_timeout_hands_units_to_next_waiter),
+    CASE(semaphore_fifo_cnt_timeout_hands_units_to_next_waiter),
+    CASE(semaphore_tpri_cnt_timeout_hands_units_to_next_waiter),
+    CASE(semaphore_fifo_first_release_hands_units_to_next_waiter),
+    CASE(semaphore_tpri_first_release_hands_units_to_next_waiter),
+    CASE(semaphore_fifo_cnt_release_hands_units_to_next_waiter),
+    CASE(semaphore_tpri_cnt_release_hands_units_to_next_waiter),
+    CASE(semaphore_fifo_first_delete_releases_all_waiters),
+    CASE(semaphore_tpri_first_delete_releases_all_waiters),
+    CASE(semaphore_fifo_cnt_delete_releases_all_waiters),
+    CASE(semaphore_tpri_cnt_delete_releases_all_waiters),
 };
 
 TEST_SUITE_MAIN("semaphore-wait-release", s_cases, 5000)

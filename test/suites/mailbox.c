@@ -46,7 +46,7 @@ static ID create_mailbox(ATR attributes) {
 }
 
 // Messages leave a FIFO mailbox in the order they were sent.
-static void fifo_queue(void) {
+static void mailbox_fifo_queue_delivers_in_send_order(void) {
   ID mbxid = create_mailbox(TA_TFIFO | TA_MFIFO);
   message_t first = {.value = 1};
   message_t second = {.value = 2};
@@ -67,7 +67,7 @@ static void fifo_queue(void) {
 // Messages leave a priority mailbox by message priority (1 is the highest),
 // and messages of the same priority leave in the order they were sent. A
 // message priority of 0 is refused.
-static void priority_queue(void) {
+static void mailbox_priority_queue_delivers_by_message_priority(void) {
   ID mbxid = create_mailbox(TA_TFIFO | TA_MPRI);
   priority_message_t low = {.hdr.msgpri = 9, .value = 9};
   priority_message_t high1 = {.hdr.msgpri = 1, .value = 1};
@@ -115,7 +115,7 @@ static void receive_expected(void *arg) {
 static message_t g_direct_message = {.value = 100};
 static receiver_t g_direct_receiver;
 
-static void direct_delivery(void) {
+static void tk_snd_mbx_delivers_directly_to_waiting_receiver(void) {
   ID mbxid = create_mailbox(TA_TFIFO | TA_MFIFO);
   g_direct_receiver =
       (receiver_t){mbxid, &g_direct_message.hdr, RECEIVE_WAIT_MS};
@@ -181,12 +181,13 @@ static void run_wait_order(ATR attributes, T_MSG *lo_expected,
   TEST_ASSERT_EQUAL(E_OK, tk_del_mbx(mbxid));
 }
 
-static void wait_queue_fifo(void) {
+static void mailbox_fifo_wait_queue_serves_receivers_in_arrival_order(void) {
   run_wait_order(TA_TFIFO | TA_MFIFO, &g_order_message[0].hdr,
                  &g_order_message[1].hdr, LO, HI);
 }
 
-static void wait_queue_priority(void) {
+static void
+mailbox_priority_wait_queue_serves_highest_priority_receiver_first(void) {
   run_wait_order(TA_TPRI | TA_MFIFO, &g_order_message[1].hdr,
                  &g_order_message[0].hdr, HI, LO);
 }
@@ -198,7 +199,7 @@ static void receive_deleted(void *arg) {
   test_checkpoint();
 }
 
-static void delete_releases_waiter(void) {
+static void tk_del_mbx_releases_waiter(void) {
   ID mbxid = create_mailbox(TA_TFIFO | TA_MFIFO);
 
   test_spawn(receive_deleted, HI_PRIORITY, (void *)(INT)mbxid);
@@ -217,7 +218,7 @@ static void receive_times_out(void *arg) {
   test_checkpoint();
 }
 
-static void timeout_leaves_no_waiter(void) {
+static void tk_rcv_mbx_timeout_leaves_no_waiter(void) {
   ID mbxid = create_mailbox(TA_TFIFO | TA_MFIFO);
   message_t message = {.value = 77};
   T_MSG *received = 0;
@@ -235,7 +236,7 @@ static void timeout_leaves_no_waiter(void) {
 // Messages left in a mailbox that is deleted belong to the application again,
 // and can be sent to another mailbox: the deleted one leaves them untouched,
 // links and all, and a send overwrites the link.
-static void messages_of_a_deleted_mailbox_can_be_sent_again(void) {
+static void tk_del_mbx_leaves_messages_that_can_be_sent_again(void) {
   ID doomed = create_mailbox(TA_TFIFO | TA_MPRI);
   priority_message_t first = {.hdr.msgpri = 2, .value = 1};
   priority_message_t second = {.hdr.msgpri = 1, .value = 2};
@@ -258,15 +259,14 @@ static void messages_of_a_deleted_mailbox_can_be_sent_again(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"fifo_queue", fifo_queue},
-    {"priority_queue", priority_queue},
-    {"direct_delivery", direct_delivery},
-    {"wait_queue_fifo", wait_queue_fifo},
-    {"wait_queue_priority", wait_queue_priority},
-    {"delete_releases_waiter", delete_releases_waiter},
-    {"timeout_leaves_no_waiter", timeout_leaves_no_waiter},
-    {"messages_of_a_deleted_mailbox_can_be_sent_again",
-     messages_of_a_deleted_mailbox_can_be_sent_again},
+    CASE(mailbox_fifo_queue_delivers_in_send_order),
+    CASE(mailbox_priority_queue_delivers_by_message_priority),
+    CASE(tk_snd_mbx_delivers_directly_to_waiting_receiver),
+    CASE(mailbox_fifo_wait_queue_serves_receivers_in_arrival_order),
+    CASE(mailbox_priority_wait_queue_serves_highest_priority_receiver_first),
+    CASE(tk_del_mbx_releases_waiter),
+    CASE(tk_rcv_mbx_timeout_leaves_no_waiter),
+    CASE(tk_del_mbx_leaves_messages_that_can_be_sent_again),
 };
 
 TEST_SUITE_MAIN("mailbox", s_cases, 5000)

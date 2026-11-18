@@ -30,9 +30,9 @@ static void hang_child_case(void) {
 static void marker(void) { TEST_ASSERT_EQUAL(1, 1); }
 
 static const test_case_t s_cases[] = {
-    {"pass_case", pass_case},
-    {"hang_child_case", hang_child_case},
-    {"marker", marker},
+    CASE(pass_case),
+    CASE(hang_child_case),
+    CASE(marker),
 };
 
 TEST_SUITE_MAIN("selftest-hang-child", s_cases, 1000)

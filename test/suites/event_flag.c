@@ -36,7 +36,7 @@ static ID create_flag(ATR attributes, UINT initial) {
 
 // Waits on a flag without blocking (TMO_POL) in every wait mode, and checks
 // which bits each mode clears and which pattern it reports.
-static void poll_wait_modes(void) {
+static void tk_wai_flg_poll_clears_and_reports_per_wait_mode(void) {
   ID flgid = create_flag(TA_TFIFO | TA_WSGL, 0x00FFFFFF);
   UINT flgptn = 0;
 
@@ -76,7 +76,7 @@ static void poll_wait_modes(void) {
 // A wait with a time limit that nobody satisfies returns E_TMOUT, and not
 // before the limit. Only a lower bound is checked: a stalled host makes the
 // wait longer, never shorter.
-static void wait_times_out(void) {
+static void tk_wai_flg_times_out_not_before_limit(void) {
   ID flgid = create_flag(TA_TFIFO | TA_WSGL, 0);
   UINT flgptn = 0;
 
@@ -109,7 +109,7 @@ static void set_bits(void *arg) {
 // moment, and TWF_BITCLR then clears only the bits it asked for.
 static setter_t g_or_setter;
 
-static void blocked_or_wait_wakes(void) {
+static void tk_wai_flg_or_wait_wakes_on_one_bit_set_later(void) {
   ID flgid = create_flag(TA_TFIFO | TA_WSGL, 0);
   g_or_setter = (setter_t){flgid, 0x00000006, 0, 0};
   UINT flgptn = 0;
@@ -132,7 +132,7 @@ static void blocked_or_wait_wakes(void) {
 // before the pause is over. TWF_CLR then clears the whole pattern.
 static setter_t g_and_setter;
 
-static void blocked_and_wait_needs_all_bits(void) {
+static void tk_wai_flg_and_wait_blocks_until_all_bits_are_set(void) {
   ID flgid = create_flag(TA_TFIFO | TA_WSGL, 0);
   g_and_setter = (setter_t){flgid, 0x00000001, 0x00000002, TIMEOUT_MS};
   UINT flgptn = 0;
@@ -162,7 +162,7 @@ static void second_waiter_child(void *arg) {
   test_checkpoint();
 }
 
-static void single_waiter_is_enforced(void) {
+static void tk_wai_flg_refuses_second_waiter_on_single_wait_flag(void) {
   ID flgid = create_flag(TA_TFIFO | TA_WSGL, 0);
 
   test_spawn(second_waiter_child, SETTER_PRIORITY, (void *)(INT)flgid);
@@ -199,7 +199,7 @@ static void timed_waiter(void *arg) {
   test_checkpoint();
 }
 
-static void set_after_timeout_keeps_the_pattern(void) {
+static void tk_set_flg_after_wait_timeout_keeps_pattern(void) {
   g_timed.flgid = create_flag(TA_TFIFO | TA_WSGL, 0);
   g_timed.result = E_SYS;
 
@@ -237,12 +237,16 @@ static void check_flag_calls_refused(ID bad_id) {
   TEST_ASSERT_EQUAL_HEX32(0x0000005A, flgptn);
 }
 
-static void calls_with_id_zero(void) { check_flag_calls_refused(0); }
-static void calls_with_a_negative_id(void) { check_flag_calls_refused(-1); }
+static void event_flag_calls_with_id_zero_are_refused(void) {
+  check_flag_calls_refused(0);
+}
+static void event_flag_calls_with_negative_id_are_refused(void) {
+  check_flag_calls_refused(-1);
+}
 
 // The refusals come last: before the fix they read and may write the memory in
 // front of the flag table, and the cases after them would run on what is left.
-static void null_creation_packet_is_refused(void) {
+static void tk_cre_flg_refuses_null_packet(void) {
   TEST_ASSERT_EQUAL(E_PAR, tk_cre_flg(NULL));
   UINT intsts, after;
   DI(intsts);
@@ -258,7 +262,7 @@ static void null_creation_packet_is_refused(void) {
   TEST_ASSERT_EQUAL_HEX32(0x1, output);
 }
 
-static void null_output_neither_clears_nor_waits(void) {
+static void tk_wai_flg_with_null_output_neither_clears_nor_waits(void) {
   ID flgid = create_flag(TA_WSGL, 0x1);
   const TMO limits[] = {TMO_POL, CASE_WAIT_MS, TMO_FEVR};
   const UINT modes[] = {TWF_ORW | TWF_CLR, TWF_ORW | TWF_BITCLR};
@@ -284,18 +288,16 @@ static void null_output_neither_clears_nor_waits(void) {
 }
 
 static const test_case_t s_cases[] = {
-    {"null_creation_packet_is_refused", null_creation_packet_is_refused},
-    {"null_output_neither_clears_nor_waits",
-     null_output_neither_clears_nor_waits},
-    {"poll_wait_modes", poll_wait_modes},
-    {"wait_times_out", wait_times_out},
-    {"blocked_or_wait_wakes", blocked_or_wait_wakes},
-    {"blocked_and_wait_needs_all_bits", blocked_and_wait_needs_all_bits},
-    {"single_waiter_is_enforced", single_waiter_is_enforced},
-    {"set_after_timeout_keeps_the_pattern",
-     set_after_timeout_keeps_the_pattern},
-    {"calls_with_id_zero", calls_with_id_zero},
-    {"calls_with_a_negative_id", calls_with_a_negative_id},
+    CASE(tk_cre_flg_refuses_null_packet),
+    CASE(tk_wai_flg_with_null_output_neither_clears_nor_waits),
+    CASE(tk_wai_flg_poll_clears_and_reports_per_wait_mode),
+    CASE(tk_wai_flg_times_out_not_before_limit),
+    CASE(tk_wai_flg_or_wait_wakes_on_one_bit_set_later),
+    CASE(tk_wai_flg_and_wait_blocks_until_all_bits_are_set),
+    CASE(tk_wai_flg_refuses_second_waiter_on_single_wait_flag),
+    CASE(tk_set_flg_after_wait_timeout_keeps_pattern),
+    CASE(event_flag_calls_with_id_zero_are_refused),
+    CASE(event_flag_calls_with_negative_id_are_refused),
 };
 
 TEST_SUITE_MAIN("event-flag", s_cases, 5000)

@@ -36,6 +36,7 @@
 #include "../finish.h"
 #include "../putstring.h"
 #include "asm/rv32/address.h"
+#include "cost.h"
 #include "runner.h"
 #include "task.h"
 
@@ -56,8 +57,6 @@ enum {
   // The edges a call must find passed to end the longest wait: one more than
   // this many ticks late. The least lateness that ends all of them.
   LATE_TICKS = LONGEST_TICKS - 1,
-  // The budget of timer_cost.c: a tenth of a tick at -icount shift=5.
-  BUDGET_INSTRUCTIONS = 31250,
   SEMAPHORE_EXTRA_INSTRUCTIONS = BUDGET_INSTRUCTIONS / 10,
 };
 _Static_assert(CHILD_PRIORITY > 1, "usermain (priority 1) must wait first");
@@ -84,15 +83,6 @@ static ID s_children[CHILDREN];
 static ID s_done;
 static ID s_timed;
 static _Alignas(16) UW s_stacks[CHILDREN][CHILD_STACK_WORDS];
-
-static UINT queue_length(void) {
-  UINT length = 0;
-  for (tkmc_list_head *link = tkmc_timer_queue.next; link != &tkmc_timer_queue;
-       link = link->next) {
-    ++length;
-  }
-  return length;
-}
 
 static UINT wait_of_the_case(void) {
   return s_case == CASE_SEMAPHORE ? TTW_SEM : TTW_DLY;
@@ -128,7 +118,7 @@ static BOOL queued_longest_first_in_one_tick(void) {
 }
 
 void __wrap_tkmc_timer_handler(void) {
-  if (!s_armed || queue_length() != WAITS) {
+  if (!s_armed || test_timer_queue_length() != WAITS) {
     __real_tkmc_timer_handler();
     return;
   }
@@ -179,10 +169,7 @@ static void child(INT index, void *exinf) {
 }
 
 static __attribute__((__noreturn__)) void fail(const char *what) {
-  putstring(":FAIL: timer-cost-max: ");
-  putstring(what);
-  putstring("\n");
-  test_exit(1);
+  test_fail(":FAIL: timer-cost-max: ", what);
 }
 
 static void putdec(UW value) {

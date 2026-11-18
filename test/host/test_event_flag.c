@@ -29,7 +29,7 @@
 #include "fakes.h"
 #include "task.h"
 
-enum { HIGH_PRIORITY = 4, LOW_PRIORITY = 5, WAIT_MS = 100 };
+enum { WAIT_MS = 100 };
 
 static const UINT SENTINEL = 0xdeadbeefU;
 
@@ -45,8 +45,6 @@ static UINT read_pattern(ID flgid) {
   TEST_ASSERT_EQUAL(E_OK, tk_wai_flg(flgid, ~0U, TWF_ORW, &flgptn, TMO_POL));
   return flgptn;
 }
-
-static TCB *tcb_of(ID tskid) { return &tkmc_tcbs[tskid - 1]; }
 
 // Makes a task at prio wait for waiptn on the flag, for ever, and returns it.
 static ID make_waiter(ID flgid, PRI prio, UINT waiptn, UINT wfmode,
@@ -67,7 +65,7 @@ static void check_null_flag_creation(void) {
   host_check_kernel_queues();
 }
 
-void test_a_null_flag_packet_preserves_state_and_free_slots(void) {
+static void test_tk_cre_flg_refuses_null_packet_and_keeps_free_slots(void) {
   for (UINT disabled = 0; disabled < 2; ++disabled) {
     host_reset();
     UINT intsts;
@@ -98,20 +96,20 @@ static void check_null_output(ID flgid, UINT mode, TMO tmout, ER expected) {
   host_check_kernel_queues();
 }
 
-void test_a_null_flag_output_neither_clears_nor_waits(void) {
+static void test_tk_wai_flg_null_output_neither_clears_nor_waits(void) {
   const TMO limits[] = {TMO_POL, WAIT_MS, TMO_FEVR};
   const UINT modes[] = {TWF_ORW, TWF_ORW | TWF_CLR, TWF_ORW | TWF_BITCLR};
   for (UINT pattern = 0; pattern < 2; ++pattern) {
     host_reset();
     ID flgid = create_flag(TA_WSGL, pattern);
-    host_set_current(host_make_task(HIGH_PRIORITY));
+    host_set_current(host_make_task(HOST_HIGH_PRIORITY));
     for (UINT disabled = 0; disabled < 2; ++disabled) {
       UINT intsts;
       if (disabled) {
         DI(intsts);
       }
-      for (UINT t = 0; t < sizeof(limits) / sizeof(limits[0]); ++t) {
-        for (UINT m = 0; m < sizeof(modes) / sizeof(modes[0]); ++m) {
+      for (UINT t = 0; t < HOST_COUNT(limits); ++t) {
+        for (UINT m = 0; m < HOST_COUNT(modes); ++m) {
           check_null_output(flgid, modes[m], limits[t], E_PAR);
         }
       }
@@ -126,15 +124,15 @@ void test_a_null_flag_output_neither_clears_nor_waits(void) {
   }
 }
 
-void test_a_null_flag_output_is_checked_after_id_before_existence(void) {
-  host_set_current(host_make_task(HIGH_PRIORITY));
+static void test_tk_wai_flg_checks_null_output_after_id_before_existence(void) {
+  host_set_current(host_make_task(HOST_HIGH_PRIORITY));
   const ID bad_ids[] = {0, -1, CFN_MAX_FLGID + 1};
   for (UINT disabled = 0; disabled < 2; ++disabled) {
     UINT intsts;
     if (disabled) {
       DI(intsts);
     }
-    for (UINT i = 0; i < sizeof(bad_ids) / sizeof(bad_ids[0]); ++i) {
+    for (UINT i = 0; i < HOST_COUNT(bad_ids); ++i) {
       check_null_output(bad_ids[i], TWF_ORW, TMO_POL, E_ID);
     }
     check_null_output(1, TWF_ORW, TMO_POL, E_PAR); // In range, not created.
@@ -144,18 +142,18 @@ void test_a_null_flag_output_is_checked_after_id_before_existence(void) {
   }
 }
 
-void test_a_null_flag_output_is_checked_before_the_single_waiter_rule(void) {
+static void test_tk_wai_flg_checks_null_output_before_single_waiter_rule(void) {
   ID flgid = create_flag(TA_WSGL, 0x1);
   UINT output = SENTINEL;
-  make_waiter(flgid, HIGH_PRIORITY, 0x2, TWF_ORW, &output);
-  host_set_current(host_make_task(LOW_PRIORITY));
+  make_waiter(flgid, HOST_HIGH_PRIORITY, 0x2, TWF_ORW, &output);
+  host_set_current(host_make_task(HOST_LOW_PRIORITY));
   const TMO limits[] = {TMO_POL, WAIT_MS, TMO_FEVR};
   for (UINT disabled = 0; disabled < 2; ++disabled) {
     UINT intsts;
     if (disabled) {
       DI(intsts);
     }
-    for (UINT i = 0; i < sizeof(limits) / sizeof(limits[0]); ++i) {
+    for (UINT i = 0; i < HOST_COUNT(limits); ++i) {
       check_null_output(flgid, TWF_ORW | TWF_CLR, limits[i], E_PAR);
     }
     if (disabled) {
@@ -165,7 +163,7 @@ void test_a_null_flag_output_is_checked_before_the_single_waiter_rule(void) {
   TEST_ASSERT_EQUAL_HEX32(SENTINEL, output);
 }
 
-void test_clearing_a_flag_keeps_the_bits_of_the_mask(void) {
+static void test_tk_clr_flg_keeps_bits_of_mask(void) {
   host_set_current(host_make_task(4));
   ID flgid = create_flag(TA_TFIFO | TA_WMUL, 0x0F);
 
@@ -178,16 +176,15 @@ void test_clearing_a_flag_keeps_the_bits_of_the_mask(void) {
   TEST_ASSERT_EQUAL(E_TMOUT, tk_wai_flg(flgid, ~0U, TWF_ORW, &flgptn, TMO_POL));
 }
 
-void test_a_one_waiter_flag_refuses_a_second_task_before_the_pattern_check(
-    void) {
+static void test_tk_wai_flg_refuses_second_waiter_before_pattern_check(void) {
   ID flgid = create_flag(TA_TFIFO | TA_WSGL, 0);
   UINT first_ptn = SENTINEL;
-  make_waiter(flgid, HIGH_PRIORITY, 0x2, TWF_ORW, &first_ptn);
+  make_waiter(flgid, HOST_HIGH_PRIORITY, 0x2, TWF_ORW, &first_ptn);
   TEST_ASSERT_EQUAL(E_OK, tk_set_flg(flgid, 0x1)); // Not what the waiter wants.
-  host_set_current(host_make_task(LOW_PRIORITY));
+  host_set_current(host_make_task(HOST_LOW_PRIORITY));
 
   static const TMO limits[] = {TMO_POL, WAIT_MS, TMO_FEVR};
-  for (UINT i = 0; i < sizeof(limits) / sizeof(limits[0]); ++i) {
+  for (UINT i = 0; i < HOST_COUNT(limits); ++i) {
     UINT flgptn = SENTINEL;
     host_snapshot_t before;
     host_take_snapshot(&before);
@@ -200,52 +197,126 @@ void test_a_one_waiter_flag_refuses_a_second_task_before_the_pattern_check(
   TEST_ASSERT_EQUAL_HEX32(0x1, tkmc_flgcbs[flgid - 1].flgptn);
 }
 
-void test_a_set_wakes_every_waiter_of_a_multi_waiter_flag_it_satisfies(void) {
+static void
+test_tk_set_flg_wakes_every_satisfied_waiter_of_multi_waiter_flag(void) {
   ID flgid = create_flag(TA_TFIFO | TA_WMUL, 0);
   UINT ptn_a = SENTINEL, ptn_b = SENTINEL, ptn_c = SENTINEL;
-  ID a = make_waiter(flgid, HIGH_PRIORITY, 0x1, TWF_ORW, &ptn_a);
-  ID b = make_waiter(flgid, HIGH_PRIORITY, 0x2, TWF_ORW, &ptn_b);
-  ID c = make_waiter(flgid, HIGH_PRIORITY, 0x4, TWF_ORW, &ptn_c);
-  host_set_current(host_make_task(LOW_PRIORITY));
+  ID a = make_waiter(flgid, HOST_HIGH_PRIORITY, 0x1, TWF_ORW, &ptn_a);
+  ID b = make_waiter(flgid, HOST_HIGH_PRIORITY, 0x2, TWF_ORW, &ptn_b);
+  ID c = make_waiter(flgid, HOST_HIGH_PRIORITY, 0x4, TWF_ORW, &ptn_c);
+  host_set_current(host_make_task(HOST_LOW_PRIORITY));
 
   TEST_ASSERT_EQUAL(E_OK, tk_set_flg(flgid, 0x3));
-  TEST_ASSERT_EQUAL_UINT(TTS_RDY, tcb_of(a)->tskstat);
-  TEST_ASSERT_EQUAL_UINT(TTS_RDY, tcb_of(b)->tskstat);
-  TEST_ASSERT_EQUAL_UINT(TTS_WAI, tcb_of(c)->tskstat);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(a)->tskstat);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(b)->tskstat);
+  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(c)->tskstat);
   // The pattern each woken task is handed, as tk_wai_flg() will report it.
-  TEST_ASSERT_EQUAL_HEX32(0x3, tcb_of(a)->winfo.event_flag.flgptn);
-  TEST_ASSERT_EQUAL_HEX32(0x3, tcb_of(b)->winfo.event_flag.flgptn);
-  TEST_ASSERT_EQUAL_PTR(tcb_of(a), next);
+  TEST_ASSERT_EQUAL_HEX32(0x3, host_tcb(a)->winfo.event_flag.flgptn);
+  TEST_ASSERT_EQUAL_HEX32(0x3, host_tcb(b)->winfo.event_flag.flgptn);
+  TEST_ASSERT_EQUAL_PTR(host_tcb(a), next);
   host_check_kernel_queues();
 }
 
-void test_a_clear_by_one_waiter_is_seen_by_the_waiters_behind_it(void) {
+static void
+test_tk_wai_flg_clear_by_one_waiter_reaches_waiters_behind_it(void) {
   ID flgid = create_flag(TA_TFIFO | TA_WMUL, 0);
   UINT ptn_a = SENTINEL, ptn_b = SENTINEL;
-  ID a = make_waiter(flgid, HIGH_PRIORITY, 0x1, TWF_ORW | TWF_CLR, &ptn_a);
-  ID b = make_waiter(flgid, HIGH_PRIORITY, 0x1, TWF_ORW, &ptn_b);
-  host_set_current(host_make_task(LOW_PRIORITY));
+  ID a = make_waiter(flgid, HOST_HIGH_PRIORITY, 0x1, TWF_ORW | TWF_CLR, &ptn_a);
+  ID b = make_waiter(flgid, HOST_HIGH_PRIORITY, 0x1, TWF_ORW, &ptn_b);
+  host_set_current(host_make_task(HOST_LOW_PRIORITY));
 
   TEST_ASSERT_EQUAL(E_OK, tk_set_flg(flgid, 0x1));
-  TEST_ASSERT_EQUAL_UINT(TTS_RDY, tcb_of(a)->tskstat);
-  TEST_ASSERT_EQUAL_HEX32(0x1, tcb_of(a)->winfo.event_flag.flgptn);
-  TEST_ASSERT_EQUAL_UINT(TTS_WAI, tcb_of(b)->tskstat);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(a)->tskstat);
+  TEST_ASSERT_EQUAL_HEX32(0x1, host_tcb(a)->winfo.event_flag.flgptn);
+  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(b)->tskstat);
   TEST_ASSERT_EQUAL_HEX32(0, tkmc_flgcbs[flgid - 1].flgptn);
   host_check_kernel_queues();
 }
 
-void test_waiters_of_a_priority_flag_queue_by_priority_then_arrival(void) {
+static void
+test_event_flag_priority_waiters_queue_by_priority_then_arrival(void) {
   ID flgid = create_flag(TA_TPRI | TA_WMUL, 0);
   UINT ptn = SENTINEL;
-  ID low1 = make_waiter(flgid, LOW_PRIORITY, 0x1, TWF_ORW, &ptn);
-  ID high = make_waiter(flgid, HIGH_PRIORITY, 0x1, TWF_ORW, &ptn);
-  ID low2 = make_waiter(flgid, LOW_PRIORITY, 0x1, TWF_ORW, &ptn);
+  ID low1 = make_waiter(flgid, HOST_LOW_PRIORITY, 0x1, TWF_ORW, &ptn);
+  ID high = make_waiter(flgid, HOST_HIGH_PRIORITY, 0x1, TWF_ORW, &ptn);
+  ID low2 = make_waiter(flgid, HOST_LOW_PRIORITY, 0x1, TWF_ORW, &ptn);
 
   const ID expected[] = {high, low1, low2};
   const tkmc_list_head *queue = &tkmc_flgcbs[flgid - 1].wait_queue;
   const tkmc_list_head *pos = queue->next;
   for (UINT i = 0; i < 3; ++i, pos = pos->next) {
-    TEST_ASSERT_EQUAL_PTR(&tcb_of(expected[i])->winfo.wait_queue, pos);
+    TEST_ASSERT_EQUAL_PTR(&host_tcb(expected[i])->winfo.wait_queue, pos);
   }
   TEST_ASSERT_EQUAL_PTR(queue, pos);
+}
+
+// TWF_ANDW waits for every bit of its pattern. A flag that holds only some of
+// them satisfies neither a poll nor a waiter, whatever other bits it holds;
+// one that holds them all satisfies both. With a pattern of one bit, AND and
+// OR would behave the same, so the pattern has three.
+static void test_tk_wai_flg_andw_needs_every_bit_of_pattern(void) {
+  ID setter = host_make_task(HOST_LOW_PRIORITY);
+  host_set_current(setter);
+  ID flgid = create_flag(TA_TFIFO | TA_WMUL, 0x5);
+  UINT ptn = SENTINEL;
+  TEST_ASSERT_EQUAL(E_TMOUT, tk_wai_flg(flgid, 0x7, TWF_ANDW, &ptn, TMO_POL));
+
+  UINT got = SENTINEL;
+  ID waiter = make_waiter(flgid, HOST_HIGH_PRIORITY, 0x7, TWF_ANDW, &got);
+  host_set_current(setter);
+  TEST_ASSERT_EQUAL(E_OK, tk_set_flg(flgid, 0x8));
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(TTS_WAI, host_tcb(waiter)->tskstat,
+                                 "a flag without bit 1 woke the AND waiter");
+  TEST_ASSERT_EQUAL(E_OK, tk_set_flg(flgid, 0x2));
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(waiter)->tskstat);
+  TEST_ASSERT_EQUAL_HEX32(0xf, host_tcb(waiter)->winfo.event_flag.flgptn);
+  host_check_kernel_queues();
+
+  host_set_current(setter);
+  TEST_ASSERT_EQUAL(E_OK, tk_wai_flg(flgid, 0x7, TWF_ANDW, &ptn, TMO_POL));
+  TEST_ASSERT_EQUAL_HEX32(0xf, ptn);
+}
+
+// TWF_BITCLR clears only the bits of the pattern, both when a wait is
+// satisfied at once and when a set wakes the waiter (two separate paths in
+// the kernel). The other bits of the flag stay.
+static void test_tk_wai_flg_bitclr_clears_only_bits_of_pattern(void) {
+  ID setter = host_make_task(HOST_LOW_PRIORITY);
+  host_set_current(setter);
+  ID flgid = create_flag(TA_TFIFO | TA_WMUL, 0xf3);
+  UINT ptn = SENTINEL;
+  TEST_ASSERT_EQUAL(
+      E_OK, tk_wai_flg(flgid, 0x3, TWF_ANDW | TWF_BITCLR, &ptn, TMO_POL));
+  TEST_ASSERT_EQUAL_HEX32(0xf3, ptn);
+  TEST_ASSERT_EQUAL_HEX32_MESSAGE(0xf0, read_pattern(flgid),
+                                  "the poll path cleared other bits");
+
+  UINT got = SENTINEL;
+  ID waiter =
+      make_waiter(flgid, HOST_HIGH_PRIORITY, 0x3, TWF_ORW | TWF_BITCLR, &got);
+  host_set_current(setter);
+  // 0x4 is outside the pattern: it must stay, and a kernel that cleared the
+  // bits just set instead of the pattern's would take it away.
+  TEST_ASSERT_EQUAL(E_OK, tk_set_flg(flgid, 0x5));
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(waiter)->tskstat);
+  TEST_ASSERT_EQUAL_HEX32(0xf5, host_tcb(waiter)->winfo.event_flag.flgptn);
+  host_set_current(setter);
+  TEST_ASSERT_EQUAL_HEX32_MESSAGE(0xf4, read_pattern(flgid),
+                                  "the wake path cleared other bits");
+  host_check_kernel_queues();
+}
+
+void run_event_flag_tests(void) {
+  UnitySetTestFile(__FILE__);
+  RUN_TEST(test_tk_clr_flg_keeps_bits_of_mask);
+  RUN_TEST(test_tk_wai_flg_refuses_second_waiter_before_pattern_check);
+  RUN_TEST(test_tk_set_flg_wakes_every_satisfied_waiter_of_multi_waiter_flag);
+  RUN_TEST(test_tk_wai_flg_clear_by_one_waiter_reaches_waiters_behind_it);
+  RUN_TEST(test_event_flag_priority_waiters_queue_by_priority_then_arrival);
+  RUN_TEST(test_tk_cre_flg_refuses_null_packet_and_keeps_free_slots);
+  RUN_TEST(test_tk_wai_flg_null_output_neither_clears_nor_waits);
+  RUN_TEST(test_tk_wai_flg_checks_null_output_after_id_before_existence);
+  RUN_TEST(test_tk_wai_flg_checks_null_output_before_single_waiter_rule);
+  RUN_TEST(test_tk_wai_flg_andw_needs_every_bit_of_pattern);
+  RUN_TEST(test_tk_wai_flg_bitclr_clears_only_bits_of_pattern);
 }

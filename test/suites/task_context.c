@@ -15,27 +15,29 @@
 #include "event_flag.h"
 #include "mailbox.h"
 #include "panic.h"
+#include "qemu_virt.h"
 #include "runner.h"
 #include "semaphore.h"
 
-#define RET_ASM_TASK_DI_MODE 13
-enum {
-  LIVE_ISR,
-  NO_CURRENT_WAIT,
-  DI_EXT,
-  DI_EXD,
-  ISR_EXT,
-  ISR_EXD,
-  NO_CURRENT_EXT,
-  NO_CURRENT_EXD,
-  RET_TASK,
-  RET_TASK_DI,
-  RET_HLNG,
-  RET_TIMER,
-  RET_SOFTWARE,
-  RET_ASM_TASK_DI = RET_ASM_TASK_DI_MODE,
-  RET_NO_CURRENT
-};
+// The modes, by the name CMakeLists.txt passes as CONTEXT_TEST_MODE. Macros,
+// not an enum, so that #if can test them. The order matters: the checks below
+// compare against RET_TASK and RET_NO_CURRENT, and an odd mode ends with
+// tk_exd_tsk().
+#define LIVE_ISR 0
+#define NO_CURRENT_WAIT 1
+#define DI_EXT 2
+#define DI_EXD 3
+#define ISR_EXT 4
+#define ISR_EXD 5
+#define NO_CURRENT_EXT 6
+#define NO_CURRENT_EXD 7
+#define RET_TASK 8
+#define RET_TASK_DI 9
+#define RET_HLNG 10
+#define RET_TIMER 11
+#define RET_SOFTWARE 12
+#define RET_ASM_TASK_DI 13
+#define RET_NO_CURRENT 14
 _Static_assert(CONTEXT_TEST_MODE >= LIVE_ISR &&
                    CONTEXT_TEST_MODE <= RET_NO_CURRENT,
                "unknown context fixture");
@@ -47,17 +49,11 @@ extern tkmc_list_head tkmc_timer_queue;
 extern ID __real_tk_cre_tsk(CONST T_CTSK *packet);
 extern void __real_tkmc_timer_handler(void);
 extern void **__real_schedule(void *sp);
-#if CONTEXT_TEST_MODE == RET_ASM_TASK_DI_MODE
+#if CONTEXT_TEST_MODE == RET_ASM_TASK_DI
 extern void asm_task_di_ret_entry(void);
 #endif
 
 enum { MSIP = CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET, SENTINEL = 0x12345678 };
-enum {
-  UART_IRQ = 10,
-  UART_BASE = 0x10000000,
-  UART_IER = UART_BASE + 1,
-  IER_THRE = 0x02,
-};
 static struct {
   TCB tasks[CFN_MAX_TSKID];
   tkmc_list_head ready[CFN_MAX_PRI], timer;
@@ -84,37 +80,16 @@ static TCB *expected_current;
 static BOOL startup_probed;
 
 static __attribute__((__noreturn__)) void fail(const char *reason) {
-  putstring("TASK CONTEXT :FAIL: ");
-  putstring(reason);
-  putstring("\n");
-  test_exit(1);
-}
-
-static void copy_bytes(void *to, const void *from, UINT size) {
-  unsigned char *dst = to;
-  const unsigned char *src = from;
-  for (UINT i = 0; i < size; ++i) {
-    dst[i] = src[i];
-  }
-}
-
-static BOOL equal_bytes(const void *a, const void *b, UINT size) {
-  const unsigned char *left = a, *right = b;
-  for (UINT i = 0; i < size; ++i) {
-    if (left[i] != right[i]) {
-      return FALSE;
-    }
-  }
-  return TRUE;
+  test_fail("TASK CONTEXT :FAIL: ", reason);
 }
 
 static void capture(void) {
-  copy_bytes(snapshot.tasks, tkmc_tcbs, sizeof(snapshot.tasks));
-  copy_bytes(snapshot.ready, tkmc_ready_queue, sizeof(snapshot.ready));
-  copy_bytes(&snapshot.timer, &tkmc_timer_queue, sizeof(snapshot.timer));
-  copy_bytes(snapshot.sems, tkmc_semcbs, sizeof(snapshot.sems));
-  copy_bytes(snapshot.flags, tkmc_flgcbs, sizeof(snapshot.flags));
-  copy_bytes(snapshot.mailboxes, tkmc_mbxcbs, sizeof(snapshot.mailboxes));
+  test_copy_bytes(snapshot.tasks, tkmc_tcbs, sizeof(snapshot.tasks));
+  test_copy_bytes(snapshot.ready, tkmc_ready_queue, sizeof(snapshot.ready));
+  test_copy_bytes(&snapshot.timer, &tkmc_timer_queue, sizeof(snapshot.timer));
+  test_copy_bytes(snapshot.sems, tkmc_semcbs, sizeof(snapshot.sems));
+  test_copy_bytes(snapshot.flags, tkmc_flgcbs, sizeof(snapshot.flags));
+  test_copy_bytes(snapshot.mailboxes, tkmc_mbxcbs, sizeof(snapshot.mailboxes));
   snapshot.running = current;
   snapshot.scheduled = next;
   snapshot.isr = tkmc_isr_depth;
@@ -122,15 +97,16 @@ static void capture(void) {
 }
 
 static BOOL unchanged(void) {
-  return equal_bytes(snapshot.tasks, tkmc_tcbs, sizeof(snapshot.tasks)) &&
-         equal_bytes(snapshot.ready, tkmc_ready_queue,
-                     sizeof(snapshot.ready)) &&
-         equal_bytes(&snapshot.timer, &tkmc_timer_queue,
-                     sizeof(snapshot.timer)) &&
-         equal_bytes(snapshot.sems, tkmc_semcbs, sizeof(snapshot.sems)) &&
-         equal_bytes(snapshot.flags, tkmc_flgcbs, sizeof(snapshot.flags)) &&
-         equal_bytes(snapshot.mailboxes, tkmc_mbxcbs,
-                     sizeof(snapshot.mailboxes)) &&
+  return test_equal_bytes(snapshot.tasks, tkmc_tcbs, sizeof(snapshot.tasks)) &&
+         test_equal_bytes(snapshot.ready, tkmc_ready_queue,
+                          sizeof(snapshot.ready)) &&
+         test_equal_bytes(&snapshot.timer, &tkmc_timer_queue,
+                          sizeof(snapshot.timer)) &&
+         test_equal_bytes(snapshot.sems, tkmc_semcbs, sizeof(snapshot.sems)) &&
+         test_equal_bytes(snapshot.flags, tkmc_flgcbs,
+                          sizeof(snapshot.flags)) &&
+         test_equal_bytes(snapshot.mailboxes, tkmc_mbxcbs,
+                          sizeof(snapshot.mailboxes)) &&
          snapshot.running == current && snapshot.scheduled == next &&
          snapshot.isr == tkmc_isr_depth && snapshot.msip == in_w(MSIP);
 }
@@ -376,7 +352,7 @@ static void child(void *arg) {
   test_checkpoint();
 }
 
-static void real_isr_compatible_calls_then_dispatches(void) {
+static void isr_context_compatible_calls_work_in_real_isr_then_dispatch(void) {
   make_objects();
   gate = tk_cre_sem(&(T_CSEM){.maxsem = 1});
   TEST_ASSERT_GREATER_THAN(0, gate);
@@ -444,10 +420,9 @@ static void real_isr_compatible_calls_then_dispatches(void) {
                            "no timer return without dispatch observed");
 }
 
-#if CONTEXT_TEST_MODE == 0
+#if CONTEXT_TEST_MODE == LIVE_ISR
 static const test_case_t cases[] = {
-    {"real_isr_compatible_calls_then_dispatches",
-     real_isr_compatible_calls_then_dispatches},
+    CASE(isr_context_compatible_calls_work_in_real_isr_then_dispatch),
 };
 TEST_SUITE_MAIN("task-context", cases, 4000)
 #else
@@ -473,7 +448,7 @@ void usermain(int argument) {
     tk_ret_int();
     fail("tk_ret_int returned from task context");
   }
-#if CONTEXT_TEST_MODE == RET_ASM_TASK_DI_MODE
+#if CONTEXT_TEST_MODE == RET_ASM_TASK_DI
   {
     static _Alignas(16) UW stack[128];
     ID id = tk_cre_tsk(&(T_CTSK){.tskatr = TA_ASM | TA_USERBUF,
@@ -493,7 +468,7 @@ void usermain(int argument) {
     if (tk_def_int(UART_IRQ, &dint) != E_OK) {
       fail("could not define UART context handler");
     }
-    EnableInt(UART_IRQ, 7);
+    EnableInt(UART_IRQ, PLIC_MAX_PRIORITY);
     out_b(UART_IER, IER_THRE);
     UW start = test_mtime();
     while ((UW)(test_mtime() - start) < 2000 * TEST_MTIME_PER_MS) {

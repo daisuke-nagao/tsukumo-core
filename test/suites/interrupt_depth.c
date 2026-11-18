@@ -29,6 +29,7 @@
 #include "../putstring.h"
 #include "asm/rv32/address.h"
 #include "intctl.h"
+#include "qemu_virt.h"
 #include "runner.h"
 #include "task.h"
 
@@ -54,19 +55,7 @@ extern UW depth_spin_arm_word(volatile UW *flag, UW deadline, volatile UW *reg,
                               UW value);
 
 enum {
-  UART_IRQ = 10,
-  UART_BASE = 0x10000000,
-  UART_IER = UART_BASE + 1,
-  IER_THRE = 0x02,
-  RTC_IRQ = 11,
-  RTC_BASE = 0x101000,
-  RTC_TIME_LOW = RTC_BASE + 0x00,
-  RTC_TIME_HIGH = RTC_BASE + 0x04,
-  RTC_ALARM_LOW = RTC_BASE + 0x08,
-  RTC_ALARM_HIGH = RTC_BASE + 0x0c,
-  RTC_IRQ_ENABLED = RTC_BASE + 0x10,
-  RTC_CLEAR_ALARM = RTC_BASE + 0x14,
-  RTC_CLEAR_INTERRUPT = RTC_BASE + 0x1c,
+  LOWEST_LEVEL = 1, // The lowest PLIC priority.
   WAIT_MS = 400,
   CHILD_PRIORITY = 2,
   PAINT = 0x5a5a5a5a,
@@ -84,9 +73,6 @@ enum {
 };
 _Static_assert(CHILD_PRIORITY < TEST_CASE_PRIORITY,
                "the woken task outranks the case");
-
-static const UW MCAUSE_SOFTWARE = 0x80000003u;
-static const UW MCAUSE_EXTERNAL = 0x8000000bu;
 
 #define PLIC_THRESHOLD_REG (PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET)
 
@@ -494,7 +480,7 @@ static void run_chain(const chain_case_t *chain, const T_DINT *uart,
 
   view->defined_uart = tk_def_int(UART_IRQ, uart);
   view->defined_rtc = tk_def_int(RTC_IRQ, rtc);
-  EnableInt(UART_IRQ, 1);
+  EnableInt(UART_IRQ, LOWEST_LEVEL);
   DisableInt(RTC_IRQ);
 
   view->mie_prepaint = read_mie();
@@ -715,37 +701,37 @@ static void run_software_case(const chain_case_t *chain, const T_DINT *uart,
   assert_the_task_ran_after_the_chain(&view, MCAUSE_SOFTWARE);
 }
 
-static void c_handlers_nest_to_the_full_depth(void) {
+static void nested_interrupt_c_handlers_nest_to_full_depth(void) {
   static const chain_case_t chain = {.late_priority = 0};
   run_external_case(&chain, &s_hlng, &s_hlng);
 }
 
-static void asm_handlers_with_tk_ret_int_outside(void) {
+static void nested_interrupt_asm_handlers_with_tk_ret_int_outside(void) {
   static const chain_case_t chain = {.direct_levels = EVEN_LEVELS};
   run_external_case(&chain, &s_asm, &s_asm);
 }
 
-static void asm_handlers_with_direct_return_outside(void) {
+static void nested_interrupt_asm_handlers_with_direct_return_outside(void) {
   static const chain_case_t chain = {.direct_levels = ODD_LEVELS};
   run_software_case(&chain, &s_asm, &s_asm);
 }
 
-static void c_odd_and_asm_even_levels_with_tk_ret_int(void) {
+static void nested_interrupt_c_odd_asm_even_levels_with_tk_ret_int(void) {
   static const chain_case_t chain = {.direct_levels = 0};
   run_external_case(&chain, &s_hlng, &s_asm);
 }
 
-static void c_odd_and_asm_even_levels_with_direct_return(void) {
+static void nested_interrupt_c_odd_asm_even_levels_with_direct_return(void) {
   static const chain_case_t chain = {.direct_levels = ALL_LEVELS};
   run_external_case(&chain, &s_hlng, &s_asm);
 }
 
-static void asm_odd_and_c_even_levels_with_tk_ret_int(void) {
+static void nested_interrupt_asm_odd_c_even_levels_with_tk_ret_int(void) {
   static const chain_case_t chain = {.direct_levels = 0};
   run_external_case(&chain, &s_asm, &s_hlng);
 }
 
-static void asm_odd_and_c_even_levels_with_direct_return(void) {
+static void nested_interrupt_asm_odd_c_even_levels_with_direct_return(void) {
   static const chain_case_t chain = {.direct_levels = ALL_LEVELS};
   run_software_case(&chain, &s_asm, &s_hlng);
 }
@@ -759,7 +745,8 @@ static void assert_the_late_request_waited(void) {
   TEST_ASSERT_EQUAL_UINT(source_of(NEST_DEPTH - 1), s_late.intno);
 }
 
-static void a_same_priority_request_waits_for_the_deepest_level(void) {
+static void
+nested_interrupt_same_priority_request_waits_for_deepest_level(void) {
   static const chain_case_t chain = {.late_priority = NEST_DEPTH};
   run_external_case(&chain, &s_hlng, &s_hlng);
   assert_the_late_request_waited();
@@ -768,7 +755,8 @@ static void a_same_priority_request_waits_for_the_deepest_level(void) {
   TEST_ASSERT_EQUAL_UINT(NEST_DEPTH, s_late.threshold);
 }
 
-static void a_lower_priority_request_waits_for_the_whole_chain(void) {
+static void
+nested_interrupt_lower_priority_request_waits_for_whole_chain(void) {
   static const chain_case_t chain = {.late_priority = 1};
   run_external_case(&chain, &s_hlng, &s_hlng);
   assert_the_late_request_waited();
@@ -777,17 +765,16 @@ static void a_lower_priority_request_waits_for_the_whole_chain(void) {
   TEST_ASSERT_EQUAL_UINT(1, s_late.threshold);
 }
 
-#define CASE(name) {#name, name}
 static const test_case_t s_cases[] = {
-    CASE(c_handlers_nest_to_the_full_depth),
-    CASE(asm_handlers_with_tk_ret_int_outside),
-    CASE(asm_handlers_with_direct_return_outside),
-    CASE(c_odd_and_asm_even_levels_with_tk_ret_int),
-    CASE(c_odd_and_asm_even_levels_with_direct_return),
-    CASE(asm_odd_and_c_even_levels_with_tk_ret_int),
-    CASE(asm_odd_and_c_even_levels_with_direct_return),
-    CASE(a_same_priority_request_waits_for_the_deepest_level),
-    CASE(a_lower_priority_request_waits_for_the_whole_chain),
+    CASE(nested_interrupt_c_handlers_nest_to_full_depth),
+    CASE(nested_interrupt_asm_handlers_with_tk_ret_int_outside),
+    CASE(nested_interrupt_asm_handlers_with_direct_return_outside),
+    CASE(nested_interrupt_c_odd_asm_even_levels_with_tk_ret_int),
+    CASE(nested_interrupt_c_odd_asm_even_levels_with_direct_return),
+    CASE(nested_interrupt_asm_odd_c_even_levels_with_tk_ret_int),
+    CASE(nested_interrupt_asm_odd_c_even_levels_with_direct_return),
+    CASE(nested_interrupt_same_priority_request_waits_for_deepest_level),
+    CASE(nested_interrupt_lower_priority_request_waits_for_whole_chain),
 };
 
 TEST_SUITE_MAIN("interrupt-depth", s_cases, 5000)

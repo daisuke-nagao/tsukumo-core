@@ -67,7 +67,6 @@ static UINT plic_claim_pending(void) {
 // The only addresses the kernel has a reason to touch. Anything else is a wild
 // access, and fails the running test.
 enum {
-  MSIP = CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET,
   MTIMECMP_LOW = CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET,
   MTIMECMP_HIGH = MTIMECMP_LOW + 4,
   MTIME_LOW = CLINT_BASE_ADDRESS + CLINT_MTIME_OFFSET,
@@ -94,7 +93,7 @@ void host_out(INT port, UINT width, UD data) {
   record(port, width, data, TRUE);
   TEST_ASSERT_EQUAL_UINT_MESSAGE(4, width, "device registers are word wide");
   switch (port) {
-  case MSIP:
+  case HOST_MSIP:
     s_msip = data;
     break;
   case MTIMECMP_LOW:
@@ -134,7 +133,7 @@ void host_out(INT port, UINT width, UD data) {
 UD host_in(INT port, UINT width) {
   UD value = 0;
   switch (port) {
-  case MSIP:
+  case HOST_MSIP:
     value = s_msip;
     break;
   case MTIMECMP_LOW:
@@ -356,7 +355,7 @@ void host_take_snapshot(host_snapshot_t *s) {
   memcpy(s->mbxs, tkmc_mbxcbs, sizeof(s->mbxs));
   s->current = current;
   s->next = next;
-  s->switch_requests = host_write_count(MSIP);
+  s->switch_requests = host_write_count(HOST_MSIP);
 }
 
 void host_assert_unchanged(const host_snapshot_t *s, const char *what) {
@@ -370,11 +369,12 @@ void host_assert_unchanged(const host_snapshot_t *s, const char *what) {
   TEST_ASSERT_EQUAL_MEMORY_MESSAGE(s->mbxs, tkmc_mbxcbs, sizeof(s->mbxs), what);
   TEST_ASSERT_EQUAL_PTR_MESSAGE(s->current, current, what);
   TEST_ASSERT_EQUAL_PTR_MESSAGE(s->next, next, what);
-  TEST_ASSERT_EQUAL_UINT_MESSAGE(s->switch_requests, host_write_count(MSIP),
-                                 what);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(s->switch_requests,
+                                 host_write_count(HOST_MSIP), what);
 }
 
 void host_reset(void) {
+  host_fatal_armed = FALSE;
   tkmc_isr_depth = 0;
   host_log_count = 0;
   s_interrupts_enabled = 1;
@@ -432,6 +432,102 @@ ID host_make_task(PRI prio) {
   return tskid;
 }
 
+jmp_buf host_fatal_jmp;
+volatile BOOL host_fatal_armed;
+volatile host_fatal_t host_fatal;
+
+__attribute__((__noreturn__)) void tkmc_fatal_context(tkmc_context_api api) {
+  if (!host_fatal_armed) {
+    fprintf(stderr, "unexpected fatal context api=%d during host test %s\n",
+            (int)api,
+            Unity.CurrentTestName != NULL ? Unity.CurrentTestName
+                                          : "<unknown>");
+    abort();
+  }
+  host_fatal = (host_fatal_t){TRUE, api, !host_interrupts_enabled()};
+  longjmp(host_fatal_jmp, 1);
+}
+
+void host_check_kernel_state(void) {
+  TEST_ASSERT_TRUE_MESSAGE(host_interrupts_enabled(),
+                           "a kernel call returned with interrupts off");
+  host_check_kernel_queues();
+}
+
+BOOL host_in_queue(const tkmc_list_head *head, const tkmc_list_head *node) {
+  for (const tkmc_list_head *pos = head->next; pos != head; pos = pos->next) {
+    if (pos == node) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+ID host_sleep_for(UINT ticks) {
+  ID id = host_make_task(HOST_HIGH_PRIORITY);
+  host_set_current(id);
+  HOST_EXPECT_WAIT(tk_slp_tsk((TMO)((ticks - 1) * 10)));
+  return id;
+}
+
+void host_run_idle_task(void) {
+  host_set_current(host_make_task(HOST_LOW_PRIORITY));
+}
+
+UINT host_next_random(UINT *state) {
+  *state = *state * 1664525u + 1013904223u;
+  return *state >> 8;
+}
+
+host_objects_t host_make_objects(void) {
+  host_objects_t objects = {
+      .semid = tk_cre_sem(
+          &(T_CSEM){.exinf = 0, .sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1}),
+      .flgid = tk_cre_flg(&(T_CFLG){.exinf = 0, .flgatr = TA_TFIFO}),
+      .mbxid = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = TA_TFIFO}),
+  };
+  TEST_ASSERT_GREATER_THAN(0, objects.semid);
+  TEST_ASSERT_GREATER_THAN(0, objects.flgid);
+  TEST_ASSERT_GREATER_THAN(0, objects.mbxid);
+  return objects;
+}
+
+void host_two_tasks_and_objects(void) {
+  host_set_current(host_make_task(HOST_HIGH_PRIORITY));
+  host_make_task(HOST_HIGH_PRIORITY);
+  host_make_objects();
+}
+
+UINT host_count_creatable_semaphores(void) {
+  UINT created = 0;
+  for (;;) {
+    TEST_ASSERT_LESS_OR_EQUAL_UINT(CFN_MAX_SEMID, created);
+    ID semid = tk_cre_sem(
+        &(T_CSEM){.exinf = 0, .sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
+    if (semid < 0) {
+      TEST_ASSERT_EQUAL(E_LIMIT, semid);
+      return created;
+    }
+    ++created;
+  }
+}
+
+host_context_t host_enter(BOOL in_isr, BOOL interrupts_off) {
+  host_context_t context = {.interrupts_off = interrupts_off, .intsts = 0};
+  if (interrupts_off) {
+    DI(context.intsts);
+  }
+  tkmc_isr_depth = in_isr;
+  return context;
+}
+
+void host_leave(host_context_t context) {
+  tkmc_isr_depth = 0;
+  if (context.interrupts_off) {
+    EI(context.intsts);
+  }
+}
+
 extern void tkmc_timer_handler(void);
 
 void host_tick(UINT ticks) {
@@ -457,6 +553,29 @@ UINT host_write_count(INT port) {
   return count;
 }
 
+UINT host_access_count(INT port, BOOL is_write) {
+  UINT count = 0;
+  for (UINT i = 0; i < host_log_count; ++i) {
+    count += host_log[i].port == port && host_log[i].is_write == is_write;
+  }
+  return count;
+}
+
+INT host_plic_priority_port(UINT src) {
+  return PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET + 4 * src;
+}
+
+UINT host_handler_calls;
+UINT host_handler_intno;
+
+void host_counting_handler(UINT intno) {
+  host_handler_intno = intno;
+  host_handler_calls += 1;
+}
+
+const T_DINT host_counting_hlng = {.intatr = TA_HLNG,
+                                   .inthdr = (FP)host_counting_handler};
+
 UD host_last_write(INT port) {
   for (UINT i = host_log_count; i > 0; --i) {
     if (host_log[i - 1].is_write && host_log[i - 1].port == port) {
@@ -478,6 +597,14 @@ void host_plic_set_enabled(UINT src, BOOL on) {
 
 BOOL host_plic_is_enabled(UINT src) {
   return src < PLIC_SOURCE_COUNT && plic_enabled(src);
+}
+
+BOOL host_plic_pending(UINT src) {
+  if (src >= PLIC_SOURCE_COUNT) {
+    return FALSE;
+  }
+  INT port = PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET + 4 * (src / 32);
+  return (in_w(port) & (1u << (src % 32))) != 0;
 }
 
 UINT host_plic_ignored_completions(void) { return s_plic_ignored_completions; }
