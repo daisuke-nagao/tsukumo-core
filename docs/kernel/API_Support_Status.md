@@ -5,7 +5,7 @@ whether an API exists before you call it. A checked box (`[x]`) means the
 kernel provides the API through its public header `<tk/tkernel.h>`; an empty
 box (`[ ]`) means it does not.
 
-The list says nothing about how closely an API follows the specification. The
+For the rules on task ID 0, see [TSK_SELF](#tsk_self). The
 [specification conformance review](spec-conformance-review.md) checks each of
 the 40 provided APIs against the official
 [μT-Kernel 3.0 specification Ver.3.00.01](https://tron-forum.github.io/mtk3_spec_jp/index.html)
@@ -269,3 +269,33 @@ management).
 * [ ] `waitfn` - Wait for completion function
 * [ ] `WaitNsec` - Micro wait (nanoseconds)
 * [ ] `WaitUsec` - Micro wait (microseconds)
+
+## TSK_SELF
+
+`<tk/tkernel.h>` defines `TSK_SELF` as 0. Only APIs that explicitly support
+the alias can use it to identify the calling task. No API currently provided
+by tsukumo-core accepts the alias. Semaphore, event flag and mailbox IDs of
+0 also return `E_ID`.
+
+| API | Provided | `TSK_SELF` (0) |
+| --- | --- | --- |
+| `tk_sta_tsk` | yes | The specification does not define `TSK_SELF` for it. 0 is an invalid ID and returns `E_ID`; nothing changes. |
+| `tk_wup_tsk` | yes | The specification does not define `TSK_SELF` for it. 0 is an invalid ID and returns `E_ID`; nothing changes. |
+| `tk_rel_wai` | yes | The specification does not define `TSK_SELF` for it. 0 is an invalid ID and returns `E_ID`; nothing changes. |
+| `tk_can_wup` | no | The specification accepts `TSK_SELF` as the calling task. A `TSK_SELF` call from the task-independent portion returns `E_ID`. |
+| `tk_ref_tsk` | no | The specification accepts `TSK_SELF` as the calling task. A `TSK_SELF` call from the task-independent portion returns `E_ID`. |
+| `tk_chg_pri` | no | The specification accepts `TSK_SELF` as the calling task. A `TSK_SELF` call from the task-independent portion returns `E_ID`. |
+
+When a running task calls `tk_wup_tsk` or `tk_rel_wai` with its own real ID,
+the call returns `E_OBJ`. An ISR can use the interrupted task's real ID
+subject to each API's usual target state and context requirements.
+
+Rules for implementing an API that accepts `TSK_SELF`:
+
+* Check the API's specification for whether it accepts `TSK_SELF`, which
+  contexts may call it and the order of the errors.
+* Never treat an ISR, or a missing current task, as the caller's own task.
+* Tell task context apart with the kernel's common ISR check, not with the
+  interrupt-enable flag (`MIE`).
+* Check separately that a current task exists and that the API is allowed in
+  the calling context.

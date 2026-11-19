@@ -541,7 +541,9 @@ ER tk_rel_wai(ID tskid) {
  *   used up one at a time by tk_slp_tsk(); there is no tk_can_wup().
  *
  * Parameters:
- * - tskid: ID of the task to wake up. TSK_SELF is not supported.
+ * - tskid: ID of the task to wake up. Only an API whose documentation accepts
+ *   TSK_SELF treats 0 as the calling task; here 0 is out of range (see
+ *   docs/kernel/API_Support_Status.md).
  *
  * Returns:
  * - E_OK on success.

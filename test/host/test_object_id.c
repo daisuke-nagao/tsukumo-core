@@ -50,31 +50,36 @@ typedef struct {
   ID max;
   // Wait calls need a current task before looking up an object.
   BOOL from_a_task;
+  // A future API that takes a task ID needs this mark.
+  BOOL takes_task_id;
 } api_t;
 
 static const api_t s_apis[] = {
-    {"tk_sta_tsk", call_sta_tsk, CFN_MAX_TSKID, FALSE},
-    {"tk_rel_wai", call_rel_wai, CFN_MAX_TSKID, FALSE},
-    {"tk_wup_tsk", call_wup_tsk, CFN_MAX_TSKID, FALSE},
-    {"tk_wai_sem", call_wai_sem, CFN_MAX_SEMID, TRUE},
-    {"tk_sig_sem", call_sig_sem, CFN_MAX_SEMID, FALSE},
-    {"tk_del_sem", call_del_sem, CFN_MAX_SEMID, FALSE},
-    {"tk_wai_flg", call_wai_flg, CFN_MAX_FLGID, TRUE},
-    {"tk_set_flg", call_set_flg, CFN_MAX_FLGID, FALSE},
-    {"tk_clr_flg", call_clr_flg, CFN_MAX_FLGID, FALSE},
-    {"tk_snd_mbx", call_snd_mbx, CFN_MAX_MBXID, FALSE},
-    {"tk_rcv_mbx", call_rcv_mbx, CFN_MAX_MBXID, TRUE},
-    {"tk_del_mbx", call_del_mbx, CFN_MAX_MBXID, FALSE},
+    {"tk_sta_tsk", call_sta_tsk, CFN_MAX_TSKID, FALSE, TRUE},
+    {"tk_rel_wai", call_rel_wai, CFN_MAX_TSKID, FALSE, TRUE},
+    {"tk_wup_tsk", call_wup_tsk, CFN_MAX_TSKID, FALSE, TRUE},
+    {"tk_wai_sem", call_wai_sem, CFN_MAX_SEMID, TRUE, FALSE},
+    {"tk_sig_sem", call_sig_sem, CFN_MAX_SEMID, FALSE, FALSE},
+    {"tk_del_sem", call_del_sem, CFN_MAX_SEMID, FALSE, FALSE},
+    {"tk_wai_flg", call_wai_flg, CFN_MAX_FLGID, TRUE, FALSE},
+    {"tk_set_flg", call_set_flg, CFN_MAX_FLGID, FALSE, FALSE},
+    {"tk_clr_flg", call_clr_flg, CFN_MAX_FLGID, FALSE, FALSE},
+    {"tk_snd_mbx", call_snd_mbx, CFN_MAX_MBXID, FALSE, FALSE},
+    {"tk_rcv_mbx", call_rcv_mbx, CFN_MAX_MBXID, TRUE, FALSE},
+    {"tk_del_mbx", call_del_mbx, CFN_MAX_MBXID, FALSE, FALSE},
 };
 
 // Calls the API with id on a fresh kernel and checks that it returns expected
-// and changes nothing, output arguments included.
-static void check_call(const api_t *api, ID id, ER expected) {
-  char label[48];
-  snprintf(label, sizeof(label), "%s(%d)", api->name, (int)id);
+// and changes nothing, output arguments included. A current task exists when
+// the API needs one or with_current_task is set.
+static void check_call(const api_t *api, ID id, ER expected,
+                       BOOL with_current_task) {
+  char label[64];
+  snprintf(label, sizeof(label), "%s(%d)%s", api->name, (int)id,
+           with_current_task ? " with a current task" : "");
 
   host_reset();
-  if (api->from_a_task) {
+  if (api->from_a_task || with_current_task) {
     host_set_current(host_make_task(HOST_HIGH_PRIORITY));
   }
   s_flgptn = FLAG_SENTINEL;
@@ -93,15 +98,26 @@ static void test_object_id_out_of_range_is_refused_and_changes_nothing(void) {
   for (UINT i = 0; i < HOST_COUNT(s_apis); ++i) {
     const ID out_of_range[] = {0, -1, INT_MIN, s_apis[i].max + 1};
     for (UINT j = 0; j < HOST_COUNT(out_of_range); ++j) {
-      check_call(&s_apis[i], out_of_range[j], E_ID);
+      check_call(&s_apis[i], out_of_range[j], E_ID, FALSE);
     }
   }
 }
 
 static void test_object_id_at_both_ends_of_range_passes_id_check(void) {
   for (UINT i = 0; i < HOST_COUNT(s_apis); ++i) {
-    check_call(&s_apis[i], 1, E_NOEXS);
-    check_call(&s_apis[i], s_apis[i].max, E_NOEXS);
+    check_call(&s_apis[i], 1, E_NOEXS, FALSE);
+    check_call(&s_apis[i], s_apis[i].max, E_NOEXS, FALSE);
+  }
+}
+
+// This differs from the rows of ID 0 above only by having a current task.
+static void
+test_object_id_tsk_self_is_refused_with_a_current_task_and_changes_nothing(
+    void) {
+  for (UINT i = 0; i < HOST_COUNT(s_apis); ++i) {
+    if (s_apis[i].takes_task_id) {
+      check_call(&s_apis[i], TSK_SELF, E_ID, TRUE);
+    }
   }
 }
 
@@ -109,4 +125,6 @@ void run_object_id_tests(void) {
   UnitySetTestFile(__FILE__);
   RUN_TEST(test_object_id_out_of_range_is_refused_and_changes_nothing);
   RUN_TEST(test_object_id_at_both_ends_of_range_passes_id_check);
+  RUN_TEST(
+      test_object_id_tsk_self_is_refused_with_a_current_task_and_changes_nothing);
 }
