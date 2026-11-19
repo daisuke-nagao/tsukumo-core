@@ -63,6 +63,52 @@ failure with interrupts enabled, and `startup-success` checks normal startup
 through the same wrappers. Each passes only when it prints `STARTUP FAILURE OK`
 or `STARTUP SUCCESS OK`.
 
+## Task stacks
+
+`tk_cre_tsk` requires `TA_USERBUF` and rejects unsupported task attributes, or
+the omission of `TA_USERBUF`, with `E_RSATR`. Its `bufptr` must be non-NULL and
+point to writable storage supplied by the caller. `stksz` is the buffer size in
+bytes and must be greater than the RV32 128-byte initial register frame. The
+numeric address sum of the buffer start and `stksz` must not wrap the address
+space and must be 16-byte aligned. Only the end has this alignment requirement.
+After validating the attributes, `tk_cre_tsk` returns `E_PAR` for a NULL buffer,
+a size of 128 bytes or less, a wrapping sum, or a misaligned end.
+
+The [RISC-V ILP32 psABI integer calling convention](https://riscv-non-isa.github.io/riscv-elf-psabi-doc/#integer-cc)
+requires the stack pointer to be 16-byte aligned at procedure entry. The kernel
+uses the validated end of the supplied buffer as the stack's upper end; it does
+not round the end down. Keep the buffer allocated and writable until the task
+is deleted. Size it for the task's deepest use, including call frames, and
+leave another 128 bytes below that point for a frame saved when an interrupt
+preempts the task. The size check leaves room for the initial frame and some
+stack space. Choose the runtime capacity for your task rather than relying on
+the 2048-byte example below.
+
+This example creates one task on its dedicated static buffer; give each other
+task its own buffer as well:
+
+```c
+#include <tk/tkernel.h>
+
+static _Alignas(16) UB stack[2048];
+
+static void worker(INT stacd, void *exinf) {
+  (void)stacd;
+  (void)exinf;
+}
+
+ID create_worker(void) {
+  T_CTSK task = {
+      .tskatr = TA_HLNG | TA_USERBUF,
+      .task = (FP)worker,
+      .itskpri = 1,
+      .bufptr = stack,
+      .stksz = sizeof stack,
+  };
+  return tk_cre_tsk(&task);
+}
+```
+
 ## Context rules for wait calls
 
 The wait calls are `tk_slp_tsk`, `tk_dly_tsk`, `tk_wai_sem`, `tk_wai_flg` and

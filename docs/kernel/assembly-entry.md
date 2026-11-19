@@ -16,8 +16,11 @@ Pass the address of an assembly routine in `T_CTSK.task` and select
 | --- | --- |
 | `a0` | Signed `stacd` passed to `tk_sta_tsk` |
 | `a1` | `exinf` from task creation |
-| `sp` | User-stack upper end rounded down to a 16-byte boundary |
+| `sp` | Validated upper end (`bufptr + stksz`) of the user stack; 16-byte aligned |
 | `ra` | `tk_ext_tsk` |
+
+See [Task stacks](behavior.md#task-stacks) for the buffer constraints and
+stack-sizing requirements.
 
 Follow the RV32 ILP32 calling convention when calling C or kernel APIs.
 Keep `gp` and `tp` unchanged. The other initial general-register values are
