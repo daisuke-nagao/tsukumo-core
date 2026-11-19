@@ -38,4 +38,4 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Your operating system and the versions of clang, CMake, and QEMU.
+      description: Your operating system and the versions of clang, CMake, and QEMU. Was this on QEMU or hardware? Name the QEMU machine or hardware board.

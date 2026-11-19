@@ -16,6 +16,11 @@ body:
     validations:
       required: true
   - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance criteria
+      description: What behavior or checks would show that this change is complete?
+  - type: textarea
     id: alternatives
     attributes:
       label: Alternatives
