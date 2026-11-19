@@ -72,6 +72,12 @@ have. Markdown, YAML and JSON files need none: [REUSE.toml](REUSE.toml) gives
 them the MIT License by extension. For any other format that cannot hold a
 header, add its path to `REUSE.toml`.
 
+Submit only material you have the right to contribute under the MIT policy
+stated in the README. For third-party material, confirm its terms allow
+inclusion and retain any required attribution, copyright and license notices.
+Retaining notices alone does not grant permission; submitting a contribution
+does not automatically relicense third-party material or transfer its copyright.
+
 To write the license list of the repository as an SPDX document, run
 `uv run --with "reuse[charset-normalizer]" reuse spdx -o <file>`. Only this
 command needs [uv](https://docs.astral.sh/uv/). The check in `git commit` runs
