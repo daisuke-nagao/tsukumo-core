@@ -58,6 +58,13 @@ extern "C" {
 #define TA_MFIFO 0x00000000 /* Manage messages in FIFO order */
 #define TA_MPRI 0x00000002  /* Manage messages in order of priority */
 
+/*
+ * TSK_SELF is 0. Only an API whose documentation accepts it treats 0 as the
+ * calling task; everywhere else 0 is an invalid ID (E_ID). See
+ * docs/kernel/API_Support_Status.md.
+ */
+#define TSK_SELF 0 /* Calling task, where an API accepts it */
+
 #define TTS_NOEXS 0x0000
 #define TTS_RUN 0x0001
 #define TTS_RDY 0x0002

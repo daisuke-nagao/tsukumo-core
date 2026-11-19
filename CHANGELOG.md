@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add the public `TSK_SELF` constant (value 0); an API accepts it only where
+  documented (see [TSK_SELF](docs/kernel/API_Support_Status.md#tsk_self))
+
 - Add QEMU tests that nest external interrupts three to seven levels deep with
   high-level and assembly handlers, check the PLIC completion order and measure
   the interrupt stack against the boot stack below it
