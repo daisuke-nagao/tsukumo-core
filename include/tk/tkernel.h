@@ -102,6 +102,13 @@ extern "C" {
 #define TWF_CLR 0x10    /* Clear all */
 #define TWF_BITCLR 0x20 /* Clear only condition bits */
 
+// tk_cre_tsk requires TA_USERBUF and rejects invalid attributes with E_RSATR.
+// The caller supplies writable storage and keeps it valid until task deletion.
+// On RV32, stksz is in bytes and must exceed the 128-byte initial frame. The
+// numerical end address (bufptr address plus stksz) must not wrap and must be
+// 16-byte aligned; bufptr itself need not be 16-byte aligned. After checking
+// attributes, tk_cre_tsk returns E_PAR for a NULL bufptr, a size of 128 bytes
+// or less, or a wrapping or misaligned end. See docs/kernel/behavior.md.
 typedef struct T_CTSK {
   void *exinf;  /* Extended Information */
   ATR tskatr;   /* Task Attribute  */
