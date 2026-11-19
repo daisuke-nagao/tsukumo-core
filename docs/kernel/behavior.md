@@ -126,6 +126,15 @@ could succeed at once, or a zero delay (`tk_dly_tsk(0)`).
 Because the ISR state is independent of `MIE`, a wait call from a handler that
 has turned interrupts on also returns `E_CTX`.
 
+For `tk_wai_sem`, `maxsem` is the per-semaphore maximum set at creation,
+separate from the current available count. With valid arguments and wait
+context, a request for an existing semaphore with `cnt > maxsem` returns
+`E_PAR` immediately for `TMO_POL`, finite, or `TMO_FEVR` waits, without
+changing the count or wait queue. For example, `cnt=2` against `maxsem=1` is
+rejected. This differs from temporary unavailability: a within-limit poll can
+return `E_TMOUT`, while a finite or endless wait can block. This is a defined
+choice; see the [spec-conformance review](spec-conformance-review.md#defined-choices).
+
 Tests: the `wait-context` QEMU suite calls each wait call with interrupts
 disabled. The `task-context-*` QEMU suites call them from a real timer
 interrupt and before the first task starts, when there is no current task. In
