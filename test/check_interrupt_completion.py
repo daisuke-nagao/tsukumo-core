@@ -57,6 +57,9 @@ EXPECTED = {
     "end_of_int_from_direct_return_is_idempotent": [10, 10],
     "end_of_int_from_tk_ret_int_completes_with_single_call": [10, 10],
     "end_of_int_from_direct_return_completes_with_single_call": [10, 10],
+    "hlng_handler_returning_with_interrupts_on_completes_with_them_off": [10],
+    "nested_hlng_handler_returning_with_interrupts_on_completes_with_them_off": [11, 11, 10],
+    "hlng_handler_returning_with_interrupts_on_lets_timer_and_dispatch_run_after_exit": [10],
     "tk_sta_tsk_by_isr_right_after_tk_ext_tsk_starts_task_anew": [10],
     "tk_cre_tsk_by_isr_in_tcb_freed_by_tk_exd_tsk_starts_task_anew": [10],
 }

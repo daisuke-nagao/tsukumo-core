@@ -83,6 +83,7 @@ faults with successful restoration checks.
 | 2026-11-10, in part | [The interrupt profile flags disagreed with the exported calls](#the-interrupt-profile-flags-disagreed-with-the-exported-calls) | `EnableInt`, `DisableInt` | PC unit test in `test/host/test_intctl.c` |
 | 2026-11-11 | [Common public declarations were unavailable](#common-public-declarations-were-unavailable) | `SYSTIM`, `LOCAL`, `EXPORT`, `IMPORT` | Public consumer compile and link checks |
 | 2026-11-11 | [No time representation was enabled](#no-time-representation-was-enabled) | `tk_set_utc`, `tk_get_utc`, `TK_SUPPORT_UTC` | PC unit tests in `test/host/test_system_time.c`, `system-time` suite, public consumer checks |
+| 2026-11-20 | [A `TA_HLNG` handler that returned with interrupts on let them in during completion](#a-ta_hlng-handler-that-returned-with-interrupts-on-let-them-in-during-completion) | `tk_def_int` | Three cases in the `interrupt` suite |
 
 The initial review on 2026-11-08 (JST) found the `EI` and interrupt-profile
 problems. After the `EI` fix, a second review of the kernel found the task-exit
@@ -381,6 +382,62 @@ interrupts-disabled task, and a missing reset at timer start. Clang C++17
 consumers compiled and linked both calls against the C kernel in both `CONST`
 modes.
 
+### A TA_HLNG handler that returned with interrupts on let them in during completion
+
+The specification calls a handler with multiple interrupts disabled. To allow
+nesting, the handler changes the CPU interrupt flag itself, and a `TA_HLNG`
+handler ends by returning from its C function. It does not ask the handler to
+disable interrupts again before it returns
+([`tk_def_int`](https://tron-forum.github.io/mtk3_spec_jp/interrupt_management_functions_os.html)).
+
+Before the fix, the kernel restored whatever MIE the handler left. A handler
+that turned interrupts on and returned with them on therefore let interrupts in
+while the kernel put back the PLIC threshold, completed the source, unlinked the
+context and restored the trap frame. A pending timer tick taken there could
+leave `tkmc_isr_depth` raised in the task that the trap switched to. `mepc`
+could be overwritten in the middle of the frame restore, and a nested `mret`
+could reset `MPP`. The documentation hid this by requiring every handler to
+call `DI()` before it returned, a rule the specification does not contain.
+
+A review of the trap path found the problem. On the old kernel, in the
+`debug` preset on the instruction-count clock, the first two regression cases
+fail on their MIE and depth checks. The third times out:
+
+```text
+hlng_handler_returning_with_interrupts_on_completes_with_them_off:FAIL: Expected 0 Was 1. the completion ran with interrupts on (MIE=1 at entry)
+nested_hlng_handler_returning_with_interrupts_on_completes_with_them_off:FAIL: Expected 2 Was 3. the new request was taken inside the completion, not after mret
+hlng_handler_returning_with_interrupts_on_lets_timer_and_dispatch_run_after_exit:FAIL: timeout
+```
+
+Three isolated changes checked what the first two cases detect. Removing the
+MIE clear failed the entry and depth checks on both clocks. On the
+instruction-count clock, setting MIE in the test wrapper after the real
+completion call failed the exit and depth checks. Clearing `MPIE` as well as
+MIE on the HLNG return, only while the cases had armed the test record,
+failed the task's MIE check and the nested re-entry count.
+
+Since 2026-11-20, `.Lexternal_hlng` in `kernel/asm/rv32/start.S` clears MIE
+(`csrci mstatus, 8`) right after the C handler returns. The completion
+(`tkmc_finish_external_interrupt`) and the trap epilogue (deferred dispatch at
+the outermost exit, `mie` restore, frame restore and `mret`) run with
+interrupts off. `mret` restores MIE from `MPIE`, so the interrupted code
+resumes with interrupts as before. A `TA_ASM` handler keeps its exit
+conditions: it disables MIE itself (see
+[assembly entry conventions](assembly-entry.md)).
+
+Three cases in the `interrupt` suite (`test/suites/interrupt.c`) cover it.
+They observe `tkmc_finish_external_interrupt` through a test-only link wrap and
+check MIE at its entry and exit:
+
+- `hlng_handler_returning_with_interrupts_on_completes_with_them_off`
+- `nested_hlng_handler_returning_with_interrupts_on_completes_with_them_off`,
+  which also checks the ISR depth of the nested re-entry
+- `hlng_handler_returning_with_interrupts_on_lets_timer_and_dispatch_run_after_exit`,
+  which checks that a requested task switch is made at the exit of the same
+  trap and that a pending tick is taken after `mret`, at depth 1
+
+The [contract](interrupts.md#nested-interrupts) states the rule.
+
 ## Test runs by date
 
 Each row is the recorded result of one run. PC unit tests ran with
@@ -397,6 +454,7 @@ AddressSanitizer and UBSan. The six presets are `debug`, `relwithdebinfo`,
 | 2026-11-10 | After the profile fix | 137 passed | `debug`: all 84 passed | |
 | 2026-11-11 | After the common-declaration fix | 137 passed, plus three host consumer checks | All 88 passed in Debug, including three compile/link checks | Original-header and six wrong-header cases detected on both targets. Existing RV32 packet layouts matched the baseline. Clang C++17 consumers linked against the C kernel in both `CONST` modes. |
 | 2026-11-11 | After the time-representation fix | 162 passed, plus three host consumer checks | All 90 passed in each of the six presets | `timer-cost`, `timer-cost-max` and `mailbox-cost` passed in all six presets. Fourteen isolated clock faults each failed a PC unit test. Clang C++17 consumers linked both time calls against the C kernel in both `CONST` modes. |
+| 2026-11-21 | After the `TA_HLNG` return fix | 168 passed, plus three host consumer checks | All 126 passed in each of the six presets | Removing the MIE clear failed two new assertions on both clocks in `debug`; the third case timed out. The two additional fault checks failed their targeted assertions. `interrupt` passed on both clocks with the fix, its completion trace confirmed the predicted EOI order, and `timer-cost`, `timer-cost-max` and `mailbox-cost` passed in all six presets. |
 
 The `timer-cost-max` suite raised the Debug count to 85 after the earlier
 2026-11-10 runs. A full validation then passed all 137 PC unit tests and all

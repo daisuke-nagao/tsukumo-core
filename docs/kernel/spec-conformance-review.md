@@ -56,7 +56,7 @@ difference, the kernel was fixed on that date, and the entry now passes. The
 
 - All 40 implemented entries are Checked. Some also carry a Defined choice or
   an Evidence gap.
-- Seven differences that the review found are corrected. `EI` did not restore a
+- Eight differences that the review found are corrected. `EI` did not restore a
   saved disabled state (fixed 2026-11-09). On 2026-11-10 the kernel was fixed
   so that an ended task can no longer resume its old run, an ISR can release
   the task it interrupted, `tk_dly_tsk(0)` no longer yields, and the interrupt
@@ -66,7 +66,9 @@ difference, the kernel was fixed on that date, and the entry now passes. The
   gained `tk_set_utc` and `tk_get_utc` with `TK_SUPPORT_UTC` true. On 2026-11-15
   the kernel added `CheckInt` for PLIC pending snapshots and `EndOfInt` for
   explicit completion coordinated with automatic exits. On 2026-11-17 the
-  kernel added `ClearInt` to discard one selected pending request.
+  kernel added `ClearInt` to discard one selected pending request. On
+  2026-11-20 the kernel started turning interrupts off when a `TA_HLNG`
+  handler returns with them on, which the specification allows.
 - The implemented subset has no remaining reproduced differences. The
   [interrupt profile](#interrupt-controller-profile) now provides all five
   calls associated with `TK_SUPPORT_INTCTRL`.
@@ -186,7 +188,7 @@ and the [I/O access chapter](https://tron-forum.github.io/mtk3_spec_jp/io_port_m
 
 | Entry | Assessment | Source and checked evidence |
 | --- | --- | --- |
-| `tk_def_int` | Checked / Defined choice | `kernel/intctl.c`, `test/host/test_intctl.c`, `interrupt`. The `T_DINT` packet layout, a `TA_HLNG` C callback or a `TA_ASM` raw entry, replacement and removal, number ranges, and context handling. |
+| `tk_def_int` | Checked (Difference corrected 2026-11-20) / Defined choice | `kernel/intctl.c`, `kernel/asm/rv32/start.S`, `test/host/test_intctl.c`, `interrupt`. The `T_DINT` packet layout, a `TA_HLNG` C callback or a `TA_ASM` raw entry, replacement and removal, number ranges, and context handling. A `TA_HLNG` handler may return with interrupts on, as the specification allows; the kernel turns them off before it completes the interrupt, and the `interrupt` suite covers it ([history](spec-conformance-history.md#a-ta_hlng-handler-that-returned-with-interrupts-on-let-them-in-during-completion)). |
 | `tk_ret_int` | Checked / Defined choice | `kernel/intctl.c`, `kernel/asm/rv32/start.S`, `interrupt`. Matching ASM entry/depth/stack and disabled MIE required, fatal invalid context, exactly-once completion and outermost delayed dispatch. The [assembly contract](assembly-entry.md) also defines the direct-return alternative. |
 | `EnableInt` | Checked (Difference corrected 2026-11-10) / Defined choice | `kernel/intctl.c`, `test/host/test_intctl.c`, `interrupt`. Setting the priority, enabling the source, and delivery of an interrupt that was already pending. A consumer written to the service profile compiles and sets the level ([history](spec-conformance-history.md#the-interrupt-profile-flags-disagreed-with-the-exported-calls)). |
 | `DisableInt` | Checked / Defined choice | `kernel/intctl.c`, `test/host/test_intctl.c`, `interrupt`. Masking a source, a handler disabling its own source, and completion of the source. `TK_SUPPORT_INTCTRL` now announces it. |

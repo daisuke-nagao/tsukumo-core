@@ -47,6 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Stop a `TA_HLNG` interrupt handler that returns with interrupts enabled from letting interrupts in while the
+  kernel completes the interrupt and restores the interrupted context; such a handler no longer needs `DI()` before
+  it returns (see [nested interrupts](docs/kernel/interrupts.md#nested-interrupts))
 - Strengthen UTC reset and refusal regressions with elapsed and pending ticks
 - Keep the never-return attribute of the panic APIs when `<stdnoreturn.h>` is included before the kernel headers
 - Run the RV32 public-declaration link checks one at a time so that `ctest -j` no longer fails them at random

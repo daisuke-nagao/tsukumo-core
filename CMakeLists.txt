@@ -540,7 +540,8 @@ add_test_suite(interrupt-state SOURCES test/suites/interrupt_state.c)
 # External interrupts through the PLIC, and the stack the traps run on. The
 # test-only link wraps of schedule() and tkmc_timer_handler() keep the mcause of
 # the trap that switches to a task the handler woke, and where the C part of
-# each trap ran.
+# each trap ran; the wrap of tkmc_finish_external_interrupt() records whether
+# mstatus.MIE is on when the completion of an interrupt starts and ends.
 add_test_suite(
   interrupt
   SOURCES
@@ -550,7 +551,8 @@ add_test_suite(
   test/asm_interrupt_entries.S
   WRAP
   schedule
-  tkmc_timer_handler)
+  tkmc_timer_handler
+  tkmc_finish_external_interrupt)
 if(QEMU_EXECUTABLE)
   add_test(
     NAME interrupt-completion-trace-self-test

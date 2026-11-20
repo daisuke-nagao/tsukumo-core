@@ -34,6 +34,7 @@
 #include "../finish.h"
 #include "../putstring.h"
 #include "asm/rv32/address.h"
+#include "intctl.h"
 #include "panic.h"
 #include "qemu_virt.h"
 #include "runner.h"
@@ -127,6 +128,46 @@ void __wrap_tkmc_timer_handler(void) {
     s_timer_handler_ok = FALSE;
   }
   __real_tkmc_timer_handler();
+}
+
+// The state of mstatus.MIE on entry to and exit from the kernel's completion of
+// an external interrupt, counted only while a case has armed the record. Only
+// the call from the trap entry (start.S) is wrapped; the call that
+// tkmc_ret_int_from_sp makes in its own object file is not, and that assembly
+// path is out of scope here.
+extern void __real_tkmc_finish_external_interrupt(tkmc_interrupt_context *ctx);
+
+static volatile BOOL s_finish_armed;
+static volatile UINT s_finish_calls;
+static volatile UINT s_finish_entries_with_mie;
+static volatile UINT s_finish_exits_with_mie;
+
+static BOOL mstatus_mie_is_on(void) {
+  UW mstatus;
+  __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus) : : "memory");
+  return (mstatus & MSTATUS_MIE_BIT) != 0;
+}
+
+void __wrap_tkmc_finish_external_interrupt(tkmc_interrupt_context *ctx) {
+  if (!s_finish_armed) {
+    __real_tkmc_finish_external_interrupt(ctx);
+    return;
+  }
+  s_finish_calls += 1;
+  if (mstatus_mie_is_on()) {
+    s_finish_entries_with_mie += 1;
+  }
+  __real_tkmc_finish_external_interrupt(ctx);
+  if (mstatus_mie_is_on()) {
+    s_finish_exits_with_mie += 1;
+  }
+}
+
+static void arm_finish_record(void) {
+  s_finish_calls = 0;
+  s_finish_entries_with_mie = 0;
+  s_finish_exits_with_mie = 0;
+  s_finish_armed = TRUE;
 }
 
 #define PLIC_PRIORITY_REG(src)                                                 \
@@ -1914,6 +1955,270 @@ asm_handler_direct_return_restores_frame_and_leaves_dispatch_pending(void) {
   run_asm_irq_exit(TRUE, 0);
 }
 
+// ---- A TA_HLNG handler that returns with interrupts on ----------------------
+//
+// The kernel, not the handler, owns mstatus.MIE across the completion of the
+// interrupt: it must turn MIE off as soon as the handler returns, so that the
+// completion and the trap epilogue run with interrupts off and mret restores
+// MIE of the interrupted context. A handler that returns without DI must not
+// leave them on.
+//
+// The cases that look at the interrupted task wait by a busy-poll with no
+// kernel call, so the trap lands in the case task (in the idle task the check
+// of the task's MIE could not fail), and put the machine back before any
+// kernel call, with CPU interrupts on again, so that a kernel that returns with
+// MIE off does not stop the cleanup.
+
+enum {
+  HLNG_SPIN_MS = 25,    // More than two ticks, with margin.
+  NOT_WRITTEN = 0xDEAD, // A depth or threshold the kernel never produces.
+};
+
+static volatile UINT s_hlng_runs;
+static volatile BOOL s_hlng_second_entered;
+static volatile UINT s_hlng_inner_entries, s_hlng_inner_depth;
+static volatile BOOL s_hlng_rerequest_pending;
+static volatile UW s_hlng_outer_mstatus;
+static volatile UINT s_hlng_outer_depth;
+static volatile UW s_hlng_outer_threshold;
+static volatile UINT s_hlng_timer_calls_before;
+
+static BOOL hlng_poll_until(volatile UINT *what, UINT count) {
+  UW start = test_mtime();
+  while (*what < count &&
+         (UW)(test_mtime() - start) < WAIT_MS * TEST_MTIME_PER_MS) {
+  }
+  return *what >= count;
+}
+
+static void hlng_returning_on_handler(UINT intno) {
+  (void)intno;
+  out_b(UART_IER, 0);
+  EI(0);
+  s_hlng_runs += 1; // Returns without DI.
+}
+
+static void
+hlng_handler_returning_with_interrupts_on_completes_with_them_off(void) {
+  reset_counters();
+  s_hlng_runs = 0;
+  TEST_ASSERT_EQUAL(E_OK, tk_dly_tsk(1)); // Right after a tick edge.
+  arm_finish_record();
+  const T_DINT dint = {.intatr = TA_HLNG, .inthdr = hlng_returning_on_handler};
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
+  EnableInt(UART_IRQ, OUTER_LEVEL);
+  out_b(UART_IER, IER_THRE);
+  BOOL ran = hlng_poll_until(&s_hlng_runs, 1);
+  UW task_mstatus = read_mstatus();
+  s_finish_armed = FALSE;
+  UINT calls = s_finish_calls;
+  UINT entries = s_finish_entries_with_mie;
+  UINT exits = s_finish_exits_with_mie;
+  UINT depth = tkmc_isr_depth;
+  out_b(UART_IER, 0);
+  DisableInt(UART_IRQ);
+  set_mstatus_mie(TRUE);
+  clean_up();
+  ER sleep = tk_slp_tsk(TMO_POL);
+  TEST_ASSERT_TRUE_MESSAGE(ran, "the handler did not run");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(1, calls, "completions of the interrupt");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0, entries, "the completion ran with interrupts on (MIE=1 at entry)");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0, exits, "the completion returned with interrupts on (MIE=1 at exit)");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0, depth, "the trap depth after the return");
+  TEST_ASSERT_EQUAL_HEX32_MESSAGE(MSTATUS_MIE_BIT,
+                                  task_mstatus & MSTATUS_MIE_BIT,
+                                  "the interrupted task resumed with MIE off");
+  TEST_ASSERT_EQUAL_MESSAGE(E_TMOUT, sleep,
+                            "a wait call from the task was refused");
+}
+
+// The inner handler returns with interrupts on while the threshold still hides
+// a new request of its own source. The completion restores the threshold of
+// the outer handler, so with MIE on it takes the request one level too deep
+// (depth 3). With MIE off it is taken after mret, in the outer handler (2).
+static void hlng_nested_inner_handler(UINT intno) {
+  (void)intno;
+  s_hlng_inner_entries += 1;
+  if (s_hlng_inner_entries == 1) {
+    EndOfInt(RTC_IRQ);
+    rtc_quiet();
+    rtc_raise();
+    UW start = test_mtime();
+    while (!CheckInt(RTC_IRQ) &&
+           (UW)(test_mtime() - start) < WAIT_MS * TEST_MTIME_PER_MS) {
+    }
+    s_hlng_rerequest_pending = CheckInt(RTC_IRQ);
+    EI(0); // Returns without DI.
+  } else {
+    rtc_quiet();
+    s_hlng_inner_depth = tkmc_isr_depth;
+    s_hlng_second_entered = TRUE;
+  }
+}
+
+static void hlng_nested_outer_handler(UINT intno) {
+  (void)intno;
+  out_b(UART_IER, 0);
+  EI(0);
+  EnableInt(RTC_IRQ, HIGHER_LEVEL);
+  rtc_raise();
+  UW start = test_mtime();
+  while (!s_hlng_second_entered &&
+         (UW)(test_mtime() - start) < WAIT_MS * TEST_MTIME_PER_MS) {
+  }
+  s_hlng_outer_mstatus = read_mstatus();
+  s_hlng_outer_depth = tkmc_isr_depth;
+  s_hlng_outer_threshold = in_w(PLIC_THRESHOLD_REG);
+  UINT intsts;
+  DI(intsts);
+  s_flag = 1;
+}
+
+static void
+nested_hlng_handler_returning_with_interrupts_on_completes_with_them_off(void) {
+  reset_counters();
+  s_flag = 0;
+  s_hlng_inner_entries = 0;
+  s_hlng_inner_depth = NOT_WRITTEN;
+  s_hlng_second_entered = FALSE;
+  s_hlng_rerequest_pending = FALSE;
+  s_hlng_outer_mstatus = 0;
+  s_hlng_outer_depth = NOT_WRITTEN;
+  s_hlng_outer_threshold = NOT_WRITTEN;
+  const T_DINT inner = {.intatr = TA_HLNG, .inthdr = hlng_nested_inner_handler};
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(RTC_IRQ, &inner));
+  EnableInt(RTC_IRQ, HIGHER_LEVEL);
+  const T_DINT outer = {.intatr = TA_HLNG, .inthdr = hlng_nested_outer_handler};
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &outer));
+  EnableInt(UART_IRQ, OUTER_LEVEL);
+  arm_finish_record();
+  out_b(UART_IER, IER_THRE);
+  UW start = test_mtime();
+  while (!s_flag && (UW)(test_mtime() - start) < WAIT_MS * TEST_MTIME_PER_MS) {
+  }
+  BOOL done = s_flag != 0;
+  s_finish_armed = FALSE;
+  UINT calls = s_finish_calls;
+  UINT entries = s_finish_entries_with_mie;
+  UINT exits = s_finish_exits_with_mie;
+  UINT depth = tkmc_isr_depth;
+  out_b(UART_IER, 0);
+  rtc_quiet();
+  DisableInt(UART_IRQ);
+  DisableInt(RTC_IRQ);
+  set_mstatus_mie(TRUE);
+  tk_def_int(RTC_IRQ, NULL);
+  clean_up();
+  TEST_ASSERT_TRUE_MESSAGE(done, "the outer handler did not finish");
+  TEST_ASSERT_TRUE_MESSAGE(s_hlng_rerequest_pending,
+                           "the new RTC request was not pending");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(2, s_hlng_inner_entries,
+                                 "entries of the inner handler");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      2, s_hlng_inner_depth,
+      "the new request was taken inside the completion, not after mret");
+  // Two inner completions and the outer one.
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(3, calls, "completions of the interrupts");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0, entries, "a completion ran with interrupts on (MIE=1 at entry)");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0, exits, "a completion returned with interrupts on (MIE=1 at exit)");
+  TEST_ASSERT_EQUAL_HEX32_MESSAGE(MSTATUS_MIE_BIT,
+                                  s_hlng_outer_mstatus & MSTATUS_MIE_BIT,
+                                  "the outer handler resumed with MIE off");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(1, s_hlng_outer_depth,
+                                 "the outer handler resumed at another depth");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      OUTER_LEVEL, s_hlng_outer_threshold,
+      "the threshold was not restored to the outer level");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0, depth, "the trap depth after the return");
+}
+
+// The same handler, seen from the timer and the dispatcher: the task the
+// handler woke is switched to at the exit of the same trap, and the tick that
+// fell due during the handler is taken as soon as mret enters that task. The
+// task reads the timer count before it makes any call that could sleep, so a
+// tick lost or taken too late fails the case instead of hanging it in a timed
+// wait.
+static volatile UINT s_hlng_child_timer_calls;
+
+static void hlng_dispatch_child(void *arg) {
+  (void)arg;
+  TEST_ASSERT_EQUAL(E_OK, tk_wai_sem(s_sem, 1, TMO_FEVR));
+  s_hlng_child_timer_calls = s_timer_handler_calls;
+  event(EV_CHILD);
+  test_checkpoint();
+}
+
+static void hlng_spinning_handler(UINT intno) {
+  (void)intno;
+  out_b(UART_IER, 0);
+  EI(0);
+  UW start = test_mtime();
+  while ((UW)(test_mtime() - start) < HLNG_SPIN_MS * TEST_MTIME_PER_MS) {
+  }
+  s_timer_pending_at_end = (read_mip() & MIP_TIMER) != 0;
+  s_hlng_timer_calls_before = s_timer_handler_calls;
+  tk_sig_sem(s_sem, 1);
+  s_flag = 1; // Returns without DI.
+}
+
+static void
+hlng_handler_returning_with_interrupts_on_lets_timer_and_dispatch_run_after_exit(
+    void) {
+  reset_counters();
+  reset_trap_records();
+  s_event_count = 0;
+  s_flag = 0;
+  s_timer_pending_at_end = FALSE;
+  s_hlng_timer_calls_before = NOT_WRITTEN;
+  s_hlng_child_timer_calls = 0;
+  s_sem = tk_cre_sem(
+      &(T_CSEM){.exinf = 0, .sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
+  TEST_ASSERT_GREATER_THAN(E_OK, s_sem);
+  test_spawn(hlng_dispatch_child, CHILD_PRIORITY, NULL);
+  arm_finish_record();
+  const T_DINT dint = {.intatr = TA_HLNG, .inthdr = hlng_spinning_handler};
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
+  EnableInt(UART_IRQ, OUTER_LEVEL);
+  out_b(UART_IER, IER_THRE);
+  BOOL child_ran = hlng_poll_until(&s_event_count, 1);
+  BOOL timer_served = s_hlng_child_timer_calls > s_hlng_timer_calls_before;
+  s_finish_armed = FALSE;
+  UINT calls = s_finish_calls;
+  UINT entries = s_finish_entries_with_mie;
+  UINT exits = s_finish_exits_with_mie;
+  UINT external_calls = s_schedule_calls[TRAP_EXTERNAL];
+  BOOL external_ok = s_schedule_ok[TRAP_EXTERNAL];
+  BOOL timer_ok = s_timer_handler_ok;
+  clean_up();
+  ER deleted = tk_del_sem(s_sem);
+  if (child_ran) {
+    test_join_expect(1);
+  }
+  TEST_ASSERT_TRUE_MESSAGE(s_timer_pending_at_end,
+                           "no tick fell due during the handler");
+  TEST_ASSERT_TRUE_MESSAGE(timer_served,
+                           "the tick was not taken when the woken task ran");
+  TEST_ASSERT_TRUE_MESSAGE(timer_ok,
+                           "the timer ran on the wrong stack or depth");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(1, external_calls,
+                                 "schedule() runs once, at the exit");
+  TEST_ASSERT_TRUE_MESSAGE(external_ok,
+                           "schedule() ran on the wrong stack or depth");
+  TEST_ASSERT_TRUE_MESSAGE(child_ran, "the woken task did not run");
+  TEST_ASSERT_EQUAL(E_OK, deleted);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(1, calls, "completions of the interrupt");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0, entries, "the completion ran with interrupts on (MIE=1 at entry)");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0, exits, "the completion returned with interrupts on (MIE=1 at exit)");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0, tkmc_isr_depth,
+                                 "the trap depth at the end");
+}
+
 // ---- A task that ends while an external interrupt is pending ----------------
 //
 // tk_ext_tsk() and tk_exd_tsk() make the task dormant (or free its TCB) and
@@ -2200,6 +2505,11 @@ static const test_case_t s_cases[] = {
     CASE(end_of_int_from_direct_return_is_idempotent),
     CASE(end_of_int_from_tk_ret_int_completes_with_single_call),
     CASE(end_of_int_from_direct_return_completes_with_single_call),
+    CASE(hlng_handler_returning_with_interrupts_on_completes_with_them_off),
+    CASE(
+        nested_hlng_handler_returning_with_interrupts_on_completes_with_them_off),
+    CASE(
+        hlng_handler_returning_with_interrupts_on_lets_timer_and_dispatch_run_after_exit),
     // Last: they take every TCB for a while, and a failure that left them
     // taken would fail every case after it.
     CASE(tk_sta_tsk_by_isr_right_after_tk_ext_tsk_starts_task_anew),

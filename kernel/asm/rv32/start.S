@@ -271,9 +271,17 @@ timer_interrupt:
    * ISR stack top for the outer trap). C prepare returns before a raw ASM entry
    * so no C dispatcher frame is live when that handler starts. TA_HLNG handlers
    * return through C finish; TA_ASM handlers use tk_ret_int or the public direct
-   * return macro. Both must disable MIE before exit. Every mret sets MPP to
-   * machine mode, because a nested mret otherwise leaves the outer handler
+   * return macro, and must disable MIE before exit. A TA_HLNG handler may return
+   * with MIE on, so MIE is cleared as soon as it returns: finish, the dispatch
+   * at the outermost exit and the frame restore must not be interrupted, and
+   * mret gives the interrupted code its MIE back from MPIE. Every mret sets MPP
+   * to machine mode, because a nested mret otherwise leaves the outer handler
    * unable to access kernel memory.
+   *
+   * Not done: leaving MIE off at the end of tkmc_finish_external_interrupt. It
+   * restores the caller's MIE on every path, tk_ret_int's included, and the
+   * window between the handler's return and its DI would stay open. Nor
+   * clearing MIE at .Lexternal_epilog, which finish reaches only afterwards.
    */
   .balign 4
 external_interrupt:
@@ -311,6 +319,7 @@ external_interrupt:
   lw a0, TKMC_IRQCTX_INTNO(sp)
   lw t0, TKMC_IRQCTX_HANDLER(sp)
   jalr ra, t0, 0
+  csrci mstatus, 8
   mv a0, sp
   call tkmc_finish_external_interrupt
   j .Lexternal_epilog
