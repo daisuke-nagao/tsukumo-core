@@ -259,6 +259,10 @@ suite checks that:
   handler when its priority is the same or lower.
 - The timer interrupt waits for the handler.
 - A task that the nested handler wakes runs once, after the outermost handler.
+- A handler that returns with interrupts on, single or nested, has them off
+  while the kernel completes the interrupt. A requested task switch is made at
+  the outermost exit of the same trap, and a pending tick is taken after `mret`, at ISR
+  depth 1.
 - A task keeps every register through a nested trap.
 
 Finally, a task ends while the UART interrupt is pending. `mie` masks the

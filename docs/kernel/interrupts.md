@@ -23,8 +23,9 @@ The specification cited here is the official Japanese
   source when the handler exits.
 - Keep the handler short. Every handler shares one 2048-byte interrupt stack,
   and nothing detects an overflow.
-- If the handler turns interrupts on, it must turn them off again before it
-  returns.
+- A `TA_HLNG` handler may turn interrupts on and return with them on. The
+  kernel turns them off when the handler returns. A `TA_ASM` handler must
+  disable MIE before it exits (see [assembly entry conventions](assembly-entry.md)).
 - `CheckInt()` reports a source's PLIC pending bit without claiming it.
 - `ClearInt()` discards one pending controller request for a selected source.
 - `SetIntMode()` is unavailable.
@@ -353,12 +354,15 @@ priority is above the threshold, so a source of the same or a lower priority
 waits until the handler returns. Nesting is at most 7 deep, the number of
 priorities.
 
-- A handler must turn interrupts off again with `DI()` before it returns. The
-  kernel does not do it: it puts back the threshold, completes the source and
-  restores the trap frame with interrupts as the handler left them, and an
-  interrupt in the middle would find that work half done. `EI()` with the value that a `DI()`
-  saved on entry, when interrupts were off, turns them off as well (see
-  [What EI restores](#what-ei-restores)).
+- A `TA_HLNG` handler may return with interrupts on. As soon as the handler
+  returns, the kernel clears MIE. It then puts back the PLIC threshold,
+  completes the source, unlinks the context and restores the trap frame with
+  interrupts off, so no interrupt finds that work half done. The code that
+  resumes, the interrupted code or the task the exit switches to, runs with
+  interrupts on, because `mret` restores MIE from `MPIE`. The handler needs no `DI()` before it returns.
+- A `TA_ASM` handler does not get this protection. It must disable MIE before
+  `tk_ret_int` or the direct-return macro, as the exit conditions in
+  [assembly entry conventions](assembly-entry.md) say.
 - The timer and software interrupts do not nest. The kernel masks them (it
   clears `MTIE` and `MSIE`, their enable bits in `mie`) from the entry of the
   outermost external
@@ -409,6 +413,10 @@ machine, without QEMU (see [testing.md](../developer/testing.md)).
   UART transmitter-empty interrupt, and nesting with the UART and the RTC
   alarm. Software raises both. It raises the RTC by an alarm at a time that
   has already passed, which does not depend on the clock the machine runs on.
+  It also checks that a `TA_HLNG` handler, single or nested, that returns with
+  interrupts on has them off while the kernel completes the interrupt, and that
+  a requested task switch is made at the outermost exit of the same trap and a
+  pending tick is taken after `mret`, at ISR depth 1.
 - What QEMU cannot be made to produce (a claim with no source, a source beyond
   the table) and the PLIC threshold are tested by the PC unit tests in
   `test/host/test_intctl.c`.
