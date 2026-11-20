@@ -4,7 +4,8 @@ Thank you for helping. This page tells you how to set up the repository, check
 a change and submit it. For a large change, open an issue first so that you and
 the maintainer can agree on the approach before you write it. The
 [Contributing section of the README](README.md#contributing) states the license
-your contribution is under.
+your contribution is under. Please read the [Code of Conduct](CODE_OF_CONDUCT.md)
+for repository interactions.
 
 ## Set up
 
