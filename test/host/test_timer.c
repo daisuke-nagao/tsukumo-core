@@ -21,7 +21,9 @@ extern void tkmc_timer_handler(void);
 
 enum {
   MTIMECMP_LOW = CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET,
-  MTIMECMP_HIGH = MTIMECMP_LOW + 4
+  MTIMECMP_HIGH = MTIMECMP_LOW + 4,
+  MTIME_LOW = CLINT_BASE_ADDRESS + CLINT_MTIME_OFFSET,
+  MTIME_HIGH = MTIME_LOW + 4
 };
 
 static void check_compare(UD expected) {
@@ -37,6 +39,26 @@ static void check_compare(UD expected) {
     TEST_ASSERT_EQUAL_UINT(4, writes[i].width);
     TEST_ASSERT_EQUAL_UINT32(values[i], writes[i].value);
   }
+}
+
+static void check_mtime_read(UD expected) {
+  const INT ports[] = {MTIME_HIGH, MTIME_LOW, MTIME_HIGH};
+  const UW values[] = {(UW)(expected >> 32), (UW)expected,
+                       (UW)(expected >> 32)};
+  UINT reads = 0;
+  for (UINT i = 0; i < host_log_count; ++i) {
+    const host_access_t *access = &host_log[i];
+    if (access->port == MTIME_HIGH || access->port == MTIME_LOW) {
+      TEST_ASSERT_FALSE(access->is_write);
+      TEST_ASSERT_EQUAL_UINT(4, access->width);
+      if (reads < HOST_COUNT(ports)) {
+        TEST_ASSERT_EQUAL_INT(ports[reads], access->port);
+        TEST_ASSERT_EQUAL_UINT32(values[reads], access->value);
+      }
+      ++reads;
+    }
+  }
+  TEST_ASSERT_EQUAL_UINT(HOST_COUNT(ports), reads);
 }
 
 // At boot the first interrupt is set one tick ahead of the machine time.
@@ -113,6 +135,21 @@ static void test_timer_handler_retries_read_that_carries_into_high_word(void) {
   TEST_ASSERT_LESS_OR_EQUAL_UINT(24, host_log_count);
 }
 
+static void test_timer_handler_reads_mtime_once_for_elapsed_periods(void) {
+  const UINT periods[] = {1, 64};
+  for (UINT i = 0; i < HOST_COUNT(periods); ++i) {
+    host_mtime = 0;
+    tkmc_start_timer();
+    host_mtime = periods[i] * (UD)HOST_TICK;
+    host_log_count = 0;
+
+    tkmc_timer_handler();
+
+    check_mtime_read(host_mtime);
+    check_compare((periods[i] + 1) * (UD)HOST_TICK);
+  }
+}
+
 // The handler counts the periods that have passed since the last compare value,
 // not its own calls: a late interrupt takes off every period it missed, and a
 // call that comes before the compare value (MTIP is cleared late after a
@@ -128,6 +165,32 @@ static void check_wait(ID id, UINT left) {
     TEST_ASSERT_EQUAL_UINT(left, tcb->delay_ticks);
   }
   host_check_kernel_queues();
+}
+
+static void
+test_timer_handler_uses_sample_before_same_word_tick_boundary(void) {
+  const UD boundary = HOST_TICK;
+  host_mtime = 0;
+  tkmc_start_timer();
+  ID id = host_sleep_for(3);
+  host_run_idle_task();
+
+  host_mtime = 2 * boundary - 16;
+  host_mtime_advance_after_low_read = 32;
+  host_log_count = 0;
+  tkmc_timer_handler();
+  check_wait(id, 2);
+  TEST_ASSERT_EQUAL_UINT64(2 * boundary,
+                           (host_last_write(MTIMECMP_HIGH) << 32) |
+                               host_last_write(MTIMECMP_LOW));
+  check_mtime_read(2 * boundary - 16);
+  TEST_ASSERT_EQUAL_UINT64(2 * boundary + 16, host_mtime);
+
+  host_log_count = 0;
+  tkmc_timer_handler();
+  check_wait(id, 1);
+  check_compare(3 * boundary);
+  check_mtime_read(2 * boundary + 16);
 }
 
 static void test_timer_interrupt_counts_every_period_that_has_passed(void) {
@@ -225,6 +288,8 @@ void run_timer_tests(void) {
   RUN_TEST(test_timer_compare_crosses_low_word_boundary);
   RUN_TEST(test_timer_boot_retries_read_that_carries_into_high_word);
   RUN_TEST(test_timer_handler_retries_read_that_carries_into_high_word);
+  RUN_TEST(test_timer_handler_reads_mtime_once_for_elapsed_periods);
+  RUN_TEST(test_timer_handler_uses_sample_before_same_word_tick_boundary);
   RUN_TEST(test_timer_interrupt_counts_every_period_that_has_passed);
   RUN_TEST(test_timer_repeated_interrupt_changes_nothing);
   RUN_TEST(test_timer_queue_late_interrupt_ends_only_waits_it_reached);
