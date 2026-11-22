@@ -59,17 +59,29 @@ static void write_mtimecmp(UD value) {
 }
 
 /*
- * Count the tick edges from *mtimecmp up to the machine time, and move
- * *mtimecmp to the first edge still ahead. Counted one by one: a 64 bit
- * division needs a library the kernel does not link, and the count is
- * normally 1.
+ * Count elapsed tick edges from one machine-time sample and move *mtimecmp
+ * to the first edge ahead of it. Time arriving after the sample is handled
+ * by the next interrupt.
  */
 static UINT pass_elapsed_periods(UD *mtimecmp) {
   UINT periods = 0;
-  while (read_mtime() >= *mtimecmp) {
-    *mtimecmp += TICK_COUNTS;
-    periods += 1;
+  UD mtime = read_mtime();
+  UD next_mtimecmp = *mtimecmp;
+  if (mtime > ~(UD)0 - TICK_COUNTS) {
+    while (mtime >= next_mtimecmp) {
+      next_mtimecmp += TICK_COUNTS;
+      periods += 1;
+      mtime = read_mtime();
+    }
+  } else {
+    while (mtime >= next_mtimecmp) {
+      next_mtimecmp += TICK_COUNTS;
+      /* Keep the induction variable opaque to avoid 64-bit division. */
+      asm volatile("" : "+r"(next_mtimecmp));
+      periods += 1;
+    }
   }
+  *mtimecmp = next_mtimecmp;
   return periods;
 }
 

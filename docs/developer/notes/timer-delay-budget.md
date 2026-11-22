@@ -13,28 +13,18 @@ suites count instructions, for this note and the other measurement notes.
   10 ms kernel tick when QEMU runs with `-icount shift=5`, the default for the
   QEMU tests, under which each instruction counts as 32 ns of guest time (see
   [How instructions are counted](#how-instructions-are-counted)).
-- The worst measured call took 29223 instructions, 94% of the budget: 31
-  semaphore waits, the most the kernel allows, ending in one timer interrupt
-  that came 31 ticks late, in the `debug` preset. The same case took 8159
-  instructions (26%) in `minsizerel`. (`debug` and `minsizerel` are CMake
-  presets in `CMakePresets.json` with the Debug and MinSizeRel build types.)
-- Every case in the [results](#results) is inside the budget in `debug` and
-  `minsizerel`. The two cases at the kernel's limit of 31 waits were measured
-  in all six tested presets and are inside the budget in each, with 2027
-  instructions to spare in the worst one. The `qemu-timer-cost` and
-  `qemu-timer-cost-max` QEMU test suites (listed in [run_qemu.md](run_qemu.md))
-  fail when a case goes over the budget.
-- By calculation, the handler stays inside the budget for a timer interrupt up
-  to about 53 ticks (0.5 s) late when 31 waits end, and about 336 ticks (3.4 s)
-  late when none end, in `debug` (see
-  [How late the timer interrupt can be](#how-late-the-timer-interrupt-can-be)).
-  The kernel does not bound how long interrupts stay disabled, so this holds
-  only while no code keeps them off for longer.
-- The original counts in this note predate the UTC clock (2026-11-11).
-  Accounting for elapsed UTC ticks adds 10 instructions in `debug` and 7 in
-  `minsizerel` to each measured timer-handler invocation. The worst Debug case
-  took 29233 (94%), with 2017 instructions to spare. The
-  [measurement record](#measurement-record) includes fresh results for all six presets.
+- The handler normally reads one coherent `mtime` sample, then counts all
+  edges up to that sample. The
+  [single-sample measurements](#single-sample-measurements) compare the cost
+  before and after this change in all six presets.
+- The `qemu-timer-cost` and `qemu-timer-cost-max` suites (listed in
+  [run_qemu.md](run_qemu.md)) fail when a case goes over the budget, including
+  the cases with 31 timed waits, the most the kernel allows.
+- The detailed [original results](#results) and
+  [lateness estimates](#how-late-the-timer-interrupt-can-be) describe the
+  handler that read `mtime` after each elapsed edge. The longest measured
+  lateness is 200 ticks (2 s). The kernel does not bound how long interrupts
+  stay disabled.
 
 ## The budget
 
@@ -161,8 +151,9 @@ the kernel sources on the development PC, without QEMU (see
 
 ## Results
 
-Instructions of the most expensive handler call, under QEMU `-icount shift=5`.
-The budget is 31250. The share of the budget is in brackets.
+Original measurements, before UTC bookkeeping and the single-sample change.
+Each value is the cost of the most expensive handler call under QEMU
+`-icount shift=5`. The budget is 31250. The share of the budget is in brackets.
 
 | Case | `debug` | `minsizerel` |
 | --- | --- | --- |
@@ -217,8 +208,9 @@ take other entries off the timer queue.
 ## How late the timer interrupt can be
 
 The handler counts the missed edges one by one, because a 64-bit division
-needs a library that the kernel does not link. From the two rows without
-waits, with `p` edges passed, the count is about 526 + 91 p instructions in
+needs a library that the kernel does not link. The estimates below use the
+original measurements from before the single-sample change. From the two rows
+without waits, with `p` edges passed, the count is about 526 + 91 p instructions in
 `debug` and 113 + 13 p in `minsizerel`. An interrupt that is L ticks late finds
 p = L + 1 edges passed. By calculation, not by measurement, the handler stays
 inside the budget for a lateness of up to:
@@ -229,20 +221,13 @@ inside the budget for a lateness of up to:
 | 29 waits with distinct limits end (the semaphore row above, plus the extra edges; the most this suite can make) | about 70 ticks (0.7 s) | about 1843 ticks (18 s) |
 | 31 waits with distinct limits end (the kernel's limit: the semaphore rows of `qemu-timer-cost-max`, plus the extra edges) | about 53 ticks (0.5 s) | about 1807 ticks (18 s) |
 
-The same loop runs in `tkmc_schedule_timer()`, `tk_get_utc()` and
-`tk_set_utc()`, in task context with interrupts off, while a timer interrupt is
-pending. Its work grows with the number of elapsed edges. A wait started in
-that time counts the edges that have passed, and so does the UTC clock.
-The measurements above cover the timer handler. Each caller also has its own
-snapshot and bookkeeping costs.
-
-The kernel has no bound on how long interrupts stay off. The budget holds as
-long as no section keeps them off for longer than the table says.
+The kernel has no bound on how long interrupts stay off. The table estimates
+the maximum lateness the original handler could handle within its budget.
 
 ## How to reproduce the counts
 
-1. From the root of the repository, build with the `debug` or the
-   `minsizerel` preset:
+1. From the root of the repository, configure and build with the desired
+   preset. Use QEMU for RV32 and leave `QEMU_ICOUNT_SHIFT` at 5:
 
    ```shell
    cmake --preset debug
@@ -257,7 +242,8 @@ long as no section keeps them off for longer than the table says.
    ctest --test-dir ../build/debug -R qemu-timer-cost -V
    ```
 
-   For `minsizerel`, use that preset name and `../build/minsizerel`.
+   For the other presets in the [single-sample measurements](#single-sample-measurements),
+   replace `debug` with the preset name in all three commands.
 
 ## Limits of the measurement
 
@@ -313,6 +299,47 @@ long as no section keeps them off for longer than the table says.
 | `relwithdebinfo-lto` | 7883 | 8162 | 23088 |
 | `minsizerel` | 7887 | 8166 | 23084 |
 | `minsizerel-lto` | 7854 | 8133 | 23117 |
+
+## Single-sample measurements
+
+The handler counts the edges at or before the sampled `mtime` and writes
+the next edge to `mtimecmp`. If that edge becomes due before the handler
+returns, the timer interrupt remains or becomes pending and the next call
+counts it. The high-low-high read is retried if the high word changes.
+Near a full-width compare wrap the loop resamples as before.
+
+Wait registration and UTC get/set use the same elapsed-edge calculation
+with a local copy of the compare value. They leave the hardware compare
+and the shared tick count for the interrupt handler to update.
+
+The following numbers are retired instructions before and after the
+single-sample change. Both runs used Clang 21.1.8, RV32 QEMU 9.2.50
+(`virt`, `-icount shift=5,sleep=off`) and the same budget of 31250.
+The 200-tick case starts with 201 edges due. The one-tick case ends one
+task wait and the test runner's wait in the same timer call.
+
+| Preset | One wait, one tick | No waits, 200 ticks late | 31 delays, 31 ticks late | 31 semaphore waits, 31 ticks late |
+| --- | ---: | ---: | ---: | ---: |
+| `debug` | 883 to 842 | 18828 to 6387 | 27373 to 25410 | 29233 to 27270 |
+| `debug-lto` | 863 to 824 | 18012 to 5773 | 27113 to 25183 | 28973 to 27043 |
+| `relwithdebinfo` | 207 to 211 | 2733 to 1937 | 7917 to 7797 | 8196 to 8076 |
+| `relwithdebinfo-lto` | 202 to 206 | 2729 to 1933 | 7883 to 7763 | 8162 to 8042 |
+| `minsizerel` | 204 to 219 | 2732 to 1747 | 7887 to 7747 | 8166 to 8026 |
+| `minsizerel-lto` | 200 to 215 | 2729 to 1744 | 7854 to 7714 | 8133 to 7993 |
+
+Both cost suites passed the budget in all six presets. The largest measured
+call after the change took 27270 instructions. The one-tick measurement
+increased by 4 instructions in RelWithDebInfo and 15 in MinSizeRel, with or
+without LTO. For a coherent sample without a high-word retry, the one-tick
+case now makes three `mtime` MMIO reads instead of six. Physical interrupt
+latency requires measurements on a board.
+
+The host timer tests check the three MMIO accesses with 1 and 64 elapsed
+periods. They also advance `mtime` across a tick edge just after sampling
+the low word, then check the compare and wait after each handler call.
+Both checks fail with the old live-read loop. The full RV32 CTest suite
+passed in each preset, including the instruction-clock and host-clock
+runs for task timers, low-word wrap, UTC and semaphore wait release.
 
 ## Appendix: why semaphore time-outs skip the wait-queue walk
 
