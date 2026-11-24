@@ -270,16 +270,32 @@ static void test_tk_rel_wai_refuses_task_that_is_not_waiting(void) {
   // out, and it cannot release itself.
   host_set_current(blocked);
   HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, TMO_FEVR));
-  TEST_ASSERT_EQUAL(E_OBJ, tk_rel_wai(blocked));
+  host_snapshot_t before;
+  host_take_snapshot(&before);
+  TEST_ASSERT_EQUAL_MESSAGE(E_OBJ, tk_rel_wai(blocked),
+                            "the current blocked task");
+  host_assert_unchanged(&before, "the current blocked task");
   TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(blocked)->tskstat);
 
   host_set_current(running);
 
-  TEST_ASSERT_EQUAL(E_OBJ, tk_rel_wai(running));
-  TEST_ASSERT_EQUAL(E_OBJ, tk_rel_wai(ready));
-  TEST_ASSERT_EQUAL(E_NOEXS, tk_rel_wai(CFN_MAX_TSKID));
-  TEST_ASSERT_EQUAL(E_ID, tk_rel_wai(0));
-  TEST_ASSERT_EQUAL(E_ID, tk_rel_wai(CFN_MAX_TSKID + 1));
+  const struct {
+    ID tskid;
+    ER expected;
+    const char *label;
+  } cases[] = {
+      {running, E_OBJ, "the running task"},
+      {ready, E_OBJ, "the ready task"},
+      {CFN_MAX_TSKID, E_NOEXS, "a nonexistent task"},
+      {0, E_ID, "task ID zero"},
+      {CFN_MAX_TSKID + 1, E_ID, "a task ID above the maximum"},
+  };
+  for (UINT i = 0; i < HOST_COUNT(cases); ++i) {
+    host_take_snapshot(&before);
+    TEST_ASSERT_EQUAL_MESSAGE(cases[i].expected, tk_rel_wai(cases[i].tskid),
+                              cases[i].label);
+    host_assert_unchanged(&before, cases[i].label);
+  }
   TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(ready)->tskstat);
   host_check_kernel_state();
 }
