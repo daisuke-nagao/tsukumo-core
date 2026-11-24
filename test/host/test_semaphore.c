@@ -808,6 +808,8 @@ static ID departure_fixture(ATR attr, PRI a_prio, TMO b_timeout, ID *a, ID *b,
   HOST_EXPECT_WAIT(tk_wai_sem(semid, 2, 100));
   host_set_current(*b);
   HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, b_timeout));
+  host_tcb(*a)->wupcause = E_SYS;
+  host_tcb(*b)->wupcause = E_SYS;
   host_set_current(*caller);
   TEST_ASSERT_EQUAL_PTR(&host_tcb(*a)->winfo.wait_queue,
                         tkmc_semcbs[semid - 1].wait_queue.next);
