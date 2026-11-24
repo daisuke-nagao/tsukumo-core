@@ -142,6 +142,13 @@ the timer handler they also clear every enable bit in `mie`, turn `MIE` on, and
 check that each wait call still returns `E_CTX` and changes nothing. The PC
 unit tests cover the same contexts.
 
+## Waiting for event flags
+
+`tk_wai_flg` accepts `TWF_CLR` to clear the full flag pattern after a successful
+wait, or `TWF_BITCLR` to clear the bits in `waiptn`. Each may be used alone,
+but combining them returns `E_PAR`. The ID range check still takes precedence,
+so an out-of-range `flgid` returns `E_ID` first.
+
 ## Ending a task from an invalid context
 
 `tk_ext_tsk` and `tk_exd_tsk` need the same context as the wait calls: a

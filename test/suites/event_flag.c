@@ -38,7 +38,17 @@ static ID create_flag(ATR attributes, UINT initial) {
 // which bits each mode clears and which pattern it reports.
 static void tk_wai_flg_poll_clears_and_reports_per_wait_mode(void) {
   ID flgid = create_flag(TA_TFIFO | TA_WSGL, 0x00FFFFFF);
-  UINT flgptn = 0;
+  UINT flgptn = 0xdeadbeefU;
+
+  // The clear modes are mutually exclusive. Rejection leaves the output and
+  // the whole pattern, including bits outside the request, unchanged.
+  TEST_ASSERT_EQUAL(E_PAR, tk_wai_flg(flgid, 0x00000001,
+                                      TWF_ANDW | TWF_CLR | TWF_BITCLR, &flgptn,
+                                      TMO_POL));
+  TEST_ASSERT_EQUAL_HEX32(0xdeadbeefU, flgptn);
+  TEST_ASSERT_EQUAL(E_OK,
+                    tk_wai_flg(flgid, 0x00000001, TWF_ANDW, &flgptn, TMO_POL));
+  TEST_ASSERT_EQUAL_HEX32(0x00FFFFFF, flgptn);
 
   // All requested bits are set, and TWF_BITCLR clears just those bits.
   TEST_ASSERT_EQUAL(E_OK, tk_wai_flg(flgid, 0x00a5a5a5, TWF_ANDW | TWF_BITCLR,

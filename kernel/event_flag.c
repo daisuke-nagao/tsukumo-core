@@ -143,7 +143,8 @@ ER tk_wai_flg(ID flgid, UINT waiptn, UINT wfmode, UINT *p_flgptn, TMO tmout) {
   }
 
   static const UINT VALID_WFMODE = TWF_ANDW | TWF_ORW | TWF_CLR | TWF_BITCLR;
-  if ((wfmode & ~VALID_WFMODE) != 0) {
+  if ((wfmode & ~VALID_WFMODE) != 0 ||
+      (wfmode & (TWF_CLR | TWF_BITCLR)) == (TWF_CLR | TWF_BITCLR)) {
     return E_PAR;
   }
   if (tmout < TMO_FEVR) {

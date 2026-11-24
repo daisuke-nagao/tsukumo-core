@@ -306,6 +306,90 @@ static void test_tk_wai_flg_bitclr_clears_only_bits_of_pattern(void) {
   host_check_kernel_queues();
 }
 
+typedef struct {
+  UINT wait_mode;
+  UINT initial_pattern;
+  TMO timeout;
+  const char *label;
+} combined_clear_case_t;
+
+static void check_combined_clear_mode(const combined_clear_case_t *test_case,
+                                      BOOL interrupts_off) {
+  host_reset();
+  ID current_task = host_make_task(HOST_LOW_PRIORITY);
+  ID flgid = create_flag(TA_TFIFO | TA_WMUL, test_case->initial_pattern);
+
+  // Keep an unrelated timed waiter on the flag while the invalid call runs.
+  // Its wait queue entry, timer, task state, next task and dispatch count must
+  // all survive a refused request.
+  UINT waiter_pattern = SENTINEL;
+  ID waiter = host_make_task(HOST_HIGH_PRIORITY);
+  host_set_current(waiter);
+  HOST_EXPECT_WAIT(tk_wai_flg(flgid, 0x80, TWF_ORW, &waiter_pattern, WAIT_MS));
+  host_set_current(current_task);
+  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(waiter)->tskstat);
+  TEST_ASSERT_TRUE(host_in_queue(&tkmc_flgcbs[flgid - 1].wait_queue,
+                                 &host_tcb(waiter)->winfo.wait_queue));
+  TEST_ASSERT_TRUE(host_in_queue(&tkmc_timer_queue, &host_tcb(waiter)->head));
+  host_check_kernel_state();
+
+  UINT intsts = 0;
+  if (interrupts_off) {
+    DI(intsts);
+  }
+  const BOOL interrupts_before = host_interrupts_enabled();
+  UINT output = SENTINEL;
+  host_snapshot_t before;
+  host_take_snapshot(&before);
+
+  ER ercd = E_SYS;
+  BOOL waited = FALSE;
+  host_waited = 0;
+  if (setjmp(host_wait_jmp) == 0) {
+    host_arm_wait();
+    ercd = tk_wai_flg(flgid, 0x3, test_case->wait_mode | TWF_CLR | TWF_BITCLR,
+                      &output, test_case->timeout);
+  } else {
+    waited = TRUE;
+  }
+  host_wait_armed = 0;
+
+  TEST_ASSERT_FALSE_MESSAGE(waited, test_case->label);
+  TEST_ASSERT_EQUAL_MESSAGE(E_PAR, ercd, test_case->label);
+  TEST_ASSERT_EQUAL_HEX32_MESSAGE(SENTINEL, output, test_case->label);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(interrupts_before, host_interrupts_enabled(),
+                                 test_case->label);
+  TEST_ASSERT_EQUAL_HEX32_MESSAGE(SENTINEL, waiter_pattern,
+                                  "the existing timed wait wrote its output");
+  host_assert_unchanged(&before, test_case->label);
+  if (interrupts_off) {
+    EI(intsts);
+  }
+  host_check_kernel_state();
+}
+
+static void test_tk_wai_flg_rejects_combined_clear_modes_without_waiting(void) {
+  UINT output = SENTINEL;
+  TEST_ASSERT_EQUAL(E_ID,
+                    tk_wai_flg(0, 0x3, TWF_CLR | TWF_BITCLR, &output, TMO_POL));
+  TEST_ASSERT_EQUAL_HEX32(SENTINEL, output);
+
+  static const combined_clear_case_t cases[] = {
+      {TWF_ANDW, 0x7, TMO_POL, "AND poll with extra matched bits"},
+      {TWF_ORW, 0x7, TMO_POL, "OR poll with extra matched bits"},
+      {TWF_ANDW, 0x1, TMO_POL, "unmatched AND poll"},
+      {TWF_ORW, 0x4, TMO_POL, "unmatched OR poll"},
+      {TWF_ANDW, 0x1, WAIT_MS, "unmatched finite AND wait"},
+      {TWF_ORW, 0x4, WAIT_MS, "unmatched finite OR wait"},
+  };
+
+  for (UINT disabled = 0; disabled < 2; ++disabled) {
+    for (UINT i = 0; i < HOST_COUNT(cases); ++i) {
+      check_combined_clear_mode(&cases[i], disabled != 0);
+    }
+  }
+}
+
 void run_event_flag_tests(void) {
   UnitySetTestFile(__FILE__);
   RUN_TEST(test_tk_clr_flg_keeps_bits_of_mask);
@@ -319,4 +403,5 @@ void run_event_flag_tests(void) {
   RUN_TEST(test_tk_wai_flg_checks_null_output_before_single_waiter_rule);
   RUN_TEST(test_tk_wai_flg_andw_needs_every_bit_of_pattern);
   RUN_TEST(test_tk_wai_flg_bitclr_clears_only_bits_of_pattern);
+  RUN_TEST(test_tk_wai_flg_rejects_combined_clear_modes_without_waiting);
 }

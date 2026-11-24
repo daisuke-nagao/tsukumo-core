@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Return `E_PAR` when `tk_wai_flg` combines `TWF_CLR` and `TWF_BITCLR`
 - Stop a `TA_HLNG` interrupt handler that returns with interrupts enabled from letting interrupts in while the
   kernel completes the interrupt and restores the interrupted context; such a handler no longer needs `DI()` before
   it returns (see [nested interrupts](docs/kernel/interrupts.md#nested-interrupts))
