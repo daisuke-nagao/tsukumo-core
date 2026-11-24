@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (see [naming rule](docs/developer/testing.md#name-a-test))
 - Restructure the tests around shared helpers and tables, split the largest files and register CTest cases by name
 
+### Removed
+
+- Remove `kernel/asm/rv32/launch_task.S`, an old copy of `__launch_task` that no build compiled
+
 ### Fixed
 
 - Return `E_PAR` when `tk_wai_flg` combines `TWF_CLR` and `TWF_BITCLR`
@@ -54,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Strengthen UTC reset and refusal regressions with elapsed and pending ticks
 - Keep the never-return attribute of the panic APIs when `<stdnoreturn.h>` is included before the kernel headers
 - Run the RV32 public-declaration link checks one at a time so that `ctest -j` no longer fails them at random
+- Compile the RV32 kernel library with `TKERNEL_CHECK_CONST`, as the programs that link it already were, and make
+  the CMake option of that name switch it for that library and the programs that link it; the option had no effect
+  before
+- Make three PC tests of a wake-up fail when the kernel does not record the cause of the wake-up
 
 ## [0.0.1] - 2026-11-11
 

@@ -17,7 +17,7 @@
 FLGCB tkmc_flgcbs[CFN_MAX_FLGID];
 
 // Free list of unused event flag control blocks
-static tkmc_list_head tkmc_free_flbcb;
+static tkmc_list_head tkmc_free_flgcb;
 
 // Bitmask used to mark control blocks as non-existent
 #define NOEXS_MASK 0x80000000u
@@ -28,7 +28,7 @@ static tkmc_list_head tkmc_free_flbcb;
  * Set up all FLGCBs as unallocated and add them to the free list.
  */
 void tkmc_init_flgcb(void) {
-  tkmc_init_list_head(&tkmc_free_flbcb);
+  tkmc_init_list_head(&tkmc_free_flgcb);
 
   for (int i = 0; i < sizeof(tkmc_flgcbs) / sizeof(tkmc_flgcbs[0]); ++i) {
     FLGCB *flgcb = &tkmc_flgcbs[i];
@@ -43,7 +43,7 @@ void tkmc_init_flgcb(void) {
     tkmc_init_list_head(&flgcb->wait_queue);
 
     // Add to free list
-    tkmc_list_add_tail(&flgcb->wait_queue, &tkmc_free_flbcb);
+    tkmc_list_add_tail(&flgcb->wait_queue, &tkmc_free_flgcb);
   }
 }
 
@@ -72,9 +72,9 @@ ID tk_cre_flg(CONST T_CFLG *pk_cflg) {
   ID new_flgid = 0;
   DI(intsts); // Disable interrupts to access shared structures
 
-  if (tkmc_list_empty(&tkmc_free_flbcb) == FALSE) {
+  if (tkmc_list_empty(&tkmc_free_flgcb) == FALSE) {
     // Allocate a FLGCB from the free list
-    new_flgcb = tkmc_list_first_entry(&tkmc_free_flbcb, FLGCB, wait_queue);
+    new_flgcb = tkmc_list_first_entry(&tkmc_free_flgcb, FLGCB, wait_queue);
     tkmc_list_del(&new_flgcb->wait_queue);
     tkmc_init_list_head(&new_flgcb->wait_queue);
 

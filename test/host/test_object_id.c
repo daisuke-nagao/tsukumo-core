@@ -112,8 +112,7 @@ static void test_object_id_at_both_ends_of_range_passes_id_check(void) {
 
 // This differs from the rows of ID 0 above only by having a current task.
 static void
-test_object_id_tsk_self_is_refused_with_a_current_task_and_changes_nothing(
-    void) {
+test_object_id_tsk_self_is_refused_with_current_task_and_changes_nothing(void) {
   for (UINT i = 0; i < HOST_COUNT(s_apis); ++i) {
     if (s_apis[i].takes_task_id) {
       check_call(&s_apis[i], TSK_SELF, E_ID, TRUE);
@@ -126,5 +125,5 @@ void run_object_id_tests(void) {
   RUN_TEST(test_object_id_out_of_range_is_refused_and_changes_nothing);
   RUN_TEST(test_object_id_at_both_ends_of_range_passes_id_check);
   RUN_TEST(
-      test_object_id_tsk_self_is_refused_with_a_current_task_and_changes_nothing);
+      test_object_id_tsk_self_is_refused_with_current_task_and_changes_nothing);
 }

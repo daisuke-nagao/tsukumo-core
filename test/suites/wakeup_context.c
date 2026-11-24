@@ -25,8 +25,6 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../finish.h"
-#include "../putstring.h"
 #include "asm/rv32/address.h"
 #include "context.h"
 #include "runner.h"
@@ -82,10 +80,6 @@ static struct {
   TCB *running;
   TCB *scheduled;
 } s_before;
-
-static __attribute__((__noreturn__)) void fail(const char *reason) {
-  test_fail("WAKEUP CONTEXT :FAIL: ", reason);
-}
 
 static BOOL irq_enabled(void) {
   UINT status;

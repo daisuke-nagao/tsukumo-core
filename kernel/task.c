@@ -5,18 +5,12 @@
  */
 
 #include "task.h"
-#include "asm/rv32/address.h"
 #include "context.h"
 #include "dispatch.h"
 #include "memset.h"
 #include "object_id.h"
 #include "panic.h"
 #include "semaphore.h"
-
-/* Memory-mapped addresses for the CLINT (Core Local Interruptor) */
-#define CLINT_MSIP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET)
-#define CLINT_MTIME_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MTIME_OFFSET)
-#define CLINT_MTIMECMP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET)
 
 /* Array of Task Control Blocks (TCBs) for managing tasks */
 TCB tkmc_tcbs[CFN_MAX_TSKID];
@@ -33,8 +27,8 @@ TCB *current = NULL;
 /* Pointer to the next task to be scheduled */
 TCB *next = NULL;
 
+// Clears everything but tskid, which a TCB keeps for its whole life.
 static void reset_tcb(TCB *tcb) {
-  // tcb->tskid = 0; // keep as it is
   tcb->itskpri = 0;
   tcb->tskstat = 0;
   tcb->tskwait = 0;
@@ -49,15 +43,6 @@ static void reset_tcb(TCB *tcb) {
 
   tkmc_init_list_head(&tcb->head);
   tkmc_init_list_head(&tcb->winfo.wait_queue);
-
-  return;
-}
-
-static void default_tcb(TCB *tcb) {
-  reset_tcb(tcb);
-  tcb->tskid = 0;
-
-  return;
 }
 
 /// @brief Represents the full set of general-purpose registers to be saved
@@ -117,7 +102,7 @@ void tkmc_init_tcb(void) {
   for (int i = 0; i < sizeof(tkmc_tcbs) / sizeof(tkmc_tcbs[0]); ++i) {
     TCB *tcb = &tkmc_tcbs[i];
 
-    default_tcb(tcb);
+    reset_tcb(tcb);
     tcb->tskid = i + 1; // Assign a unique task ID
 
     /* Add the TCB to the free list */
@@ -201,25 +186,18 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
   /* Calculate stack boundaries */
   UB *stack_end = (UB *)(stack_begin + stack_size);
 
-  ID new_id = E_LIMIT; // Default to error code
-  TCB *new_tcb = NULL;
+  ID new_id = E_LIMIT; // Stays so when no TCB is free
   UINT intsts = 0;
 
   /* Disable interrupts to ensure atomic access to the free list */
   DI(intsts);
-  if (tkmc_list_empty(&tkmc_free_tcb) == FALSE) {
+  if (!tkmc_list_empty(&tkmc_free_tcb)) {
     /* Allocate a TCB from the free list */
-    new_tcb = tkmc_list_first_entry(&tkmc_free_tcb, TCB, head);
+    TCB *new_tcb = tkmc_list_first_entry(&tkmc_free_tcb, TCB, head);
     tkmc_list_del(&new_tcb->head);
-    tkmc_init_list_head(&new_tcb->head);
+    reset_tcb(new_tcb); // Also makes the unlinked head a valid empty list
 
-    new_id = new_tcb->tskid; // Assign the task ID
-  } else {
-    new_id = E_LIMIT; // No free TCBs available
-  }
-
-  if (new_id >= 0) {
-    reset_tcb(new_tcb);
+    new_id = new_tcb->tskid;
 
     /* Initialize the TCB for the new task */
     stack_end -= sizeof(StashedRegisters); // Reserve the initial context
@@ -230,8 +208,6 @@ ID tk_cre_tsk(CONST T_CTSK *pk_ctsk) {
     new_tcb->task = task;            // Assign task function
     new_tcb->itskpri = itskpri;      // Assign task priority
     new_tcb->exinf = exinf;          // Store user-defined extended information
-  } else {
-    new_id = (ID)E_LIMIT; // Task creation failed
   }
 
   /* Re-enable interrupts */
@@ -505,15 +481,13 @@ ER tk_rel_wai(ID tskid) {
   // Disable interrupts to prevent race conditions
   DI(intsts);
 
-  if (ercd == E_OK) {
-    // Validate the state of the task before proceeding
-    if (tcb->tskstat == TTS_NOEXS) {
-      ercd = E_NOEXS; // Task does not exist
-    } else if (tcb == current && !tkmc_in_isr()) {
-      ercd = E_OBJ; // A task cannot release itself
-    } else if (tcb->tskstat != TTS_WAI) {
-      ercd = E_OBJ; // Task is not in a waiting state
-    }
+  // Validate the state of the task before proceeding
+  if (tcb->tskstat == TTS_NOEXS) {
+    ercd = E_NOEXS; // Task does not exist
+  } else if (tcb == current && !tkmc_in_isr()) {
+    ercd = E_OBJ; // A task cannot release itself
+  } else if (tcb->tskstat != TTS_WAI) {
+    ercd = E_OBJ; // Task is not in a waiting state
   }
 
   if (ercd == E_OK) {

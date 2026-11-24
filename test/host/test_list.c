@@ -35,7 +35,6 @@ static UINT g_length;
 
 static UINT g_adds, g_add_tails, g_dels, g_sweeps, g_empties, g_singles;
 
-// A fixed generator, so a failing run can be reproduced from the seed.
 static BOOL in_model(INT id) {
   for (UINT i = 0; i < g_length; ++i) {
     if (g_model[i] == id) {

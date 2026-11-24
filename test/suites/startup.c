@@ -14,10 +14,6 @@
 #include "panic.h"
 #include "task.h"
 
-#ifndef STARTUP_ENABLE_MIE
-#define STARTUP_ENABLE_MIE 0
-#endif
-
 _Static_assert(STARTUP_FAIL_STAGE >= TKMC_STARTUP_NONE &&
                    STARTUP_FAIL_STAGE <= TKMC_STARTUP_IDLE_START,
                "invalid injected stage");

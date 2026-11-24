@@ -60,11 +60,10 @@ file, the commit stops: stage the change and commit again.
 
    If CMake did not find QEMU when it configured the build, it registers no
    QEMU tests, and `--no-tests=error` makes the second command fail.
-6. If the change alters the kernel, the tests or the build, add a section for
-   the next version to [CHANGELOG.md](CHANGELOG.md), above the newest one, with
-   one line under each heading that fits (Added, Changed, Fixed or Removed).
-   Choose the version by Semantic Versioning. Add to that section if your pull
-   request already has one. A change to documentation alone needs none.
+6. If the change alters the kernel, the tests or the build, add one line to
+   [CHANGELOG.md](CHANGELOG.md) under `## [Unreleased]`, below each heading
+   that fits (Added, Changed, Removed or Fixed). A change to documentation
+   alone needs none.
 
 ## License headers
 

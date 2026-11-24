@@ -8,7 +8,6 @@
 #include <unity.h>
 
 #include "runner.h"
-#include "task.h"
 
 enum { CHILD_PRIORITY = 2, RESTARTS = 100, CLEANUP = -1 };
 _Static_assert(CHILD_PRIORITY < TEST_CASE_PRIORITY,

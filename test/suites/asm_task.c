@@ -15,7 +15,6 @@
 #include <unity.h>
 
 #include "runner.h"
-#include "task.h"
 
 enum { WAIT_MS = 400 };
 #define WAIT_UNTIL(cond) TEST_WAIT_UNTIL(cond, WAIT_MS)

@@ -167,6 +167,11 @@ loops on `wfi`. A board may replace it for reporting. The replacement is
 entered with interrupts disabled and must keep them disabled, must not call
 task APIs, and must not return.
 
+`tk_ret_int` stops the system through the same record and hook when it is not
+called from the active `TA_ASM` external-interrupt entry.
+[Assembly entries](assembly-entry.md#returning-with-delayed-dispatch) gives
+the conditions.
+
 Tests: the `task-context-*` QEMU suites, one program per case:
 
 | Suite | What it checks |
@@ -176,6 +181,10 @@ Tests: the `task-context-*` QEMU suites, one program per case:
 | `task-context-di-ext`, `task-context-di-exd` | `tk_ext_tsk` and `tk_exd_tsk` with interrupts disabled |
 | `task-context-isr-ext`, `task-context-isr-exd` | `tk_ext_tsk` and `tk_exd_tsk` from a timer interrupt |
 | `task-context-no-current-ext`, `task-context-no-current-exd` | `tk_ext_tsk` and `tk_exd_tsk` before the first task starts |
+| `task-context-ret-task`, `task-context-ret-task-di` | `tk_ret_int` from a task, with interrupts enabled and disabled |
+| `task-context-ret-hlng`, `task-context-ret-timer`, `task-context-ret-software` | `tk_ret_int` from a `TA_HLNG` handler, the timer interrupt and the dispatch trap |
+| `task-context-ret-no-current` | `tk_ret_int` before the first task starts |
+| `task-context-ret-asm-task-di` | A `TA_ASM` task that returns from its entry with interrupts disabled, which ends in `tk_ext_tsk` |
 
 Nested external interrupts are tested in the `interrupt` suite.
 
@@ -202,8 +211,8 @@ implements, the required ones are `tk_sta_tsk`, `tk_rel_wai`, `tk_wup_tsk`,
 `tk_sig_sem` and `tk_set_flg`. This kernel also allows `tk_cre_tsk`,
 `tk_cre_sem`, `tk_cre_flg`, `tk_cre_mbx`, `tk_del_sem`, `tk_del_mbx`,
 `tk_clr_flg` and `tk_snd_mbx` from a handler, with valid arguments and their
-normal error returns. The wait calls, `tk_set_utc` and `tk_get_utc` return
-`E_CTX`, and `tk_ext_tsk` and `tk_exd_tsk` stop the system.
+normal error returns. The wait calls, `tk_def_int`, `tk_set_utc` and
+`tk_get_utc` return `E_CTX`, and `tk_ext_tsk` and `tk_exd_tsk` stop the system.
 
 This list is verified for a single-level handler only. Calls from a nested
 handler (one that interrupted another handler) need separate validation.
@@ -294,6 +303,6 @@ replace:
 | --- | --- | --- | --- |
 | Fatal CPU exception (illegal instruction, access fault and others) | `tkmc_last_trap`: `mcause`, `mepc`, `mtval` | `tkmc_panic(mcause, mepc, mtval)`. A replacement must not fault: a second trap overwrites `tkmc_last_trap`. | `wfi` loop |
 | Startup failure | `tkmc_last_startup_failure`: `stage`, `error` | `tkmc_startup_panic(stage, error)` | `wfi` loop |
-| `tk_ext_tsk` or `tk_exd_tsk` from an invalid context | `tkmc_last_context_failure`: `api`, `error` (`E_CTX`) | `tkmc_context_panic(api)` | `wfi` loop |
+| `tk_ext_tsk`, `tk_exd_tsk` or `tk_ret_int` from an invalid context | `tkmc_last_context_failure`: `api`, `error` (`E_CTX`) | `tkmc_context_panic(api)` | `wfi` loop |
 
 None of the hooks may return.

@@ -41,9 +41,5 @@ set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 
-# Additional definitions for bare-metal environment
-
-# add_definitions(-DBARE_METAL)
-
 # Set ASM file extensions
 set(CMAKE_ASM_SOURCE_FILE_EXTENSIONS s;S;as)

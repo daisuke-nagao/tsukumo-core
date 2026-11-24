@@ -25,7 +25,7 @@ enum { OUTER_SOURCE = 10, INNER_SOURCE = 11 };
 // The value of the last read of the claim register in the access log.
 static UD last_claim_read(void) {
   for (UINT i = host_log_count; i > 0; --i) {
-    if (host_log[i - 1].port == (INT)host_plic_claim_port() &&
+    if (host_log[i - 1].port == host_plic_claim_port() &&
         !host_log[i - 1].is_write) {
       return host_log[i - 1].value;
     }
@@ -78,7 +78,7 @@ static void check_threshold_sequence(UINT target, UW priority,
       threshold_write_count += 1;
       threshold_writes_mie_off &= !access.interrupts_enabled;
     }
-    if (access.port == (INT)host_plic_claim_port()) {
+    if (access.port == host_plic_claim_port()) {
       if (access.is_write) {
         claim_write = (INT)i;
       } else {

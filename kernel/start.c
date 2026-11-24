@@ -83,23 +83,23 @@ void tkmc_start(int a0, int a1) {
   /* create tkmc_idl_tsk */
   {
     extern void tkmc_idl_tsk(INT, void *);
-    /* Define the attributes for the initial task (ini_tsk). */
+    /* Define the attributes for the idle task (idl_tsk). */
     T_CTSK pk_ctsk = {
         .exinf = NULL,                  // No extended information
         .tskatr = TA_USERBUF,           // Task uses a user-provided buffer
-        .task = (FP)tkmc_idl_tsk,       // Entry point of the initial task
+        .task = (FP)tkmc_idl_tsk,       // Entry point of the idle task
         .itskpri = CFN_MAX_PRI,         // Lowest priority
         .stksz = sizeof(idl_tsk_stack), // Stack size
         .bufptr = idl_tsk_stack,        // Pointer to the stack buffer
     };
 
-    /* Create the initial task and retrieve its task ID. */
+    /* Create the idle task and retrieve its task ID. */
     ID idl_tsk_id = tk_cre_tsk(&pk_ctsk);
     if (idl_tsk_id <= 0) {
       tkmc_fatal_startup(TKMC_STARTUP_IDLE_CREATE, idl_tsk_id);
     }
 
-    /* Start the initial task with the argument a0. */
+    /* Start the idle task. It gets a0 too, and does not read it. */
     ER error = tk_sta_tsk(idl_tsk_id, a0);
     if (error != E_OK) {
       tkmc_fatal_startup(TKMC_STARTUP_IDLE_START, error);
@@ -140,7 +140,8 @@ static void clear_bss(void) {
  * - sp: Stack pointer of the currently running task.
  *
  * Returns:
- * - Pointer to the stack pointer of the next task to run.
+ * - The saved stack pointer of the next task to run: the address of the frame
+ *   the trap exit restores. The trap entries move it into sp as it is.
  */
 void **schedule(void *sp) {
   /* Save the stack pointer of the current task. */

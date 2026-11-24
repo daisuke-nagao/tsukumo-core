@@ -528,8 +528,6 @@ void host_leave(host_context_t context) {
   }
 }
 
-extern void tkmc_timer_handler(void);
-
 void host_tick(UINT ticks) {
   for (UINT i = 0; i < ticks; ++i) {
     host_mtime += HOST_TICK;
@@ -630,4 +628,4 @@ void host_plic_set_priority(UINT src, UW priority) {
   }
 }
 
-UINT host_plic_claim_port(void) { return PLIC_CLAIM; }
+INT host_plic_claim_port(void) { return PLIC_CLAIM; }

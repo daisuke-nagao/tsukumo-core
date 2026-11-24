@@ -699,6 +699,10 @@ static ID head_blocks_the_next_waiter(ID *head, ID *next_waiter, TMO next_ms) {
   TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(*head)->tskstat);
   TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(*next_waiter)->tskstat);
   TEST_ASSERT_EQUAL(1, tkmc_semcbs[semid - 1].semcnt);
+  // A value no wake writes, so a waiter that leaves without a cause fails the
+  // checks of the callers.
+  host_tcb(*head)->wupcause = E_SYS;
+  host_tcb(*next_waiter)->wupcause = E_SYS;
   return semid;
 }
 
@@ -715,8 +719,6 @@ static void check_next_waiter_was_served(ID semid, ID next_waiter,
   TEST_ASSERT_EQUAL_PTR(tcb, next);
   host_check_kernel_state();
 }
-
-extern void tkmc_timer_handler(void);
 
 // One delayed interrupt reaches both deadlines. B's earlier deadline must
 // release it before A leaves; otherwise A hands the unit to an expired B.
