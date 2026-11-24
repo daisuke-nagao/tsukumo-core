@@ -66,34 +66,31 @@ target_compile_options(
 # Set required language standard for the kernel library
 target_compile_features(tsukumo-core-kernel PRIVATE c_std_11)
 
-# Define macro function to create an executable with linked kernel library This
-# function simplifies the process of adding executables by automatically linking
-# the kernel static library and applying necessary compile-time definitions.
-# Arguments: exec_name: Name of the executable to be created. SOURCES: List of
-# source files to be included in the executable.
+# CONST in the system call prototypes is const when TKERNEL_CHECK_CONST is
+# defined (include/tk/tkernel.h). PUBLIC on the kernel library, so that the
+# kernel and everything that links it read the same prototypes. Not defined per
+# executable: the kernel was then compiled without it and the option did
+# nothing.
+option(TKERNEL_CHECK_CONST
+       "Define CONST as const in the system call prototypes" ON)
+if(TKERNEL_CHECK_CONST)
+  target_compile_definitions(tsukumo-core-kernel PUBLIC TKERNEL_CHECK_CONST)
+endif()
+
+# tkmc_add_executable(<name> SOURCES <files>...) adds a bare-metal executable
+# that links the kernel library.
 function(tkmc_add_executable exec_name)
-  # Parse arguments, expecting SOURCES keyword
   cmake_parse_arguments(TKMC "" "" "SOURCES" ${ARGN})
-
-  # Define the executable with the given sources
   add_executable(${exec_name} ${TKMC_SOURCES})
-
-  # Link against the prebuilt kernel static library This ensures that the
-  # executable has access to the core kernel functionality.
   target_link_libraries(${exec_name} PRIVATE tsukumo-core-kernel)
-
-  # Add compile-time definitions (e.g., for CONST checking) TKERNEL_CHECK_CONST
-  # is used to enforce const correctness in system calls, enhancing code safety
-  # by preventing unintended modifications to pointer parameters.
-  target_compile_definitions(${exec_name} PUBLIC TKERNEL_CHECK_CONST)
+  target_compile_options(
+    ${exec_name} PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS} -fstack-usage>)
+  target_compile_features(${exec_name} PRIVATE c_std_11)
 endfunction()
 
 # The kernel image. It carries no tests: usermain is empty (kernel/usermain.c),
 # and every test suite is an ELF of its own (see add_test_suite).
 tkmc_add_executable(${EXECUTABLE} SOURCES kernel/usermain.c)
-target_compile_options(
-  ${EXECUTABLE} PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS} -fstack-usage>)
-target_compile_features(${EXECUTABLE} PRIVATE c_std_11)
 
 # Include directories for Unity to allow unity_config.h to be used in the test
 # framework. This ensures the test framework functions correctly.
@@ -102,7 +99,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/test)
 # Make Unity available
 FetchContent_MakeAvailable(Unity)
 
-target_compile_definitions(unity PUBLIC -DUNITY_INCLUDE_CONFIG_H)
+target_compile_definitions(unity PUBLIC UNITY_INCLUDE_CONFIG_H)
 
 # unity.c calls test_abort_hook (see test/unity_config.h), and unity.c is
 # compiled once for every ELF, so the definition travels with the library.
@@ -161,9 +158,6 @@ function(add_test_suite name)
   target_link_libraries(${elf} PRIVATE test-runner unity::framework)
   # panic.h, for the suites that replace tkmc_panic().
   target_include_directories(${elf} PRIVATE kernel)
-  target_compile_options(${elf} PRIVATE $<$<COMPILE_LANGUAGE:C>:${COMMON_FLAGS}
-                                        -fstack-usage>)
-  target_compile_features(${elf} PRIVATE c_std_11)
   foreach(symbol IN LISTS SUITE_WRAP)
     target_link_options(${elf} PRIVATE LINKER:--wrap=${symbol})
   endforeach()
@@ -243,22 +237,11 @@ else()
     WARNING "Size command not found. Size information will not be available.")
 endif()
 
-# Define options
-option(
-  TKERNEL_CHECK_CONST
-  "Enable CONST checks to prevent unintended modifications to pointer parameters in system calls. This helps ensure code safety by using 'const' qualifiers when supported. If disabled, CONST will be defined as an empty macro to maintain compatibility with legacy code."
-  ON)
-
 # Include external script for type determination
 include(DetermineTypes.cmake)
 
 # Generate typedef.h from template
 configure_file(typedef.h.in ${CMAKE_BINARY_DIR}/include/tk/typedef.h @ONLY)
-
-# Add compile definitions based on options
-if(TKERNEL_CHECK_CONST)
-  target_compile_definitions(${EXECUTABLE} PUBLIC TKERNEL_CHECK_CONST)
-endif()
 
 enable_testing()
 
@@ -504,6 +487,9 @@ add_test_suite(ioport SOURCES test/suites/ioport.c)
 separate_arguments(word_tbaa_flags NATIVE_COMMAND "${CMAKE_C_FLAGS}")
 list(APPEND word_tbaa_flags ${COMMON_FLAGS} -I${PROJECT_SOURCE_DIR}/include
      -I${CMAKE_BINARY_DIR}/include)
+if(TKERNEL_CHECK_CONST)
+  list(APPEND word_tbaa_flags -DTKERNEL_CHECK_CONST)
+endif()
 if(QEMU_EXECUTABLE)
   add_test(
     NAME word-access-tbaa
@@ -651,9 +637,4 @@ else()
     "@echo off\r\n"
     "\"${QEMU_EXECUTABLE}\" -machine virt -kernel \"${KERNEL_IMAGE}\" -nographic -bios none -d in_asm\r\n"
   )
-
-  # Set executable permissions for Linux scripts (not needed on Windows). if(NOT
-  # WIN32) file(CHMOD "${CMAKE_BINARY_DIR}/run_qemu.sh" OWNER_READ OWNER_WRITE
-  # OWNER_EXECUTE) file(CHMOD "${CMAKE_BINARY_DIR}/run_qemu_debug.sh" OWNER_READ
-  # OWNER_WRITE OWNER_EXECUTE) endif()
 endif()

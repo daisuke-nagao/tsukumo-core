@@ -70,7 +70,6 @@ test_tk_rcv_mbx_serves_priority_queue_receivers_by_priority_then_arrival(void) {
 // which go between queued messages.
 enum { MAX_MESSAGES = 40, PRIORITIES = 5, SEQUENCES = 300 };
 
-// A fixed generator, so a failing run can be reproduced from the seed.
 static void
 test_tk_snd_mbx_priority_mailbox_delivers_by_priority_then_arrival(void) {
   host_set_current(host_make_task(HOST_LOW_PRIORITY));

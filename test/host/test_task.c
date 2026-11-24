@@ -487,6 +487,8 @@ static void test_tk_wup_tsk_wakes_sleeper_in_every_context(void) {
       TCB *tcb = &tkmc_tcbs[sleeper - 1];
       host_set_current(sleeper);
       HOST_EXPECT_WAIT(tk_slp_tsk(TMO_FEVR));
+      // A value no wake writes, so a wake that skips the cause fails below.
+      tcb->wupcause = E_SYS;
       host_set_current(caller);
       UINT requests = host_write_count(HOST_MSIP);
 

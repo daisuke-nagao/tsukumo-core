@@ -85,12 +85,4 @@ SECTIONS
          "the interrupt stack is not 2048 bytes")
   ASSERT(_isr_stack_start >= _stack_end,
          "the interrupt stack is not above the boot stack")
-
-  /* Reserve 16 bytes per CPU (adjust as needed) */
-  /*
-  .cpu_specific_memory : {
-    PROVIDE( _cpu_specific_memory = . );
-    . = . + 16*1;
-  } >ram AT>ram
-  */
 }

@@ -17,8 +17,6 @@
 #include "task.h"
 #include "timer.h"
 
-extern void tkmc_timer_handler(void);
-
 enum {
   MTIMECMP_LOW = CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET,
   MTIMECMP_HIGH = MTIMECMP_LOW + 4,

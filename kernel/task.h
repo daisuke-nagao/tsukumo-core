@@ -59,8 +59,6 @@ typedef struct TCB {
   WaitInfo winfo;
 } TCB;
 
-extern TCB *current;
-
 extern void tkmc_init_tcb(void);
 
 // Resumes the task whose saved frame *sp points to, with interrupts on, and
@@ -88,8 +86,6 @@ extern void tkmc_yield(void);
 extern TCB *current;
 extern TCB *next;
 extern tkmc_list_head tkmc_ready_queue[CFN_MAX_PRI];
-extern TCB *current;
-extern TCB *next;
 extern TCB tkmc_tcbs[CFN_MAX_TSKID];
 
 #ifdef __cplusplus

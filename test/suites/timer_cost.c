@@ -62,7 +62,6 @@
 #include "runner.h"
 #include "task.h"
 
-extern tkmc_list_head tkmc_timer_queue;
 extern void __real_tkmc_timer_handler(void);
 
 enum {

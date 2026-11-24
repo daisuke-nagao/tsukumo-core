@@ -67,8 +67,10 @@ extern UD host_mtime_advance_after_low_read;
 // found them, on every path out.
 extern BOOL host_interrupts_enabled(void);
 
-// The kernel's timer queue, which timer.h does not declare.
+// The kernel's timer queue and timer interrupt handler, which timer.h does not
+// declare.
 extern tkmc_list_head tkmc_timer_queue;
+extern void tkmc_timer_handler(void);
 
 // The kernel's object tables, which their headers do not declare.
 extern SEMCB tkmc_semcbs[CFN_MAX_SEMID];
@@ -193,8 +195,7 @@ extern UINT host_access_count(INT port, BOOL is_write);
 
 // The PLIC: pending sources are claimed only when enabled with nonzero
 // priority; highest priority wins, then lowest source ID. Threshold does not
-// change a claim result. The port of the claim and completion register, for
-// host_last_write().
+// change a claim result.
 extern void host_plic_set_enabled(UINT src, BOOL on);
 extern BOOL host_plic_is_enabled(UINT src);
 extern void host_plic_raise(UINT src);
@@ -207,7 +208,8 @@ extern UW host_plic_threshold_highest(void);
 extern void host_plic_set_priority(UINT src, UW priority);
 // How many ignored completions have occurred since the last claim read.
 extern UINT host_plic_ignored_completions(void);
-extern UINT host_plic_claim_port(void);
+// The port of the claim and completion register, for host_last_write().
+extern INT host_plic_claim_port(void);
 // The port of the priority register of src.
 extern INT host_plic_priority_port(UINT src);
 

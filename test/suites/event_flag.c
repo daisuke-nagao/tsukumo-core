@@ -247,6 +247,9 @@ static void check_flag_calls_refused(ID bad_id) {
   TEST_ASSERT_EQUAL_HEX32(0x0000005A, flgptn);
 }
 
+// These two cases come last: before the fix they read and may write the memory
+// in front of the flag table, and the cases after them would run on what is
+// left.
 static void event_flag_calls_with_id_zero_are_refused(void) {
   check_flag_calls_refused(0);
 }
@@ -254,8 +257,6 @@ static void event_flag_calls_with_negative_id_are_refused(void) {
   check_flag_calls_refused(-1);
 }
 
-// The refusals come last: before the fix they read and may write the memory in
-// front of the flag table, and the cases after them would run on what is left.
 static void tk_cre_flg_refuses_null_packet(void) {
   TEST_ASSERT_EQUAL(E_PAR, tk_cre_flg(NULL));
   UINT intsts, after;

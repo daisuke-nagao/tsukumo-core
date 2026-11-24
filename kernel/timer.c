@@ -18,7 +18,6 @@
 tkmc_list_head tkmc_timer_queue;
 
 /* Memory-mapped addresses for the CLINT (Core Local Interruptor) */
-#define CLINT_MSIP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET)
 #define CLINT_MTIME_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MTIME_OFFSET)
 #define CLINT_MTIMECMP_ADDRESS (CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET)
 
@@ -88,9 +87,10 @@ static UINT pass_elapsed_periods(UD *mtimecmp) {
 void tkmc_init_timer(void) { tkmc_init_list_head(&tkmc_timer_queue); }
 
 /*
- * Initialize the timer system.
- * - Sets up the timer queue.
- * - Configures the initial timer compare value.
+ * Start the system timer.
+ * - Sets the tick count and the UTC clock to 0.
+ * - Sets the compare value one tick ahead of the machine time.
+ * The timer queue is set up earlier, by tkmc_init_timer().
  */
 void tkmc_start_timer(void) {
   UD mtimecmp = read_mtime();

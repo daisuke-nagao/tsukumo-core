@@ -174,6 +174,8 @@ static void test_tk_snd_mbx_in_isr_wakes_waiter_and_defers_its_switch(void) {
   ID sender = host_make_task(LOW_PRIORITY);
   host_set_current(sender);
   static T_MSG message;
+  // A value no wake writes, so a wake that skips the cause fails below.
+  tkmc_tcbs[receiver - 1].wupcause = E_SYS;
   host_snapshot_t before;
   host_take_snapshot(&before);
   tkmc_isr_depth = 1;
