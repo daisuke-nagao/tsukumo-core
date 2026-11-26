@@ -27,13 +27,11 @@ enum { OUTER_SOURCE = 10, INNER_SOURCE = 11, QUIET_SOURCE = 12 };
 static void
 test_external_interrupt_with_no_source_calls_no_handler_and_completes_nothing(
     void) {
-  host_handler_calls = 0;
   TEST_ASSERT_EQUAL(
       E_OK,
       tk_def_int(SOME_SOURCE, &(T_DINT){.intatr = TA_HLNG,
                                         .inthdr = (FP)host_counting_handler}));
   host_plic_set_enabled(SOME_SOURCE, TRUE);
-  host_plic_raise(0);
   tkmc_external_interrupt();
   TEST_ASSERT_EQUAL_UINT(0, host_handler_calls);
   TEST_ASSERT_EQUAL_UINT(0, host_write_count(host_plic_claim_port()));
@@ -45,7 +43,6 @@ test_external_interrupt_with_no_source_calls_no_handler_and_completes_nothing(
 // one of its own number, not the first.
 static void
 test_default_handler_switches_off_source_beyond_table_and_completes_it(void) {
-  host_handler_calls = 0;
   TEST_ASSERT_EQUAL(
       E_OK,
       tk_def_int(SOME_SOURCE, &(T_DINT){.intatr = TA_HLNG,
@@ -150,7 +147,6 @@ test_enable_int_ignores_bad_number_or_level_without_register_access(void) {
 // A call that is refused changes nothing, and the handler defined before it is
 // still the one that runs.
 static void test_tk_def_int_refused_definition_keeps_old_handler(void) {
-  host_handler_calls = 0;
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(SOME_SOURCE, &host_counting_hlng));
   T_DINT no_handler = {.intatr = TA_HLNG, .inthdr = NULL};
   T_DINT unknown_attribute = {.intatr = 2, .inthdr = (FP)host_counting_handler};
@@ -178,7 +174,6 @@ static void test_tk_def_int_refuses_call_in_isr_state(void) {
   tkmc_isr_depth = 0;
   EnableInt(SOME_SOURCE, 1);
   host_plic_raise(SOME_SOURCE);
-  host_handler_calls = 0;
   tkmc_external_interrupt();
   TEST_ASSERT_EQUAL_UINT_MESSAGE(0, host_handler_calls,
                                  "a refused call defined a handler");
@@ -193,7 +188,6 @@ static void disabling_handler(UINT intno) {
 // work is done, and the source is still completed: the PLIC ignores the
 // completion of a source that is not enabled, which would leave it claimed.
 static void test_disable_int_in_handler_still_completes_source(void) {
-  host_handler_calls = 0;
   TEST_ASSERT_EQUAL(
       E_OK,
       tk_def_int(SOME_SOURCE, &(T_DINT){.intatr = TA_HLNG,
@@ -254,7 +248,6 @@ static void defines(UINT intno, void (*handler)(UINT)) {
 }
 
 static void test_handler_runs_with_threshold_at_priority_of_its_source(void) {
-  host_handler_calls = 0;
   defines(OUTER_SOURCE, threshold_probe);
   EnableInt(OUTER_SOURCE, 3);
   host_plic_raise(OUTER_SOURCE);

@@ -8,6 +8,7 @@
 
 #include "asm/rv32/address.h"
 #include "context.h"
+#include "dispatch.h"
 #include "intctl.h"
 #include "panic.h"
 
@@ -19,8 +20,6 @@
   (PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET + 4 * ((src) / 32))
 #define PLIC_THRESHOLD (PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET)
 #define PLIC_CLAIM (PLIC_BASE_ADDRESS + PLIC_CLAIM_OFFSET)
-
-extern void **schedule(void *sp);
 
 typedef struct {
   FP handler;
@@ -350,7 +349,7 @@ __attribute__((__noreturn__)) void tkmc_ret_int_from_sp(void *entry_sp) {
   tkmc_finish_external_interrupt(ctx);
   if (depth == 1 && in_w(CLINT_MSIP_ADDRESS) != 0) {
     out_w(CLINT_MSIP_ADDRESS, 0);
-    resume_frame = (void *)schedule(resume_frame);
+    resume_frame = schedule(resume_frame);
   }
   tkmc_isr_depth = tkmc_isr_depth - 1;
   tkmc_restore_external_interrupt_frame(resume_frame, saved_mie_bits);

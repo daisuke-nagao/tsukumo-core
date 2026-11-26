@@ -21,10 +21,11 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
+#include "dispatch.h"
 #include "qemu_virt.h"
 #include "runner.h"
 
-extern void **__real_schedule(void *sp);
+__typeof__(schedule) __real_schedule, __wrap_schedule;
 
 enum {
   CHILD_PRIORITY = 2,
@@ -43,7 +44,7 @@ _Static_assert(CHILD_PRIORITY < TEST_CASE_PRIORITY,
 
 static volatile UW s_last_mcause;
 
-void **__wrap_schedule(void *sp) {
+void *__wrap_schedule(void *sp) {
   UW cause;
   __asm__ volatile("csrr %0, mcause" : "=r"(cause));
   s_last_mcause = cause;

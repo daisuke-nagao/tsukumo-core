@@ -57,12 +57,16 @@ static void use_up_the_kernel(void) {
 }
 
 // After host_reset() the kernel is as after a boot, however much the previous
-// test used: every object is free again, no task is queued, and the timer
-// queue and the access log are empty.
+// test used: every object is free again, no task is queued, the timer queue
+// and the access log are empty, and the counting handler has counted nothing.
 static void test_kernel_reset_gives_back_every_kernel_object(void) {
   use_up_the_kernel();
   host_log_count = HOST_LOG_MAX;
+  host_counting_handler(CFN_MAX_INTNO - 1);
   host_reset();
+
+  TEST_ASSERT_EQUAL_UINT(0, host_handler_calls);
+  TEST_ASSERT_EQUAL_UINT(0, host_handler_intno);
 
   TEST_ASSERT_NULL(tkmc_get_highest_priority_task());
   TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_timer_queue));

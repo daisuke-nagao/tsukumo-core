@@ -135,6 +135,7 @@ test_tk_snd_mbx_refuses_msgpri_0_on_priority_mailbox_before_receiver(void) {
   TEST_ASSERT_TRUE(host_interrupts_enabled());
   host_assert_unchanged(&before, "a refused tk_snd_mbx()");
   TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(receiver)->tskstat);
+  host_check_kernel_state();
 }
 
 // Receivers of a TA_TFIFO mailbox get the messages in the order they began to

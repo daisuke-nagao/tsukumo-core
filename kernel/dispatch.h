@@ -16,6 +16,14 @@
 extern "C" {
 #endif /* __cplusplus */
 
+// Defined in start.c and called to switch tasks on the way out of a trap (by
+// the trap entries in start.S, and by tkmc_ret_int_from_sp() in intctl.c, where
+// tk_ret_int() goes); returns the frame to resume. The QEMU suites that wrap
+// it declare their wrappers with __typeof__(schedule), so that a wrapper of
+// another type fails to compile: void * and void ** come back the same way on
+// RV32, so no test run would show the difference.
+extern void *schedule(void *sp);
+
 static inline void dispatch(void) {
   tkmc_compiler_barrier();
   // Trigger a machine software interrupt

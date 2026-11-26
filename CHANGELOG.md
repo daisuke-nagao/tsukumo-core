@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rename the PC tests and QEMU cases, all but the runner's self-test fixtures, to name what they test
   (see [naming rule](docs/developer/testing.md#name-a-test))
 - Restructure the tests around shared helpers and tables, split the largest files and register CTest cases by name
+- Declare the kernel's `schedule()` once, returning the `void *` frame, so that a wrapper of another type fails to build
 
 ### Removed
 
@@ -62,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the CMake option of that name switch it for that library and the programs that link it; the option had no effect
   before
 - Make three PC tests of a wake-up fail when the kernel does not record the cause of the wake-up
+- Make eight PC tests check the kernel queues, reset handler counters per PC test and delete two leaked QEMU objects
 
 ## [0.0.1] - 2026-11-11
 

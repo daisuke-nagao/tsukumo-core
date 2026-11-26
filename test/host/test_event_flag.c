@@ -195,6 +195,7 @@ static void test_tk_wai_flg_refuses_second_waiter_before_pattern_check(void) {
     host_assert_unchanged(&before, "a second waiter on a TA_WSGL flag");
   }
   TEST_ASSERT_EQUAL_HEX32(0x1, tkmc_flgcbs[flgid - 1].flgptn);
+  host_check_kernel_state();
 }
 
 static void
@@ -248,6 +249,7 @@ test_event_flag_priority_waiters_queue_by_priority_then_arrival(void) {
     TEST_ASSERT_EQUAL_PTR(&host_tcb(expected[i])->winfo.wait_queue, pos);
   }
   TEST_ASSERT_EQUAL_PTR(queue, pos);
+  host_check_kernel_state();
 }
 
 // TWF_ANDW waits for every bit of its pattern. A flag that holds only some of

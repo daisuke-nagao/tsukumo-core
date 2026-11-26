@@ -7,8 +7,9 @@
 // The idle task must stop the CPU while every other task waits. The guest's
 // retired-instruction counter shows it: a case that sleeps for SLEEP_MS runs
 // only the tick handlers and the polling of the runner, about 20000
-// instructions. An idle task that spins would add a million or more, because
-// the guest then runs for as long as the sleep lasts.
+// instructions. With an idle task that spins, the case would run about 430000
+// or more at the shifts the suite runs with, because the guest then runs for as
+// long as the sleep lasts.
 
 #include <tk/tkernel.h>
 #include <unity.h>
@@ -23,7 +24,9 @@ enum {
   MIN_INSTRUCTIONS = 1000,
   // Far above what the handlers and the runner's polling need during
   // SLEEP_MS, far below the instructions a spinning idle task runs in that
-  // time: about 3 million at -icount shift=5, 430000 at shift 8. The suite is
+  // time. tk_dly_tsk(SLEEP_MS) waits 11 ticks, about 110 ms from the tick
+  // edge the case starts on, so a spinning idle task runs about 3.4 million
+  // at -icount shift=5 and 430000 at shift 8 (2^shift ns each). The suite is
   // registered only for shifts up to 8, where QEMU's minstret counts
   // instructions and the spinning count stays well above this limit.
   INSTRUCTION_LIMIT = 100000

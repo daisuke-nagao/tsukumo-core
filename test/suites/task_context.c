@@ -48,7 +48,7 @@ extern MBXCB tkmc_mbxcbs[CFN_MAX_MBXID];
 extern tkmc_list_head tkmc_timer_queue;
 extern ID __real_tk_cre_tsk(CONST T_CTSK *packet);
 extern void __real_tkmc_timer_handler(void);
-extern void **__real_schedule(void *sp);
+__typeof__(schedule) __real_schedule, __wrap_schedule;
 #if CONTEXT_TEST_MODE == RET_ASM_TASK_DI
 extern void asm_task_di_ret_entry(void);
 #endif
@@ -124,6 +124,17 @@ static void make_objects(void) {
   if (semid <= 0 || flgid <= 0 || mbxid <= 0 ||
       tk_snd_mbx(mbxid, &message) != E_OK) {
     fail("object setup");
+  }
+}
+
+static void delete_objects(void) {
+  ER sem_deleted = tk_del_sem(semid);
+  ER mbx_deleted = tk_del_mbx(mbxid);
+  if (sem_deleted != E_OK) {
+    fail("could not delete the fixture semaphore");
+  }
+  if (mbx_deleted != E_OK) {
+    fail("could not delete the fixture mailbox");
   }
 }
 
@@ -289,7 +300,7 @@ ID __wrap_tk_cre_tsk(CONST T_CTSK *packet) {
   return __real_tk_cre_tsk(packet);
 }
 
-void **__wrap_schedule(void *sp) {
+void *__wrap_schedule(void *sp) {
   if (!tkmc_in_isr()) {
     fail("dispatch entry missing ISR state");
   }
@@ -418,6 +429,10 @@ static void isr_context_compatible_calls_work_in_real_isr_then_dispatch(void) {
   }
   TEST_ASSERT_TRUE_MESSAGE(quiet_return,
                            "no timer return without dispatch observed");
+
+  // The kernel has neither tk_del_flg() nor tk_del_tsk(), so flgid,
+  // probe_flag and probe_task stay.
+  delete_objects();
 }
 
 #if CONTEXT_TEST_MODE == LIVE_ISR
@@ -432,6 +447,7 @@ void usermain(int argument) {
     if (!observed || tkmc_in_isr()) {
       fail("prelaunch probe or ISR exit missing");
     }
+    delete_objects();
     putstring("NO CURRENT WAIT OK\n");
     test_exit(0);
   }

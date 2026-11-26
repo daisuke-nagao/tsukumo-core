@@ -34,10 +34,7 @@ static UD last_claim_read(void) {
   return 0;
 }
 
-// Fails the test, naming the rule and the case, unless the access log shows
-// ClearInt() of target bracketing its claim with two threshold writes, MIE off:
-// 0 before the claim, with only target enabled, and restored_threshold after
-// the completion and the restored enable bits (and priority, if it was 0).
+// Unless cond holds, fails the test with rule, after the caller's `label`.
 #define SEQUENCE_RULE(cond, rule)                                              \
   do {                                                                         \
     if (!(cond)) {                                                             \
@@ -47,6 +44,10 @@ static UD last_claim_read(void) {
     }                                                                          \
   } while (0)
 
+// Fails the test, naming the rule and the case, unless the access log shows
+// ClearInt() of target bracketing its claim with two threshold writes, MIE off:
+// 0 before the claim, with only target enabled, and restored_threshold after
+// the completion and the restored enable bits (and priority, if it was 0).
 static void check_threshold_sequence(UINT target, UW priority,
                                      UW restored_threshold, const char *label) {
   enum { ENABLE_WORDS = (PLIC_SOURCE_COUNT + 31) / 32 };
@@ -502,7 +503,6 @@ static void test_check_int_reads_one_pending_word_without_claiming(void) {
   host_plic_raise(31);
   TEST_ASSERT_TRUE(CheckInt(31));
   TEST_ASSERT_TRUE(CheckInt(31));
-  host_handler_calls = 0;
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(31, &host_counting_hlng));
   EnableInt(31, 1);
   tkmc_external_interrupt();

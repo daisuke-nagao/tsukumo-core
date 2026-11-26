@@ -357,6 +357,7 @@ test_utc_clock_advances_by_all_ticks_when_handler_releases_several_waits(void) {
   TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(third)->tskstat);
   TEST_ASSERT_EQUAL_UINT(2, host_tcb(third)->delay_ticks);
   EXPECT_UTC(0, 1040);
+  host_check_kernel_queues();
 }
 
 // A set in the middle of a tick moves only the clock: the next edge, and the
@@ -382,6 +383,7 @@ static void test_tk_set_utc_in_middle_of_tick_keeps_tick_edge(void) {
   EXPECT_UTC(0, 787);
   TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(waiter)->tskstat);
   TEST_ASSERT_EQUAL(E_TMOUT, host_tcb(waiter)->wupcause);
+  host_check_kernel_queues();
 }
 
 // The compare register is the handler's, and it takes the ticks that are

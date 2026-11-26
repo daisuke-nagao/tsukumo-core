@@ -34,6 +34,7 @@
 #include "../finish.h"
 #include "../putstring.h"
 #include "asm/rv32/address.h"
+#include "dispatch.h"
 #include "intctl.h"
 #include "panic.h"
 #include "qemu_virt.h"
@@ -42,7 +43,7 @@
 #include "task.h"
 #include <tk/asm/rv32/interrupt.h>
 
-extern void **__real_schedule(void *sp);
+__typeof__(schedule) __real_schedule, __wrap_schedule;
 extern volatile UINT tkmc_isr_depth;
 // The stack of the C parts of the trap entries (linker.ld).
 extern unsigned char _isr_stack_start[];
@@ -93,7 +94,7 @@ static void reset_trap_records(void) {
   s_timer_handler_ok = TRUE;
 }
 
-void **__wrap_schedule(void *frame) {
+void *__wrap_schedule(void *frame) {
   UW cause, sp;
   __asm__ volatile("csrr %0, mcause" : "=r"(cause));
   __asm__ volatile("mv %0, sp" : "=r"(sp));
