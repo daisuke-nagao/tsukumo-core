@@ -28,6 +28,7 @@
 
 #include "../putstring.h"
 #include "asm/rv32/address.h"
+#include "dispatch.h"
 #include "intctl.h"
 #include "qemu_virt.h"
 #include "runner.h"
@@ -39,7 +40,7 @@
 _Static_assert(NEST_DEPTH >= 3 && NEST_DEPTH <= PLIC_MAX_PRIORITY,
                "the chain is 3 to 7 levels deep: one priority per level");
 
-extern void **__real_schedule(void *sp);
+__typeof__(schedule) __real_schedule, __wrap_schedule;
 extern volatile UINT tkmc_isr_depth;
 extern unsigned char _isr_stack_start[];
 extern unsigned char _isr_stack_end[];
@@ -90,7 +91,7 @@ static BOOL on_the_interrupt_stack(UW address) {
   return address > (UW)_isr_stack_start && address <= (UW)_isr_stack_end;
 }
 
-void **__wrap_schedule(void *frame) {
+void *__wrap_schedule(void *frame) {
   UW cause, sp;
   __asm__ volatile("csrr %0, mcause" : "=r"(cause));
   __asm__ volatile("mv %0, sp" : "=r"(sp));

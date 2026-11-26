@@ -32,9 +32,7 @@ static const row_t s_rows[] = {
     {FALSE, FALSE, FALSE, TRUE}, {FALSE, FALSE, TRUE, TRUE},
 };
 
-// What a row checks, as bit numbers within the row's bits of the mask. The
-// fake EI() takes its argument by value, so unlike on the target there is no
-// saved value it could change.
+// Bit positions for the two checks within each row of the mismatch mask.
 enum {
   CHECK_ON,    // Interrupts after EI() are as expected.
   CHECK_SETUP, // Interrupts before EI() and isDI() are as the row says.
@@ -176,6 +174,7 @@ test_ei_turning_interrupts_off_keeps_switch_request_for_later(void) {
   const BOOL enabled_restore_switched = switched;
   const BOOL enabled_after_restore = host_interrupts_enabled();
   const BOOL request_consumed_by_enabled_restore = in_w(HOST_MSIP) == 0;
+  host_check_kernel_queues();
 
   host_reset();
   TEST_ASSERT_TRUE_MESSAGE(disabled_restore_did_not_switch,

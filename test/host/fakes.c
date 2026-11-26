@@ -14,6 +14,7 @@
 
 #include "asm/rv32/address.h"
 #include "context.h"
+#include "dispatch.h"
 #include "event_flag.h"
 #include "intctl.h"
 #include "mailbox.h"
@@ -213,8 +214,8 @@ void __launch_task(void **sp) {
   abort();
 }
 
-void **schedule(void *sp) {
-  return (void **)sp; // The host fake cannot switch the frame to another task.
+void *schedule(void *sp) {
+  return sp; // The host fake cannot switch the frame to another task.
 }
 
 __attribute__((__noreturn__)) void
@@ -392,6 +393,8 @@ void host_reset(void) {
   host_mtime_advance_after_low_read = 0;
   host_wait_armed = 0;
   host_waited = 0;
+  host_handler_calls = 0;
+  host_handler_intno = 0;
   s_stacks_used =
       0; // The kernel tables are reset below, so every task is gone.
 

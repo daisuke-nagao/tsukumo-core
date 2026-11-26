@@ -6,14 +6,14 @@
 
 // Tests of semaphores (tk_cre_sem, tk_wai_sem, tk_sig_sem, tk_del_sem).
 //
-// The first two cases run two children that compete for a semaphore. A child
-// holds the semaphore for HOLD_MS, and the other must wait for it. The children
-// count how many of them are inside at once, so a semaphore that lets both in
-// fails the assert in the child that arrives second. The others test a
-// time-out, a signal after a time-out, a delete with waiters, the limit, the
-// counts a semaphore accepts, the order in which a new request may take units
-// ahead of the tasks that wait, and what the units of a head that leaves
-// unserved go to.
+// semaphore_binary_is_exclusive and semaphore_counting_grants_whole_requests
+// run two children that compete for a semaphore. A child holds the semaphore
+// for HOLD_MS, and the other must wait for it. The children count how many of
+// them are inside at once, so a semaphore that lets both in fails the assert in
+// the child that arrives second. The others test a null packet, a time-out, a
+// signal after a time-out, a delete with waiters, the limit, the counts a
+// semaphore accepts, the order in which a new request may take units ahead of
+// the tasks that wait, and what the units of a head that leaves unserved go to.
 
 #include <tk/tkernel.h>
 #include <unity.h>

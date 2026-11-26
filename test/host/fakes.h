@@ -215,7 +215,7 @@ extern INT host_plic_priority_port(UINT src);
 
 // A TA_HLNG handler that counts its calls in host_handler_calls and keeps the
 // interrupt number of the last one in host_handler_intno, and a definition of
-// it for tk_def_int().
+// it for tk_def_int(). host_reset() sets both to 0.
 extern UINT host_handler_calls;
 extern UINT host_handler_intno;
 extern void host_counting_handler(UINT intno);

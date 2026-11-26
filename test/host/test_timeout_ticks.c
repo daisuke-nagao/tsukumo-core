@@ -59,6 +59,7 @@ static void check_ticks(UINT api, TMO ms) {
   HOST_EXPECT_WAIT(s_apis[api].call(ms));
   TEST_ASSERT_EQUAL_UINT_MESSAGE((UINT)(((UD)ms + 9) / 10 + 1),
                                  tkmc_tcbs[self - 1].delay_ticks, label);
+  host_check_kernel_state();
 }
 
 static void test_wait_calls_round_time_limit_up_to_ticks_plus_one(void) {
@@ -79,6 +80,7 @@ static void test_tk_dly_tsk_takes_whole_unsigned_range(void) {
   HOST_EXPECT_WAIT(tk_dly_tsk(UINT_MAX));
   TEST_ASSERT_EQUAL_UINT(UINT_MAX / 10 + 1 + 1,
                          tkmc_tcbs[self - 1].delay_ticks);
+  host_check_kernel_state();
 }
 
 // A wait with a time limit lasts a whole number of ticks: the limit in

@@ -46,7 +46,6 @@ test_asm_interrupt_prepare_and_finish_restore_threshold_and_complete_claim(
   _Alignas(16) UW frame[32] = {0};
   tkmc_interrupt_context context;
 
-  host_handler_calls = 0;
   host_plic_set_threshold(2);
   const host_context_t entered =
       take_asm_interrupt(&context, SOME_SOURCE, 4, frame);
@@ -75,7 +74,6 @@ static void test_asm_interrupt_prepare_without_claim_is_no_op(void) {
   tkmc_interrupt_context context;
   UINT saved;
   host_plic_set_threshold(3);
-  host_plic_raise(0);
   host_log_count = 0;
   DI(saved);
   tkmc_isr_depth = 1;

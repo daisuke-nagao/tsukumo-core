@@ -6,6 +6,7 @@
 
 #include <tk/tkernel.h>
 
+#include "dispatch.h"
 #include "event_flag.h"
 #include "ini_tsk.h"
 #include "intctl.h"
@@ -143,7 +144,7 @@ static void clear_bss(void) {
  * - The saved stack pointer of the next task to run: the address of the frame
  *   the trap exit restores. The trap entries move it into sp as it is.
  */
-void **schedule(void *sp) {
+void *schedule(void *sp) {
   /* Save the stack pointer of the current task. */
   TCB *tmp = current;
   tmp->sp = sp;

@@ -37,10 +37,8 @@
 // * with limits one tick apart, so that each ends at its own edge, or, when the
 //   case holds interrupts off for a while (a late interrupt), in one call that
 //   ends every wait the lateness reaches, earliest deadline first;
-// * the same, but on a TA_CNT semaphore that nothing signals: the former
-// timeout
-//   path walked the whole semaphore wait queue; the current path skips that
-//   walk.
+// * the same, but on a TA_CNT semaphore that nothing signals. The current
+//   timeout path skips the semaphore wait queue walk.
 //
 // A child's wait begins in the order of the children, the longest limit first,
 // so the queue does not list the waits in the order of their deadlines, and the

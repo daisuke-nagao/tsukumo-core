@@ -148,11 +148,6 @@ static void test_timer_handler_reads_mtime_once_for_elapsed_periods(void) {
   }
 }
 
-// The handler counts the periods that have passed since the last compare value,
-// not its own calls: a late interrupt takes off every period it missed, and a
-// call that comes before the compare value (MTIP is cleared late after a
-// compare write) changes nothing.
-
 static void check_wait(ID id, UINT left) {
   const TCB *tcb = &tkmc_tcbs[id - 1];
   if (left == 0) {
@@ -191,6 +186,10 @@ test_timer_handler_uses_sample_before_same_word_tick_boundary(void) {
   check_mtime_read(2 * boundary + 16);
 }
 
+// The handler counts the periods that have passed since the last compare value,
+// not its own calls: a late interrupt takes off every period it missed, and a
+// call that comes before the compare value (MTIP is cleared late after a
+// compare write) changes nothing.
 static void test_timer_interrupt_counts_every_period_that_has_passed(void) {
   // An 11 tick wait, then one interrupt after `periods`; 0 left is a time-out.
   static const struct {
