@@ -82,6 +82,12 @@ UW test_mtime_mid_tick(void) {
   return test_mtime();
 }
 
+ID test_create_mailbox(ATR attributes) {
+  ID mbxid = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = attributes});
+  TEST_ASSERT_GREATER_THAN(E_OK, mbxid);
+  return mbxid;
+}
+
 UINT test_task_state(ID id) {
   UINT intsts;
   DI(intsts);

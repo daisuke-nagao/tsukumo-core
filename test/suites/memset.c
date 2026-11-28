@@ -15,8 +15,8 @@
 
 #include <tk/tkernel.h>
 
-#include "../memset_matrix.h"
-#include "../runner.h"
+#include "memset_matrix.h"
+#include "runner.h"
 
 static void tkmc_memset_fills_exactly_requested_range(void) {
   memset_matrix_check();

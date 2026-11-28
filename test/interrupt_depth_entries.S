@@ -32,17 +32,15 @@ depth_paint_task_stack:
   ret
 
 /*
- * UW depth_spin_arm_byte(volatile UW *flag, UW deadline, volatile UB *reg,
- *                        UB value)
  * UW depth_spin_arm_word(volatile UW *flag, UW deadline, volatile UW *reg,
  *                        UW value)
  *
- * The spin of spin_with_registers.h with a choice of the arming store: the
- * UART's interrupt enable register takes a byte, the RTC's IRQ-enable register
- * a word. Each level of a nested chain calls one to start its child, so the
- * registers of every interrupted level cross a trap.
+ * The spin of spin_with_registers.h armed by a word store, for the RTC's
+ * IRQ-enable register. The UART's interrupt enable register takes a byte, which
+ * test_spin_with_registers (test/spin_with_registers.S) stores. Each level of a
+ * nested chain calls one of the two to start its child, so the registers of
+ * every interrupted level cross a trap.
  */
-  SPIN depth_spin_arm_byte, sb
   SPIN depth_spin_arm_word, sw
 
 /*

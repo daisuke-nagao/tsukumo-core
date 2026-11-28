@@ -16,7 +16,7 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../runner.h"
+#include "runner.h"
 #include "task.h"
 
 enum { CHILD_PRIORITY = 2, LATE_CHILD_PRIORITY = 5, SLEEP_MS = 50 };
@@ -55,9 +55,9 @@ static void tk_rel_wai_ends_sleeps_early(void) {
   test_join_expect(1);
 }
 
-// Three tk_wup_tsk() calls end three sleeps with E_OK; the fourth sleep is not
-// woken and times out.
-static void woken_child(void *arg) {
+// Sleeps four times: the case sends three wake-up requests, so three sleeps
+// end with E_OK, and the fourth is not woken and times out.
+static void three_wakeups_child(void *arg) {
   (void)arg;
   TEST_ASSERT_EQUAL(E_OK, tk_slp_tsk(SLEEP_MS));
   TEST_ASSERT_EQUAL(E_OK, tk_slp_tsk(SLEEP_MS));
@@ -66,8 +66,10 @@ static void woken_child(void *arg) {
   test_checkpoint();
 }
 
+// Three tk_wup_tsk() calls end three sleeps with E_OK; the fourth sleep is not
+// woken and times out.
 static void tk_wup_tsk_ends_multiple_sleeps(void) {
-  ID child = test_spawn(woken_child, CHILD_PRIORITY, 0);
+  ID child = test_spawn(three_wakeups_child, CHILD_PRIORITY, 0);
   TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(child));
   TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(child));
   TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(child));
@@ -77,17 +79,8 @@ static void tk_wup_tsk_ends_multiple_sleeps(void) {
 // Wakeups sent before the task sleeps are queued, and each later tk_slp_tsk()
 // consumes one without blocking. The child runs below the case, so all three
 // tk_wup_tsk() calls reach it before its first sleep.
-static void queued_wakeup_child(void *arg) {
-  (void)arg;
-  TEST_ASSERT_EQUAL(E_OK, tk_slp_tsk(SLEEP_MS));
-  TEST_ASSERT_EQUAL(E_OK, tk_slp_tsk(SLEEP_MS));
-  TEST_ASSERT_EQUAL(E_OK, tk_slp_tsk(SLEEP_MS));
-  TEST_ASSERT_EQUAL(E_TMOUT, tk_slp_tsk(SLEEP_MS));
-  test_checkpoint();
-}
-
 static void tk_wup_tsk_queued_before_sleep_is_consumed_by_tk_slp_tsk(void) {
-  ID child = test_spawn(queued_wakeup_child, LATE_CHILD_PRIORITY, 0);
+  ID child = test_spawn(three_wakeups_child, LATE_CHILD_PRIORITY, 0);
   TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(child));
   TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(child));
   TEST_ASSERT_EQUAL(E_OK, tk_wup_tsk(child));
@@ -128,6 +121,8 @@ static void tk_slp_tsk_longest_limit_counts_its_ticks(void) {
   test_join_expect(1);
 }
 
+// The kernel's limit on queued wake-up requests (TK_WAKEUP_MAXCNT), written
+// out on purpose: a test that used the constant would pass whatever its value.
 enum { WAKEUP_LIMIT = 4095 };
 static ID s_wakeup_gate;
 

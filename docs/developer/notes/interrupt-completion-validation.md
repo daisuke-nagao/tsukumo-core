@@ -121,5 +121,7 @@ trace test. Restore the production file before rebuilding and rerunning.
 
 The evidence covers the configured source range and two-level QEMU nesting.
 Physical devices and deeper nesting require platform-specific validation.
+Later, on 2026-11-18, the [deep nesting record](deep-interrupt-nesting-validation.md) validated chains of three to
+seven levels on QEMU.
 The [ClearInt validation record](clearint-validation.md) covers the later
 pending-clear API and its interaction with active completion state.

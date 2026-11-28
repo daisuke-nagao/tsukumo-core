@@ -11,7 +11,13 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../runner.h"
+#include "runner.h"
+
+// The children run as soon as they start: above the case, below the runner.
+enum { CHILD_PRIORITY = 2 };
+_Static_assert(TEST_RUNNER_PRIORITY < CHILD_PRIORITY &&
+                   CHILD_PRIORITY < TEST_CASE_PRIORITY,
+               "a child must outrank the case and not the runner");
 
 static void late_failing_child(void *arg) {
   (void)arg;
@@ -20,7 +26,9 @@ static void late_failing_child(void *arg) {
   TEST_ASSERT_EQUAL(0, 1);
 }
 
-static void orphan_case1(void) { test_spawn(late_failing_child, 2, 0); }
+static void orphan_case1(void) {
+  test_spawn(late_failing_child, CHILD_PRIORITY, 0);
+}
 
 static void orphan_case2(void) { TEST_ASSERT_EQUAL(1, 1); }
 

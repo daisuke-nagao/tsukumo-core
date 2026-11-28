@@ -92,14 +92,16 @@ endfunction()
 # and every test suite is an ELF of its own (see add_test_suite).
 tkmc_add_executable(${EXECUTABLE} SOURCES kernel/usermain.c)
 
-# Include directories for Unity to allow unity_config.h to be used in the test
-# framework. This ensures the test framework functions correctly.
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/test)
-
 # Make Unity available
 FetchContent_MakeAvailable(Unity)
 
+# UNITY_INCLUDE_CONFIG_H makes unity.h include test/unity_config.h, so every
+# target that includes unity.h needs test/ on its include path. Unity, the test
+# runner and each suite add it themselves (BEFORE keeps it first, where the
+# directory-wide setting used to put it); a new target that links Unity must add
+# it too.
 target_compile_definitions(unity PUBLIC UNITY_INCLUDE_CONFIG_H)
+target_include_directories(unity BEFORE PRIVATE ${PROJECT_SOURCE_DIR}/test)
 
 # unity.c calls test_abort_hook (see test/unity_config.h), and unity.c is
 # compiled once for every ELF, so the definition travels with the library.
@@ -108,6 +110,8 @@ target_sources(unity PRIVATE test/abort_hook.c)
 # The test runner, shared by every suite ELF. kernel/ is on its include path
 # because the runner reads task states from the kernel's task table.
 add_library(test-runner OBJECT test/runner.c)
+target_include_directories(test-runner BEFORE
+                           PRIVATE ${PROJECT_SOURCE_DIR}/test)
 target_include_directories(test-runner PRIVATE kernel)
 target_link_libraries(test-runner PUBLIC tsukumo-core-kernel unity::framework)
 target_compile_options(
@@ -156,6 +160,8 @@ function(add_test_suite name)
   set(elf ${PROJECT_NAME}-test-${name}.elf)
   tkmc_add_executable(${elf} SOURCES ${SUITE_SOURCES})
   target_link_libraries(${elf} PRIVATE test-runner unity::framework)
+  # The shared test headers (runner.h, qemu_virt.h, ...), by bare name.
+  target_include_directories(${elf} BEFORE PRIVATE ${PROJECT_SOURCE_DIR}/test)
   # panic.h, for the suites that replace tkmc_panic().
   target_include_directories(${elf} PRIVATE kernel)
   foreach(symbol IN LISTS SUITE_WRAP)
@@ -485,11 +491,21 @@ add_test_suite(ioport SOURCES test/suites/ioport.c)
 # RISC-V build. It is registered only where the QEMU suites are, so that a build
 # without QEMU still has no tests and `ctest --no-tests=error` still fails.
 separate_arguments(word_tbaa_flags NATIVE_COMMAND "${CMAKE_C_FLAGS}")
-list(APPEND word_tbaa_flags ${COMMON_FLAGS} -I${PROJECT_SOURCE_DIR}/include
-     -I${CMAKE_BINARY_DIR}/include)
-if(TKERNEL_CHECK_CONST)
-  list(APPEND word_tbaa_flags -DTKERNEL_CHECK_CONST)
-endif()
+# The include directories and definitions come from the kernel library itself,
+# so that a setting added to it reaches this check too. COMMON_FLAGS stays
+# explicit: the library's compile options are wrapped in $<COMPILE_LANGUAGE:C>,
+# which has no meaning in a test command.
+set(kernel_includes
+    "$<TARGET_PROPERTY:tsukumo-core-kernel,INCLUDE_DIRECTORIES>")
+set(kernel_definitions
+    "$<TARGET_PROPERTY:tsukumo-core-kernel,COMPILE_DEFINITIONS>")
+# One element, so that a library without definitions leaves no empty argument.
+list(
+  APPEND
+  word_tbaa_flags
+  ${COMMON_FLAGS}
+  "-I$<JOIN:${kernel_includes},;-I>$<$<BOOL:${kernel_definitions}>:;-D$<JOIN:${kernel_definitions},;-D>>"
+)
 if(QEMU_EXECUTABLE)
   add_test(
     NAME word-access-tbaa
@@ -557,8 +573,14 @@ add_completion_trace(qemu-asm-task-trace asm-task)
 # Each depth also gets the PLIC completion trace check.
 foreach(depth RANGE 3 7)
   set(suite interrupt-depth-${depth})
-  add_test_suite(${suite} SOURCES test/suites/interrupt_depth.c
-                 test/interrupt_depth_entries.S WRAP schedule)
+  add_test_suite(
+    ${suite}
+    SOURCES
+    test/suites/interrupt_depth.c
+    test/interrupt_depth_entries.S
+    test/spin_with_registers.S
+    WRAP
+    schedule)
   target_compile_definitions(${PROJECT_NAME}-test-${suite}.elf
                              PRIVATE NEST_DEPTH=${depth})
   add_completion_trace(qemu-${suite}-trace ${suite})

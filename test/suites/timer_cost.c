@@ -8,11 +8,11 @@
 // budget. The handler scans the timer queue twice for every wait it ends
 // (kernel/timer.c), so the work grows with the square of the waits that end in
 // one call, and it runs with interrupts disabled. The budget is a tenth of a
-// kernel tick, counted in instructions (see docs/developer/notes/
-// timer-delay-budget.md); every case fails when the most expensive handler call
-// of the case is over it. The budget is a count of instructions, the same at
-// every -icount shift: the shift only sets how many a tick holds, and the
-// handler spends the same either way.
+// kernel tick, counted in instructions (see
+// docs/developer/notes/timer-delay-budget.md); every case fails when the most
+// expensive handler call of the case is over it. The budget is a count of
+// instructions, the same at every -icount shift: the shift only sets how many a
+// tick holds, and the handler spends the same either way.
 //
 // The timer trap is the real one. Its C handler is wrapped at link time
 // (--wrap=tkmc_timer_handler), so the wrapper reads the guest's

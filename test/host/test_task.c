@@ -6,14 +6,13 @@
 
 #include <limits.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "asm/rv32/address.h"
 #include "context.h"
 #include "fakes.h"
-#include "task.h"
 
 enum { FRAME_WORDS = 32 };
 static _Alignas(16) UINT s_stack[256];
@@ -242,10 +241,28 @@ test_tk_cre_tsk_refuses_every_broken_packet_and_changes_nothing(void) {
        packet_with_stack(wrapping_address(), 256)},
   };
   rows[1].pk.task = NULL;
+  // Each packet is refused on a kernel with no task, and on one where a task
+  // runs with a ready task of its own priority and one below it, so that a
+  // refusal that touched the running task or either ready queue would show.
+  static const char *const states[] = {"no task",
+                                       "a running and two ready tasks"};
   for (UINT i = 0; i < HOST_COUNT(rows); ++i) {
-    host_reset();
-    check_refused_with(rows[i].no_packet ? NULL : &rows[i].pk, E_PAR,
-                       rows[i].label);
+    for (UINT state = 0; state < HOST_COUNT(states); ++state) {
+      char label[96];
+      snprintf(label, sizeof(label), "%s, %s", rows[i].label, states[state]);
+      host_reset();
+      if (state != 0) {
+        host_set_current(host_make_task(HOST_HIGH_PRIORITY));
+        host_make_task(HOST_HIGH_PRIORITY);
+        host_make_task(HOST_LOW_PRIORITY);
+      }
+      ID next_free = tkmc_list_first_entry(&tkmc_free_tcb, TCB, head)->tskid;
+      check_refused_with(rows[i].no_packet ? NULL : &rows[i].pk, E_PAR, label);
+      // The next creation still gets the TCB that was first free before the
+      // refusal.
+      T_CTSK ok = valid_packet();
+      TEST_ASSERT_EQUAL_MESSAGE(next_free, tk_cre_tsk(&ok), label);
+    }
   }
 }
 
@@ -366,6 +383,7 @@ static void test_tk_cre_tsk_refusals_do_not_use_up_task_capacity(void) {
       packet_with_priority(0),
       packet_with_stack(s_stack, FRAME_BYTES),
       packet_with_stack(byte_offset(s_stack, 8), 512),
+      packet_with_stack(wrapping_address(), 256),
   };
   for (UINT i = 0; i < HOST_COUNT(refused); ++i) {
     check_refused(&refused[i], E_PAR);
@@ -383,6 +401,8 @@ static void test_tk_cre_tsk_refusals_do_not_use_up_task_capacity(void) {
   }
 }
 
+// The kernel's limit on queued wake-up requests (TK_WAKEUP_MAXCNT), written
+// out on purpose: a test that used the constant would pass whatever its value.
 enum { WAKEUP_LIMIT = 4095 };
 
 // Build real queue membership for each branch; the host cannot run tasks.

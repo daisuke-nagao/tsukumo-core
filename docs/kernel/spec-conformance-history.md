@@ -454,7 +454,20 @@ AddressSanitizer and UBSan. The six presets are `debug`, `relwithdebinfo`,
 | 2026-11-10 | After the profile fix | 137 passed | `debug`: all 84 passed | |
 | 2026-11-11 | After the common-declaration fix | 137 passed, plus three host consumer checks | All 88 passed in Debug, including three compile/link checks | Original-header and six wrong-header cases detected on both targets. Existing RV32 packet layouts matched the baseline. Clang C++17 consumers linked against the C kernel in both `CONST` modes. |
 | 2026-11-11 | After the time-representation fix | 162 passed, plus three host consumer checks | All 90 passed in each of the six presets | `timer-cost`, `timer-cost-max` and `mailbox-cost` passed in all six presets. Fourteen isolated clock faults each failed a PC unit test. Clang C++17 consumers linked both time calls against the C kernel in both `CONST` modes. |
+| 2026-11-14 | After the assembly entry support | 167 passed, plus three public consumers | All 104 passed in each of the six presets | See the [assembly entry validation record](../developer/notes/assembly-entry-validation.md). |
+| 2026-11-15 | After `CheckInt` | 168 passed, plus three public consumers | All 104 passed in each of the six presets | See the [`CheckInt` validation record](../developer/notes/checkint-validation.md). |
+| 2026-11-15 | After `EndOfInt` | 174 passed, plus three public consumers | All 106 passed in each of the six presets | 41 traced interrupt cases. See the [completion validation record](../developer/notes/interrupt-completion-validation.md). |
+| 2026-11-17 | After `ClearInt` | 180 passed, plus three public consumers | All 106 passed in each of the six presets | 50 traced interrupt cases. See the [`ClearInt` validation record](../developer/notes/clearint-validation.md). |
+| 2026-11-18 | After the deep nesting tests | 180 passed, plus three public consumers | All 121 passed in each of the six presets | See the [deep nesting record](../developer/notes/deep-interrupt-nesting-validation.md). |
 | 2026-11-21 | After the `TA_HLNG` return fix | 168 passed, plus three host consumer checks | All 126 passed in each of the six presets | Removing the MIE clear failed two new assertions on both clocks in `debug`; the third case timed out. The two additional fault checks failed their targeted assertions. `interrupt` passed on both clocks with the fix, its completion trace confirmed the predicted EOI order, and `timer-cost`, `timer-cost-max` and `mailbox-cost` passed in all six presets. |
+| 2026-11-29 | After a cleanup of the tests, with no kernel change | 168 passed, plus three public-declaration checks | All 126 passed in each of the six presets | |
+
+The PC unit test count fell from 180 to 167 on 2026-11-19, when the tests were
+restructured around shared helpers and tables: 18 tests were folded into other
+tests or replaced, and one replacement test and four new tests were added. New
+regression tests then brought it to the 168 of the 2026-11-21 row and later to
+171. The cleanup of 2026-11-29 consolidated the wait-context and semaphore
+checks, giving 168.
 
 The `timer-cost-max` suite raised the Debug count to 85 after the earlier
 2026-11-10 runs. A full validation then passed all 137 PC unit tests and all

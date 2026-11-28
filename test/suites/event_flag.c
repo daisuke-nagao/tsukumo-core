@@ -16,7 +16,7 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../runner.h"
+#include "runner.h"
 
 enum {
   CASE_WAIT_MS = 1000,

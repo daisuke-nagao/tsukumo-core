@@ -12,6 +12,8 @@
 
 #include <tk/tkernel.h>
 
+#include "asm/rv32/address.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
@@ -35,6 +37,32 @@ enum {
 static const UW MCAUSE_SOFTWARE = 0x80000003u; // Machine software interrupt
 static const UW MCAUSE_TIMER = 0x80000007u;    // Machine timer interrupt
 static const UW MCAUSE_EXTERNAL = 0x8000000bu; // Machine external interrupt
+
+enum {
+  PLIC_LOWEST_LEVEL = 1, // The lowest PLIC priority that raises an interrupt.
+  // The mie bits of the machine timer and software interrupts.
+  MIE_TIMER_AND_SOFTWARE = (1u << 7) | (1u << 3),
+};
+
+// The PLIC threshold register of the hart's machine context.
+#define PLIC_THRESHOLD_REG (PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET)
+
+// Sets the RTC alarm to a time that has passed, so the RTC raises its
+// interrupt as soon as its IRQ-enable register is written, whatever clock QEMU
+// runs on.
+static inline void rtc_set_alarm(void) {
+  UW low = in_w(RTC_TIME_LOW);
+  UW high = in_w(RTC_TIME_HIGH);
+  out_w(RTC_ALARM_HIGH, high);
+  out_w(RTC_ALARM_LOW, low);
+}
+
+// Turns the RTC interrupt off and clears its alarm and its request.
+static inline void rtc_quiet(void) {
+  out_w(RTC_IRQ_ENABLED, 0);
+  out_w(RTC_CLEAR_ALARM, 1);
+  out_w(RTC_CLEAR_INTERRUPT, 1);
+}
 
 #ifdef __cplusplus
 } /* extern "C" */

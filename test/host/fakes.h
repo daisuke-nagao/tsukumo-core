@@ -128,9 +128,37 @@ extern void host_set_current(ID tskid);
 // The priorities most tests use: a task and one it outranks.
 enum { HOST_HIGH_PRIORITY = 4, HOST_LOW_PRIORITY = 5 };
 
+// A finite wait limit for tests that only need one that is neither TMO_POL
+// nor TMO_FEVR.
+enum { HOST_WAIT_MS = 100 };
+
+// The interrupt sources the interrupt tests define and raise: one source, and
+// an outer and an inner one for nesting.
+enum { HOST_SOME_SOURCE = 10, HOST_OUTER_SOURCE = 10, HOST_INNER_SOURCE = 11 };
+
 // The machine software interrupt register. Every write to it is a context
 // switch request.
 enum { HOST_MSIP = CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET };
+
+// The other addresses the kernel has a reason to touch. The fake fails the
+// running test on any address outside these and HOST_MSIP.
+enum {
+  HOST_MTIMECMP_LOW = CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET,
+  HOST_MTIMECMP_HIGH = HOST_MTIMECMP_LOW + 4,
+  HOST_MTIME_LOW = CLINT_BASE_ADDRESS + CLINT_MTIME_OFFSET,
+  HOST_MTIME_HIGH = HOST_MTIME_LOW + 4,
+  HOST_PLIC_PRIORITY_FIRST = PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET + 4,
+  HOST_PLIC_PRIORITY_LAST = PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET +
+      4 * (PLIC_SOURCE_COUNT - 1),
+  HOST_PLIC_ENABLE_FIRST = PLIC_BASE_ADDRESS + PLIC_ENABLE_OFFSET,
+  HOST_PLIC_ENABLE_LAST = HOST_PLIC_ENABLE_FIRST +
+      4 * ((PLIC_SOURCE_COUNT - 1) / 32),
+  HOST_PLIC_PENDING_FIRST = PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET,
+  HOST_PLIC_PENDING_LAST = HOST_PLIC_PENDING_FIRST +
+      4 * ((PLIC_SOURCE_COUNT - 1) / 32),
+  HOST_PLIC_THRESHOLD = PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET,
+  HOST_PLIC_CLAIM = PLIC_BASE_ADDRESS + PLIC_CLAIM_OFFSET,
+};
 
 #define HOST_COUNT(array) (sizeof(array) / sizeof((array)[0]))
 
@@ -166,9 +194,12 @@ extern host_objects_t host_make_objects(void);
 // yields, unlinks a task or touches an object changes a snapshot.
 extern void host_two_tasks_and_objects(void);
 
-// Creates semaphores until the kernel refuses with E_LIMIT, and returns how
-// many it made. Nothing deletes them. A free list that does not end fails the
-// test instead of hanging it.
+// Creates a semaphore with no units, a maximum of 1 and a FIFO wait queue.
+extern ID host_create_semaphore(void);
+
+// Creates semaphores, event flags or mailboxes until the kernel refuses with
+// E_LIMIT, and returns how many it made. Nothing deletes them. A free list that
+// does not end fails the test instead of hanging it.
 extern UINT host_count_creatable_semaphores(void);
 
 // The execution context of a call: in_isr is the state the RV32 trap entries
@@ -232,9 +263,11 @@ extern void host_arm_wait(void);
 
 // Runs statement, and stops it where the current task would be switched out:
 // the task is waiting, a context switch has been requested by the statement
-// (the machine software interrupt is pending) and interrupts are back on. The
-// test fails if the statement returns instead, or if it leaves interrupts off.
-#define HOST_EXPECT_WAIT(statement)                                            \
+// (the machine software interrupt is pending) and interrupts are back on.
+// Stores in waited (a BOOL lvalue) whether that happened, and asserts nothing.
+// The setjmp() has to expand in the caller's frame, so this is a macro and the
+// three variables above stay visible.
+#define HOST_TRY_WAIT(waited, statement)                                       \
   do {                                                                         \
     host_waited = 0;                                                           \
     if (setjmp(host_wait_jmp) == 0) {                                          \
@@ -244,7 +277,16 @@ extern void host_arm_wait(void);
       host_waited = 1;                                                         \
     }                                                                          \
     host_wait_armed = 0;                                                       \
-    TEST_ASSERT_TRUE_MESSAGE(host_waited,                                      \
+    (waited) = host_waited;                                                    \
+  } while (0)
+
+// HOST_TRY_WAIT, failing the test if the statement returns instead, or if it
+// leaves interrupts off.
+#define HOST_EXPECT_WAIT(statement)                                            \
+  do {                                                                         \
+    BOOL host_switched_out;                                                    \
+    HOST_TRY_WAIT(host_switched_out, statement);                               \
+    TEST_ASSERT_TRUE_MESSAGE(host_switched_out,                                \
                              #statement " returned without "                   \
                                         "switching the task out");             \
     TEST_ASSERT_TRUE(host_interrupts_enabled());                               \

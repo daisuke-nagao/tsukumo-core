@@ -25,26 +25,16 @@
 // success and the poll.
 
 #include <stdio.h>
-#include <stdlib.h>
 
 #include <tk/tkernel.h>
 #include <unity.h>
 
 #include "context.h"
-#include "event_flag.h"
 #include "fakes.h"
-#include "intctl.h"
-#include "mailbox.h"
-#include "semaphore.h"
-#include "task.h"
 
 static const UINT FLAG_SENTINEL = 0xdeadbeefU;
 
-enum {
-  HIGH_PRIORITY = 4,
-  UNUSED_ID = 2, // No object of any kind has this ID in the fixture.
-  WAIT_MS = 100
-};
+enum { UNUSED_ID = 2 }; // No object of any kind has this ID in the fixture.
 
 typedef enum { API_DLY, API_SLP, API_SEM, API_FLG, API_MBX, API_COUNT } api_t;
 
@@ -64,8 +54,8 @@ static T_MSG s_sentinel;
 // wake-up request is queued for the running task, the semaphore has a unit, the
 // flag is set and the mailbox holds a message.
 static void fresh(BOOL ready) {
-  s_self = host_make_task(HIGH_PRIORITY);
-  s_other = host_make_task(HIGH_PRIORITY);
+  s_self = host_make_task(HOST_HIGH_PRIORITY);
+  s_other = host_make_task(HOST_HIGH_PRIORITY);
   s_obj = host_make_objects();
   host_set_current(s_self);
   if (ready) {
@@ -168,78 +158,45 @@ static void check_call_in(const context_t *context, const row_t *row) {
   host_check_kernel_queues();
 }
 
-static void check_call_with_interrupts_off(const row_t *row) {
-  check_call_in(&TASK_IN_DI, row);
-}
-
-static void check_every_wait(BOOL ready) {
-  // For tk_dly_tsk(), whose delay is unsigned, TMO_FEVR is the longest delay.
-  static const TMO limits[] = {TMO_FEVR, WAIT_MS, TMO_POL};
-  for (api_t api = API_DLY; api < API_COUNT; ++api) {
-    for (UINT i = 0; i < HOST_COUNT(limits); ++i) {
-      host_reset();
-      fresh(ready);
-      row_t row = valid_row(api, limits[i]);
-      char label[64];
-      snprintf(label, sizeof(label), "%s, limit %d, %s", api_name[api],
-               (int)limits[i], ready ? "can succeed at once" : "would wait");
-      row.label = label;
-      check_call_with_interrupts_off(&row);
-    }
-  }
-}
-
-// Every way to call a wait API is refused: for ever, with a time limit and as a
-// poll (tk_dly_tsk(0) is its poll: it returns at once), when the call would
-// block.
-static void
-test_wait_context_interrupts_off_refuses_every_wait_call_and_changes_nothing(
-    void) {
-  check_every_wait(FALSE);
-}
-
-// The same when the call could succeed without blocking: the refusal still
-// comes first, and the unit, the pattern, the message and the wake-up request
-// are not used up.
-static void test_wait_context_refuses_wait_that_could_succeed_at_once(void) {
-  check_every_wait(TRUE);
-}
-
 // Errors in the arguments are reported as they always were; only a call whose
 // arguments are right is refused for the context.
 static void test_wait_context_argument_errors_come_before_context_check(void) {
   const row_t rows[] = {
-      {"tk_wai_sem: ID 0", API_SEM, 0, 1, WAIT_MS, 1, TWF_ORW, FALSE, E_ID},
-      {"tk_wai_sem: ID too large", API_SEM, CFN_MAX_SEMID + 1, 1, WAIT_MS, 1,
-       TWF_ORW, FALSE, E_ID},
-      {"tk_wai_flg: ID 0", API_FLG, 0, 1, WAIT_MS, 1, TWF_ORW, FALSE, E_ID},
-      {"tk_wai_flg: ID -1", API_FLG, -1, 1, WAIT_MS, 1, TWF_ORW, FALSE, E_ID},
-      {"tk_wai_flg: ID too large", API_FLG, CFN_MAX_FLGID + 1, 1, WAIT_MS, 1,
-       TWF_ORW, FALSE, E_ID},
-      {"tk_rcv_mbx: ID 0", API_MBX, 0, 1, WAIT_MS, 1, TWF_ORW, FALSE, E_ID},
-      {"tk_rcv_mbx: ID too large", API_MBX, CFN_MAX_MBXID + 1, 1, WAIT_MS, 1,
-       TWF_ORW, FALSE, E_ID},
+      {"tk_wai_sem: ID 0", API_SEM, 0, 1, HOST_WAIT_MS, 1, TWF_ORW, FALSE,
+       E_ID},
+      {"tk_wai_sem: ID too large", API_SEM, CFN_MAX_SEMID + 1, 1, HOST_WAIT_MS,
+       1, TWF_ORW, FALSE, E_ID},
+      {"tk_wai_flg: ID 0", API_FLG, 0, 1, HOST_WAIT_MS, 1, TWF_ORW, FALSE,
+       E_ID},
+      {"tk_wai_flg: ID -1", API_FLG, -1, 1, HOST_WAIT_MS, 1, TWF_ORW, FALSE,
+       E_ID},
+      {"tk_wai_flg: ID too large", API_FLG, CFN_MAX_FLGID + 1, 1, HOST_WAIT_MS,
+       1, TWF_ORW, FALSE, E_ID},
+      {"tk_rcv_mbx: ID 0", API_MBX, 0, 1, HOST_WAIT_MS, 1, TWF_ORW, FALSE,
+       E_ID},
+      {"tk_rcv_mbx: ID too large", API_MBX, CFN_MAX_MBXID + 1, 1, HOST_WAIT_MS,
+       1, TWF_ORW, FALSE, E_ID},
       {"tk_slp_tsk: time below for ever", API_SLP, USE_FIXTURE_ID, 1,
        TMO_FEVR - 1, 1, TWF_ORW, FALSE, E_PAR},
-      {"tk_wai_sem: count 0", API_SEM, USE_FIXTURE_ID, 0, WAIT_MS, 1, TWF_ORW,
-       FALSE, E_PAR},
+      {"tk_wai_sem: count 0", API_SEM, USE_FIXTURE_ID, 0, HOST_WAIT_MS, 1,
+       TWF_ORW, FALSE, E_PAR},
       {"tk_wai_sem: time below for ever", API_SEM, USE_FIXTURE_ID, 1,
        TMO_FEVR - 1, 1, TWF_ORW, FALSE, E_PAR},
-      {"tk_wai_flg: empty pattern", API_FLG, USE_FIXTURE_ID, 1, WAIT_MS, 0,
+      {"tk_wai_flg: empty pattern", API_FLG, USE_FIXTURE_ID, 1, HOST_WAIT_MS, 0,
        TWF_ORW, FALSE, E_PAR},
-      {"tk_wai_flg: unknown mode bits", API_FLG, USE_FIXTURE_ID, 1, WAIT_MS, 1,
-       ~0U, FALSE, E_PAR},
+      {"tk_wai_flg: unknown mode bits", API_FLG, USE_FIXTURE_ID, 1,
+       HOST_WAIT_MS, 1, ~0U, FALSE, E_PAR},
       {"tk_wai_flg: time below for ever", API_FLG, USE_FIXTURE_ID, 1,
        TMO_FEVR - 1, 1, TWF_ORW, FALSE, E_PAR},
       {"tk_rcv_mbx: no place for the message", API_MBX, USE_FIXTURE_ID, 1,
-       WAIT_MS, 1, TWF_ORW, TRUE, E_PAR},
+       HOST_WAIT_MS, 1, TWF_ORW, TRUE, E_PAR},
       {"tk_rcv_mbx: time below for ever", API_MBX, USE_FIXTURE_ID, 1,
        TMO_FEVR - 1, 1, TWF_ORW, FALSE, E_PAR},
   };
   for (UINT i = 0; i < HOST_COUNT(rows); ++i) {
     host_reset();
     fresh(FALSE);
-    check_call_with_interrupts_off(&rows[i]);
+    check_call_in(&TASK_IN_DI, &rows[i]);
   }
 }
 
@@ -247,17 +204,17 @@ static void test_wait_context_argument_errors_come_before_context_check(void) {
 // check comes before the object is looked at.
 static void test_wait_context_check_comes_before_object_checks(void) {
   const row_t rows[] = {
-      {"tk_wai_sem: no such semaphore", API_SEM, UNUSED_ID, 1, WAIT_MS, 1,
+      {"tk_wai_sem: no such semaphore", API_SEM, UNUSED_ID, 1, HOST_WAIT_MS, 1,
        TWF_ORW, FALSE, E_CTX},
-      {"tk_wai_flg: no such flag", API_FLG, UNUSED_ID, 1, WAIT_MS, 1, TWF_ORW,
-       FALSE, E_CTX},
-      {"tk_rcv_mbx: no such mailbox", API_MBX, UNUSED_ID, 1, WAIT_MS, 1,
+      {"tk_wai_flg: no such flag", API_FLG, UNUSED_ID, 1, HOST_WAIT_MS, 1,
+       TWF_ORW, FALSE, E_CTX},
+      {"tk_rcv_mbx: no such mailbox", API_MBX, UNUSED_ID, 1, HOST_WAIT_MS, 1,
        TWF_ORW, FALSE, E_CTX},
   };
   for (UINT i = 0; i < HOST_COUNT(rows); ++i) {
     host_reset();
     fresh(FALSE);
-    check_call_with_interrupts_off(&rows[i]);
+    check_call_in(&TASK_IN_DI, &rows[i]);
   }
 }
 
@@ -272,7 +229,7 @@ test_wait_context_check_comes_before_one_waiter_check_of_flag(void) {
   host_set_current(s_self);
 
   const row_t row = valid_row(API_FLG, TMO_FEVR);
-  check_call_with_interrupts_off(&row);
+  check_call_in(&TASK_IN_DI, &row);
 }
 
 // tk_dly_tsk(0) is the one wait that does not block: with interrupts on it
@@ -283,8 +240,8 @@ test_wait_context_check_comes_before_one_waiter_check_of_flag(void) {
 static void
 test_tk_dly_tsk_zero_with_interrupts_on_changes_nothing_and_leaves_them_on(
     void) {
-  ID self = host_make_task(HIGH_PRIORITY);
-  ID peer = host_make_task(HIGH_PRIORITY);
+  ID self = host_make_task(HOST_HIGH_PRIORITY);
+  ID peer = host_make_task(HOST_HIGH_PRIORITY);
   host_set_current(self);
   // The peer is ready behind the running task: a yield would show.
   TEST_ASSERT_EQUAL_UINT(TTS_RDY, tkmc_tcbs[peer - 1].tskstat);
@@ -298,9 +255,16 @@ test_tk_dly_tsk_zero_with_interrupts_on_changes_nothing_and_leaves_them_on(
   host_assert_unchanged(&before, "a delay of zero changed the kernel");
 }
 
-// No task, or an ISR, cannot wait whatever the interrupt flag says: every wait
-// is refused with E_CTX, whether it would block or could succeed at once.
+// A task inside DI(), no task, or an ISR cannot wait: every way to call a wait
+// API is refused with E_CTX and changes nothing. That holds for ever, with a
+// time limit and as a poll (tk_dly_tsk(0) is its poll: it returns at once,
+// and for tk_dly_tsk(), whose delay is unsigned, TMO_FEVR is the longest
+// delay), when the call would block and when it could succeed at once: the
+// refusal still comes first, and the unit, the pattern, the message and the
+// wake-up request are not used up. An ISR or no task is refused whatever the
+// interrupt flag says.
 static const context_t NO_WAIT_CONTEXTS[] = {
+    {"a task inside DI()", FALSE, 0, TRUE},
     {"no current task, interrupts off", TRUE, 0, TRUE},
     {"no current task, interrupts on", TRUE, 0, FALSE},
     {"an ISR, interrupts off", FALSE, 1, TRUE},
@@ -308,9 +272,9 @@ static const context_t NO_WAIT_CONTEXTS[] = {
 };
 
 static void
-test_wait_context_isr_and_absent_current_refuse_every_wait_without_changes(
+test_wait_context_di_isr_and_absent_current_refuse_every_wait_without_changes(
     void) {
-  static const TMO limits[] = {TMO_POL, 100, TMO_FEVR};
+  static const TMO limits[] = {TMO_POL, HOST_WAIT_MS, TMO_FEVR};
   for (UINT c = 0; c < HOST_COUNT(NO_WAIT_CONTEXTS); ++c) {
     for (UINT ready = 0; ready < 2; ++ready) {
       for (api_t api = API_DLY; api < API_COUNT; ++api) {
@@ -335,7 +299,7 @@ test_wait_context_isr_and_absent_current_refuse_every_wait_without_changes(
 
 // The depth counts traps, and a trap taken inside a trap makes it 2: that is
 // still the ISR state, so every wait is refused as at depth 1. Kept apart from
-// the loop above, whose mode distinguishes the kinds of context, not depths.
+// the table above, whose rows are kinds of context, not depths.
 static void
 test_wait_context_nested_trap_still_counts_as_isr_state_for_every_wait(void) {
   static const context_t nested = {"a trap inside a trap", FALSE, 2, FALSE};
@@ -398,14 +362,11 @@ test_wait_context_isr_and_absent_current_keep_argument_error_priority(void) {
 void run_wait_context_tests(void) {
   UnitySetTestFile(__FILE__);
   RUN_TEST(
-      test_wait_context_isr_and_absent_current_refuse_every_wait_without_changes);
+      test_wait_context_di_isr_and_absent_current_refuse_every_wait_without_changes);
   RUN_TEST(
       test_wait_context_nested_trap_still_counts_as_isr_state_for_every_wait);
   RUN_TEST(
       test_wait_context_isr_and_absent_current_keep_argument_error_priority);
-  RUN_TEST(
-      test_wait_context_interrupts_off_refuses_every_wait_call_and_changes_nothing);
-  RUN_TEST(test_wait_context_refuses_wait_that_could_succeed_at_once);
   RUN_TEST(test_wait_context_argument_errors_come_before_context_check);
   RUN_TEST(test_wait_context_check_comes_before_object_checks);
   RUN_TEST(test_wait_context_check_comes_before_one_waiter_check_of_flag);

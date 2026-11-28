@@ -122,7 +122,9 @@ By submitting a contribution, you agree that it is provided under the same MIT
 License as the project (see [LICENSE](LICENSE)).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up, test and submit a
-change.
+change. Everyone who takes part follows the
+[code of conduct](CODE_OF_CONDUCT.md). [CHANGELOG.md](CHANGELOG.md) lists the
+changes of each release and those not yet released.
 
 ## License
 

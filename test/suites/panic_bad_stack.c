@@ -12,16 +12,8 @@
 
 #include <tk/tkernel.h>
 
-#include "../panic_expect.h"
-#include "../runner.h"
-
-enum { ILLEGAL_INSTRUCTION = 2 };
-
-#define ILLEGAL_WORD 0xffffffffu
-
-// Between the boot ROM and the test finisher of the QEMU virt machine there is
-// nothing.
-#define UNMAPPED_ADDRESS 0x00010000u
+#include "panic_expect.h"
+#include "runner.h"
 
 static void panic_illegal_instruction_with_bad_stack_reports_cause(void) {
   panic_expect.mcause = ILLEGAL_INSTRUCTION;

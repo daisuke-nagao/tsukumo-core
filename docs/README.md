@@ -9,7 +9,7 @@ kernel and run it on QEMU.
 | Document | Question it answers |
 | --- | --- |
 | [API support status](kernel/API_Support_Status.md) | Which μT-Kernel 3.0 calls does the kernel provide? |
-| [Kernel behavior](kernel/behavior.md) | What happens when startup fails, which calls work in which context, and how long do mailbox calls keep interrupts disabled? |
+| [Kernel behavior](kernel/behavior.md) | What happens when startup fails, which calls work in which context, how long do mailbox calls keep interrupts disabled, and which rules does this kernel set where the specification leaves the choice to the implementation? |
 | [Assembly entries](kernel/assembly-entry.md) | How do assembly tasks and external-interrupt handlers enter, call C and return? |
 | [Interrupts](kernel/interrupts.md) | How do I use `DI()` and `EI()`, define an interrupt handler, and size stacks for traps and nested interrupts? |
 
@@ -17,7 +17,6 @@ kernel and run it on QEMU.
 
 | Document | Question it answers |
 | --- | --- |
-| [Kernel behavior](kernel/behavior.md) | Which rules does this kernel set where the specification leaves the choice to the implementation? |
 | [Specification review](kernel/spec-conformance-review.md) | How does each implemented call compare with the μT-Kernel 3.0 specification, and which differences and evidence gaps remain? |
 | [Specification review history](kernel/spec-conformance-history.md) | Which differences were found and fixed, and when were the checks run? |
 
@@ -26,6 +25,8 @@ kernel and run it on QEMU.
 | Document | Question it answers |
 | --- | --- |
 | [Contributing](../CONTRIBUTING.md) | How do I set up the repository, check a change and submit a pull request? |
+| [Code of conduct](../CODE_OF_CONDUCT.md) | How do we expect everyone who takes part to behave? |
+| [Changelog](../CHANGELOG.md) | What changed in each release, and what has changed since the last one? |
 | [Building and running the tests](developer/testing.md) | How do I run the QEMU and PC tests, at every optimization level, and how is each result judged? |
 | [Running on QEMU](developer/notes/run_qemu.md) | How do I start QEMU with the generated scripts, and what does each QEMU test suite check? |
 | [RISC-V calling convention](developer/notes/calling-convention.md) | Which registers must a function save, and how large is each C type on RV32? |

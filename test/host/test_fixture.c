@@ -14,13 +14,11 @@
 #include <unity.h>
 
 #include "fakes.h"
-#include "task.h"
 
-// Creates kernel objects until the kernel has no more, and returns how many it
-// made. Nothing deletes them.
-static UINT create_flags_until_full(void) {
+static UINT count_creatable_flags(void) {
   UINT created = 0;
   for (;;) {
+    TEST_ASSERT_LESS_OR_EQUAL_UINT(CFN_MAX_FLGID, created);
     ID flgid = tk_cre_flg(&(T_CFLG){.exinf = 0, .flgatr = TA_TFIFO});
     if (flgid < 0) {
       TEST_ASSERT_EQUAL(E_LIMIT, flgid);
@@ -30,9 +28,10 @@ static UINT create_flags_until_full(void) {
   }
 }
 
-static UINT create_mailboxes_until_full(void) {
+static UINT count_creatable_mailboxes(void) {
   UINT created = 0;
   for (;;) {
+    TEST_ASSERT_LESS_OR_EQUAL_UINT(CFN_MAX_MBXID, created);
     ID mbxid = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = TA_TFIFO});
     if (mbxid < 0) {
       TEST_ASSERT_EQUAL(E_LIMIT, mbxid);
@@ -52,8 +51,8 @@ static void use_up_the_kernel(void) {
     host_make_task(5);
   }
   TEST_ASSERT_EQUAL_UINT(CFN_MAX_SEMID, host_count_creatable_semaphores());
-  TEST_ASSERT_EQUAL_UINT(CFN_MAX_FLGID, create_flags_until_full());
-  TEST_ASSERT_EQUAL_UINT(CFN_MAX_MBXID, create_mailboxes_until_full());
+  TEST_ASSERT_EQUAL_UINT(CFN_MAX_FLGID, count_creatable_flags());
+  TEST_ASSERT_EQUAL_UINT(CFN_MAX_MBXID, count_creatable_mailboxes());
 }
 
 // After host_reset() the kernel is as after a boot, however much the previous
@@ -81,8 +80,8 @@ static void test_kernel_reset_gives_back_every_kernel_object(void) {
     host_make_task(5);
   }
   TEST_ASSERT_EQUAL_UINT(CFN_MAX_SEMID, host_count_creatable_semaphores());
-  TEST_ASSERT_EQUAL_UINT(CFN_MAX_FLGID, create_flags_until_full());
-  TEST_ASSERT_EQUAL_UINT(CFN_MAX_MBXID, create_mailboxes_until_full());
+  TEST_ASSERT_EQUAL_UINT(CFN_MAX_FLGID, count_creatable_flags());
+  TEST_ASSERT_EQUAL_UINT(CFN_MAX_MBXID, count_creatable_mailboxes());
 }
 
 static void

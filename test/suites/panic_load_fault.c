@@ -11,14 +11,8 @@
 
 #include <tk/tkernel.h>
 
-#include "../panic_expect.h"
-#include "../runner.h"
-
-enum { LOAD_ACCESS_FAULT = 5 };
-
-// Between the boot ROM (0x1000) and the test finisher (0x100000) of the QEMU
-// virt machine there is nothing.
-#define UNMAPPED_ADDRESS 0x00010000u
+#include "panic_expect.h"
+#include "runner.h"
 
 static void panic_load_access_fault_reports_cause(void) {
   panic_expect.mcause = LOAD_ACCESS_FAULT;

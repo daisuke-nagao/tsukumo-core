@@ -31,12 +31,13 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../finish.h"
-#include "../putstring.h"
 #include "asm/rv32/address.h"
 #include "dispatch.h"
+#include "finish.h"
 #include "intctl.h"
+#include "isr_stack.h"
 #include "panic.h"
+#include "putstring.h"
 #include "qemu_virt.h"
 #include "runner.h"
 #include "spin_with_registers.h"
@@ -45,19 +46,18 @@
 
 __typeof__(schedule) __real_schedule, __wrap_schedule;
 extern volatile UINT tkmc_isr_depth;
-// The stack of the C parts of the trap entries (linker.ld).
-extern unsigned char _isr_stack_start[];
-extern unsigned char _isr_stack_end[];
 
 enum {
   // The UART raises the interrupt only after the character in flight has left,
   // which takes a few ticks of the guest clock; the case polls for this long.
   WAIT_MS = 400,
   POLL_TICKS = 1, // tk_dly_tsk(1) sleeps two ticks (see test/runner.c).
+  // A UART level above the lowest, for the completion and ClearInt() cases.
+  UART_LEVEL = 3,
+  // The RTC one level above the UART, so that a claim that took the highest
+  // pending request would take the RTC instead of the UART.
+  RTC_LEVEL = UART_LEVEL + 1,
   CHILD_PRIORITY = 2,
-  // The lowest PLIC priority, for a case that needs the source raised but not
-  // a particular level.
-  LOWEST_LEVEL = 1,
   // Where the trap entry saves s0 and s2 in its frame, in words
   // (SAVE_FRAME in kernel/asm/rv32/start.S).
   FRAME_S0 = 4,
@@ -65,8 +65,6 @@ enum {
 };
 _Static_assert(CHILD_PRIORITY < TEST_CASE_PRIORITY,
                "the child must wait on the semaphore before the case goes on");
-
-static const UW MSTATUS_MIE_BIT = 1u << 3;
 
 static volatile UW s_last_mcause;
 
@@ -80,10 +78,6 @@ static volatile UINT s_schedule_calls[TRAPS];
 static volatile BOOL s_schedule_ok[TRAPS] = {TRUE, TRUE, TRUE};
 static volatile UINT s_timer_handler_calls;
 static volatile BOOL s_timer_handler_ok = TRUE;
-
-static BOOL on_the_interrupt_stack(UW sp) {
-  return sp > (UW)_isr_stack_start && sp <= (UW)_isr_stack_end;
-}
 
 static void reset_trap_records(void) {
   for (UINT trap = 0; trap < TRAPS; ++trap) {
@@ -143,23 +137,17 @@ static volatile UINT s_finish_calls;
 static volatile UINT s_finish_entries_with_mie;
 static volatile UINT s_finish_exits_with_mie;
 
-static BOOL mstatus_mie_is_on(void) {
-  UW mstatus;
-  __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus) : : "memory");
-  return (mstatus & MSTATUS_MIE_BIT) != 0;
-}
-
 void __wrap_tkmc_finish_external_interrupt(tkmc_interrupt_context *ctx) {
   if (!s_finish_armed) {
     __real_tkmc_finish_external_interrupt(ctx);
     return;
   }
   s_finish_calls += 1;
-  if (mstatus_mie_is_on()) {
+  if (test_irq_enabled()) {
     s_finish_entries_with_mie += 1;
   }
   __real_tkmc_finish_external_interrupt(ctx);
-  if (mstatus_mie_is_on()) {
+  if (test_irq_enabled()) {
     s_finish_exits_with_mie += 1;
   }
 }
@@ -192,7 +180,6 @@ static volatile BOOL s_handler_pending;
 static volatile UINT s_endint_hlng_hits;
 static volatile UINT s_endint_hlng_calls;
 static volatile BOOL s_endint_hlng_retrigger;
-static UW read_mie(void);
 
 static void uart_handler(UINT intno) {
   s_handler_pending = CheckInt(intno);
@@ -283,13 +270,13 @@ static void end_of_int_is_idempotent_for_hlng_with_disabled_source(void) {
   s_endint_hlng_retrigger = FALSE;
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = endint_hlng_handler};
   ER defined = tk_def_int(UART_IRQ, &dint);
-  EnableInt(UART_IRQ, 3);
+  EnableInt(UART_IRQ, UART_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_endint_hlng_hits == 1);
   BOOL disabled_after_end = !source_is_enabled(UART_IRQ);
   UINT depth_after_end = tkmc_isr_depth;
   UINT threshold_after_end = in_w(PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET);
-  UW mie_after_end = read_mie();
+  UW mie_after_end = test_read_mie();
   clean_up();
   s_endint_hlng_retrigger = FALSE;
 
@@ -300,8 +287,8 @@ static void end_of_int_is_idempotent_for_hlng_with_disabled_source(void) {
   TEST_ASSERT_TRUE(disabled_after_end);
   TEST_ASSERT_EQUAL_UINT(0, depth_after_end);
   TEST_ASSERT_EQUAL_UINT(0, threshold_after_end);
-  TEST_ASSERT_EQUAL_HEX32((1u << 7) | (1u << 3),
-                          mie_after_end & ((1u << 7) | (1u << 3)));
+  TEST_ASSERT_EQUAL_HEX32(MIE_TIMER_AND_SOFTWARE,
+                          mie_after_end & MIE_TIMER_AND_SOFTWARE);
 }
 
 static void end_of_int_lets_still_asserted_source_be_raised_again(void) {
@@ -310,7 +297,7 @@ static void end_of_int_lets_still_asserted_source_be_raised_again(void) {
   s_endint_hlng_retrigger = TRUE;
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = endint_hlng_handler};
   ER defined = tk_def_int(UART_IRQ, &dint);
-  EnableInt(UART_IRQ, 3);
+  EnableInt(UART_IRQ, UART_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired_twice = WAIT_UNTIL(s_endint_hlng_hits >= 2);
   UINT hits = s_endint_hlng_hits;
@@ -338,16 +325,16 @@ check_int_observes_disabled_pending_source_without_consuming_it(void) {
   BOOL pending_again = CheckInt(UART_IRQ);
   UW mstatus_before;
   __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus_before));
-  __asm__ volatile("csrc mstatus, %0" : : "r"(MSTATUS_MIE_BIT) : "memory");
+  __asm__ volatile("csrc mstatus, %0" : : "r"(MSTATUS_MIE) : "memory");
   BOOL pending_with_mie_off = CheckInt(UART_IRQ);
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   BOOL enabled_pending_with_mie_off = CheckInt(UART_IRQ);
   UW mstatus_after_check;
   __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus_after_check));
-  __asm__ volatile("csrs mstatus, %0" : : "r"(MSTATUS_MIE_BIT) : "memory");
+  __asm__ volatile("csrs mstatus, %0" : : "r"(MSTATUS_MIE) : "memory");
   BOOL fired = WAIT_UNTIL(s_hits == 1);
-  if ((mstatus_before & MSTATUS_MIE_BIT) == 0) {
-    __asm__ volatile("csrc mstatus, %0" : : "r"(MSTATUS_MIE_BIT) : "memory");
+  if ((mstatus_before & MSTATUS_MIE) == 0) {
+    __asm__ volatile("csrc mstatus, %0" : : "r"(MSTATUS_MIE) : "memory");
   }
   clean_up();
 
@@ -357,7 +344,7 @@ check_int_observes_disabled_pending_source_without_consuming_it(void) {
   TEST_ASSERT_TRUE(pending_again);
   TEST_ASSERT_TRUE(pending_with_mie_off);
   TEST_ASSERT_TRUE(enabled_pending_with_mie_off);
-  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after_check & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after_check & MSTATUS_MIE);
   TEST_ASSERT_TRUE_MESSAGE(fired, "the enabled pending source was not served");
   TEST_ASSERT_EQUAL_UINT(1, s_hits);
   TEST_ASSERT_FALSE_MESSAGE(s_handler_pending,
@@ -396,7 +383,7 @@ static void sleeping_child(void *arg) {
 static void handler_runs_as_isr_and_its_wakeup_switches_at_trap_exit(void) {
   reset_counters();
   s_isr_flag = 0;
-  s_handler_mstatus = MSTATUS_MIE_BIT;
+  s_handler_mstatus = MSTATUS_MIE;
   s_handler_sp = 0;
   s_child_cause = 0;
   s_sem = tk_cre_sem(
@@ -406,7 +393,7 @@ static void handler_runs_as_isr_and_its_wakeup_switches_at_trap_exit(void) {
 
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = waking_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   clean_up();
@@ -416,7 +403,7 @@ static void handler_runs_as_isr_and_its_wakeup_switches_at_trap_exit(void) {
   TEST_ASSERT_TRUE_MESSAGE(fired, "the handler did not run");
   TEST_ASSERT_EQUAL_UINT_MESSAGE(1, s_isr_flag,
                                  "the handler did not run as an ISR");
-  TEST_ASSERT_EQUAL_HEX32_MESSAGE(0, s_handler_mstatus & MSTATUS_MIE_BIT,
+  TEST_ASSERT_EQUAL_HEX32_MESSAGE(0, s_handler_mstatus & MSTATUS_MIE,
                                   "interrupts were on in the handler");
   TEST_ASSERT_TRUE_MESSAGE(s_handler_sp > (UW)_isr_stack_start &&
                                s_handler_sp <= (UW)_isr_stack_end,
@@ -433,7 +420,7 @@ static void handler_runs_as_isr_and_its_wakeup_switches_at_trap_exit(void) {
 static void enable_int_delivers_request_that_waited_while_disabled(void) {
   reset_counters();
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &s_uart_dint));
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   DisableInt(UART_IRQ);
   out_b(UART_IER, IER_THRE);
   // The source is pending but must not be served. A wait that ended only
@@ -441,7 +428,7 @@ static void enable_int_delivers_request_that_waited_while_disabled(void) {
   BOOL pending = WAIT_UNTIL(source_is_pending(UART_IRQ));
   tk_dly_tsk(POLL_TICKS);
   UINT hits_while_disabled = s_hits;
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   clean_up();
   TEST_ASSERT_TRUE_MESSAGE(pending, "the UART never raised the interrupt");
@@ -454,7 +441,7 @@ static void tk_def_int_replaces_old_definition(void) {
   reset_counters();
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &s_uart_dint));
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &s_second_dint));
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_second_hits >= 1);
   clean_up();
@@ -466,7 +453,7 @@ static void tk_def_int_serves_source_that_waited_without_handler(void) {
   reset_counters();
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &s_uart_dint));
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, NULL));
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   BOOL was_enabled = source_is_enabled(UART_IRQ);
   out_b(UART_IER, IER_THRE);
   BOOL switched_off = WAIT_UNTIL(!source_is_enabled(UART_IRQ));
@@ -474,7 +461,7 @@ static void tk_def_int_serves_source_that_waited_without_handler(void) {
   out_b(UART_IER, 0);
   UINT hits_before = s_hits;
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &s_uart_dint));
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   clean_up();
@@ -500,11 +487,11 @@ static void enable_int_serves_again_source_that_handler_switched_off(void) {
   reset_counters();
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = disabling_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   BOOL stayed_off = !source_is_enabled(UART_IRQ);
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired_again = WAIT_UNTIL(s_hits >= 2);
   clean_up();
@@ -540,7 +527,7 @@ static void tk_def_int_refuses_bad_definitions_and_keeps_old_one(void) {
   };
   static const ER expected[] = {E_PAR, E_PAR, E_PAR,  E_PAR,
                                 E_PAR, E_PAR, E_RSATR};
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   clean_up();
@@ -557,7 +544,7 @@ static void tk_def_int_refuses_calls_from_isr_or_with_interrupts_off(void) {
   s_handler_er = E_OK;
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = defining_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   clean_up();
@@ -578,17 +565,19 @@ static void tk_def_int_refuses_calls_from_isr_or_with_interrupts_off(void) {
 // not write registers it does not own: the PLIC has more sources than the
 // handler table, and a priority of 0 or above 7 is no priority.
 static void enable_int_with_bad_number_or_level_changes_nothing(void) {
+  // Levels that are no priority: 0 masks the source, and -1 is negative.
+  enum { BELOW_LOWEST_LEVEL = PLIC_LOWEST_LEVEL - 1, NEGATIVE_LEVEL = -1 };
   const UW priority_before = 3;
   out_w(PLIC_PRIORITY_REG(UART_IRQ), priority_before);
   // Source 32 has priority 0 and cannot fire; only its enable bit is watched.
   out_w(PLIC_ENABLE_REG(CFN_MAX_INTNO), 1);
-  EnableInt(0, LOWEST_LEVEL);
-  EnableInt(CFN_MAX_INTNO, LOWEST_LEVEL);
-  EnableInt(CFN_MAX_INTNO + 1, LOWEST_LEVEL);
-  EnableInt(0xffffffffu, LOWEST_LEVEL);
-  EnableInt(UART_IRQ, 0);
+  EnableInt(0, PLIC_LOWEST_LEVEL);
+  EnableInt(CFN_MAX_INTNO, PLIC_LOWEST_LEVEL);
+  EnableInt(CFN_MAX_INTNO + 1, PLIC_LOWEST_LEVEL);
+  EnableInt(0xffffffffu, PLIC_LOWEST_LEVEL);
+  EnableInt(UART_IRQ, BELOW_LOWEST_LEVEL);
   EnableInt(UART_IRQ, PLIC_MAX_PRIORITY + 1);
-  EnableInt(UART_IRQ, -1);
+  EnableInt(UART_IRQ, NEGATIVE_LEVEL);
   DisableInt(0);
   DisableInt(CFN_MAX_INTNO);
   DisableInt(0xffffffffu);
@@ -640,7 +629,7 @@ static UW registers_after_an_interrupt(FP handler, BOOL a_task_is_woken) {
   }
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   reset_trap_records();
   UW changed = test_spin_with_registers(
       &s_flag, test_mtime() + WAIT_MS * TEST_MTIME_PER_MS,
@@ -692,7 +681,7 @@ static void isr_depth_rises_by_one_per_trap_and_drops_back(void) {
   s_depth_in_handler = 0;
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = depth_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   UW saved_mie;
   __asm__ volatile("csrrw %0, mie, %1"
                    : "=r"(saved_mie)
@@ -718,27 +707,11 @@ static void isr_depth_rises_by_one_per_trap_and_drops_back(void) {
 // and a task switch of the software interrupt. The stack is painted first, and
 // the words that are still painted afterwards were never used.
 enum {
-  PAINT = 0x5a5a5a5a,
   HIGH_WATER_MIN = 8,
   HIGH_WATER_MAX = 768,
   NESTED_HIGH_WATER_MIN = 160,
   NESTED_HIGH_WATER_MAX = 1024
 };
-
-static void paint_the_interrupt_stack(void) {
-  for (volatile UW *word = (volatile UW *)_isr_stack_start;
-       word < (volatile UW *)_isr_stack_end; ++word) {
-    *word = PAINT;
-  }
-}
-
-static UINT interrupt_stack_high_water(void) {
-  const volatile UW *word = (const volatile UW *)_isr_stack_start;
-  while (word < (const volatile UW *)_isr_stack_end && *word == PAINT) {
-    ++word;
-  }
-  return (UINT)((UW)_isr_stack_end - (UW)word);
-}
 
 static ID s_mbx;
 static T_MSG s_message;
@@ -773,13 +746,13 @@ static void interrupt_stack_has_room_for_deepest_paths(void) {
       &(T_CSEM){.exinf = 0, .sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
   TEST_ASSERT_GREATER_THAN(E_OK, s_mbx);
   TEST_ASSERT_GREATER_THAN(E_OK, s_sem);
-  paint_the_interrupt_stack();
+  paint_stack(_isr_stack_start, _isr_stack_end);
   s_timed_waiter_done = FALSE;
   test_spawn(mailbox_receiver, CHILD_PRIORITY, NULL);
   test_spawn(timed_waiter, CHILD_PRIORITY, NULL);
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = mailbox_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_hits >= 1);
   clean_up();
@@ -818,7 +791,7 @@ static void interrupt_stack_runs_schedule_in_every_trap(void) {
   test_spawn(sleeping_child, CHILD_PRIORITY, NULL);
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = waking_handler};
   TEST_ASSERT_EQUAL(E_OK, tk_def_int(UART_IRQ, &dint));
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL seen = WAIT_UNTIL(every_trap_has_run_schedule());
   clean_up();
@@ -868,38 +841,20 @@ static void interrupt_stack_runs_timer_handler(void) {
 enum {
   OUTER_LEVEL = 2,
   HIGHER_LEVEL = 5,
-  MIE_TIMER_AND_SOFTWARE = (1u << 7) | (1u << 3),
   MIE_EXTERNAL = 1u << 11,
   MIP_TIMER = 1u << 7
 };
 
-#define PLIC_THRESHOLD_REG (PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET)
-
 static void rtc_raise(void) {
-  UW low = in_w(RTC_TIME_LOW);
-  UW high = in_w(RTC_TIME_HIGH);
-  out_w(RTC_ALARM_HIGH, high);
-  out_w(RTC_ALARM_LOW, low);
+  rtc_set_alarm();
   out_w(RTC_IRQ_ENABLED, 1);
-}
-
-static void rtc_quiet(void) {
-  out_w(RTC_IRQ_ENABLED, 0);
-  out_w(RTC_CLEAR_ALARM, 1);
-  out_w(RTC_CLEAR_INTERRUPT, 1);
-}
-
-static UW read_mstatus(void) {
-  UW mstatus;
-  __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus));
-  return mstatus;
 }
 
 static void set_mstatus_mie(BOOL enabled) {
   if (enabled) {
-    __asm__ volatile("csrs mstatus, %0" : : "r"(MSTATUS_MIE_BIT) : "memory");
+    __asm__ volatile("csrs mstatus, %0" : : "r"(MSTATUS_MIE) : "memory");
   } else {
-    __asm__ volatile("csrc mstatus, %0" : : "r"(MSTATUS_MIE_BIT) : "memory");
+    __asm__ volatile("csrc mstatus, %0" : : "r"(MSTATUS_MIE) : "memory");
   }
 }
 
@@ -950,11 +905,11 @@ static void clear_int_uart_handler(UINT intno) {
   ++s_clear_uart_hits;
   s_clear_uart_depth_before = tkmc_isr_depth;
   s_clear_uart_pending_before = CheckInt(UART_IRQ);
-  s_clear_uart_mstatus_before = read_mstatus();
+  s_clear_uart_mstatus_before = test_read_mstatus();
   ClearInt(UART_IRQ);
   s_clear_uart_depth_after = tkmc_isr_depth;
   s_clear_uart_pending_after = CheckInt(UART_IRQ);
-  s_clear_uart_mstatus_after = read_mstatus();
+  s_clear_uart_mstatus_after = test_read_mstatus();
   out_b(UART_IER, 0);
 }
 
@@ -974,11 +929,11 @@ static void clear_int_completed_uart_handler(UINT intno) {
   s_clear_completed_pending_before = wait_for_pending_without_switch(intno);
   out_b(UART_IER, 0);
   s_clear_completed_depth_before = tkmc_isr_depth;
-  s_clear_completed_mstatus_before = read_mstatus();
+  s_clear_completed_mstatus_before = test_read_mstatus();
   ClearInt(intno);
   s_clear_completed_depth_after = tkmc_isr_depth;
   s_clear_completed_pending_after = source_is_pending(intno);
-  s_clear_completed_mstatus_after = read_mstatus();
+  s_clear_completed_mstatus_after = test_read_mstatus();
 }
 
 static void clear_int_rtc_handler(UINT intno) {
@@ -1013,21 +968,21 @@ static uart_clear_t clear_the_pending_uart(void) {
   c.enabled_after = source_is_enabled(UART_IRQ);
   c.priority_after = in_w(PLIC_PRIORITY_REG(UART_IRQ));
   c.threshold_after = in_w(PLIC_THRESHOLD_REG);
-  c.mstatus_after = read_mstatus();
+  c.mstatus_after = test_read_mstatus();
   return c;
 }
 
 static void clear_int_discards_disabled_pending_uart(void) {
   reset_counters();
   ER defined = tk_def_int(UART_IRQ, &s_uart_dint);
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   DisableInt(UART_IRQ);
   UW priority_before = in_w(PLIC_PRIORITY_REG(UART_IRQ));
-  UW mstatus_before = read_mstatus();
+  UW mstatus_before = test_read_mstatus();
   set_mstatus_mie(FALSE);
   const uart_clear_t c = clear_the_pending_uart();
   DisableInt(UART_IRQ);
-  set_mstatus_mie((mstatus_before & MSTATUS_MIE_BIT) != 0);
+  set_mstatus_mie((mstatus_before & MSTATUS_MIE) != 0);
   clear_int_cleanup();
 
   TEST_ASSERT_EQUAL(E_OK, defined);
@@ -1038,22 +993,22 @@ static void clear_int_discards_disabled_pending_uart(void) {
   TEST_ASSERT_FALSE_MESSAGE(c.enabled_after,
                             "ClearInt() enabled the disabled UART");
   TEST_ASSERT_EQUAL_UINT32(priority_before, c.priority_after);
-  TEST_ASSERT_EQUAL_HEX32(0, c.mstatus_after & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_HEX32(0, c.mstatus_after & MSTATUS_MIE);
   TEST_ASSERT_EQUAL_UINT(0, s_hits);
 }
 
 static void clear_int_discards_enabled_pending_uart(void) {
   reset_counters();
   ER defined = tk_def_int(UART_IRQ, &s_uart_dint);
-  UW mstatus_before = read_mstatus();
+  UW mstatus_before = test_read_mstatus();
   set_mstatus_mie(FALSE);
-  EnableInt(UART_IRQ, 3);
+  EnableInt(UART_IRQ, UART_LEVEL);
   const uart_clear_t c = clear_the_pending_uart();
   set_mstatus_mie(TRUE);
   tk_dly_tsk(POLL_TICKS);
   UINT hits_after_restore = s_hits;
   clear_int_cleanup();
-  set_mstatus_mie((mstatus_before & MSTATUS_MIE_BIT) != 0);
+  set_mstatus_mie((mstatus_before & MSTATUS_MIE) != 0);
 
   TEST_ASSERT_EQUAL(E_OK, defined);
   TEST_ASSERT_TRUE_MESSAGE(c.pending_before,
@@ -1062,8 +1017,8 @@ static void clear_int_discards_enabled_pending_uart(void) {
                             "ClearInt() left the UART pending");
   TEST_ASSERT_TRUE_MESSAGE(c.enabled_after,
                            "ClearInt() disabled the enabled UART");
-  TEST_ASSERT_EQUAL_UINT32(3, c.priority_after);
-  TEST_ASSERT_EQUAL_HEX32(0, c.mstatus_after & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_UINT32(UART_LEVEL, c.priority_after);
+  TEST_ASSERT_EQUAL_HEX32(0, c.mstatus_after & MSTATUS_MIE);
   TEST_ASSERT_EQUAL_UINT_MESSAGE(0, hits_after_restore,
                                  "ClearInt() let the UART handler run");
 }
@@ -1071,17 +1026,17 @@ static void clear_int_discards_enabled_pending_uart(void) {
 static void clear_int_claims_pending_source_below_threshold(void) {
   reset_counters();
   ER defined = tk_def_int(UART_IRQ, &s_uart_dint);
-  UW mstatus_before = read_mstatus();
+  UW mstatus_before = test_read_mstatus();
   UW threshold_before = in_w(PLIC_THRESHOLD_REG);
   set_mstatus_mie(FALSE);
   out_w(PLIC_THRESHOLD_REG, 0);
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   out_w(PLIC_THRESHOLD_REG, PLIC_MAX_PRIORITY);
   const uart_clear_t c = clear_the_pending_uart();
   UINT hits_before_restore = s_hits;
   DisableInt(UART_IRQ);
   out_w(PLIC_THRESHOLD_REG, threshold_before);
-  set_mstatus_mie((mstatus_before & MSTATUS_MIE_BIT) != 0);
+  set_mstatus_mie((mstatus_before & MSTATUS_MIE) != 0);
   clear_int_cleanup();
 
   TEST_ASSERT_EQUAL(E_OK, defined);
@@ -1097,16 +1052,16 @@ static void clear_int_claims_pending_source_below_threshold(void) {
 static void clear_int_discards_pending_uart_with_zero_priority(void) {
   reset_counters();
   ER defined = tk_def_int(UART_IRQ, &s_uart_dint);
-  UW mstatus_before = read_mstatus();
+  UW mstatus_before = test_read_mstatus();
   set_mstatus_mie(FALSE);
-  EnableInt(UART_IRQ, 3);
+  EnableInt(UART_IRQ, UART_LEVEL);
   out_w(PLIC_PRIORITY_REG(UART_IRQ), 0);
   const uart_clear_t c = clear_the_pending_uart();
   set_mstatus_mie(TRUE);
   tk_dly_tsk(POLL_TICKS);
   UINT hits_after_restore = s_hits;
   clear_int_cleanup();
-  set_mstatus_mie((mstatus_before & MSTATUS_MIE_BIT) != 0);
+  set_mstatus_mie((mstatus_before & MSTATUS_MIE) != 0);
 
   TEST_ASSERT_EQUAL(E_OK, defined);
   TEST_ASSERT_TRUE_MESSAGE(c.pending_before,
@@ -1116,7 +1071,7 @@ static void clear_int_discards_pending_uart_with_zero_priority(void) {
   TEST_ASSERT_TRUE_MESSAGE(c.enabled_after,
                            "ClearInt() disabled the enabled UART");
   TEST_ASSERT_EQUAL_UINT32(0, c.priority_after);
-  TEST_ASSERT_EQUAL_HEX32(0, c.mstatus_after & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_HEX32(0, c.mstatus_after & MSTATUS_MIE);
   TEST_ASSERT_EQUAL_UINT_MESSAGE(0, hits_after_restore,
                                  "ClearInt() let the UART handler run");
 }
@@ -1126,10 +1081,10 @@ static void clear_int_preserves_simultaneous_non_target_request(void) {
   s_handler_pending = TRUE;
   ER uart_defined = tk_def_int(UART_IRQ, &s_uart_dint);
   ER rtc_defined = tk_def_int(RTC_IRQ, &s_clear_int_rtc_dint);
-  UW mstatus_before = read_mstatus();
+  UW mstatus_before = test_read_mstatus();
   set_mstatus_mie(FALSE);
-  EnableInt(UART_IRQ, 3);
-  EnableInt(RTC_IRQ, 4);
+  EnableInt(UART_IRQ, UART_LEVEL);
+  EnableInt(RTC_IRQ, RTC_LEVEL);
   UW threshold_before = in_w(PLIC_THRESHOLD_REG);
   out_b(UART_IER, IER_THRE);
   rtc_raise();
@@ -1145,7 +1100,7 @@ static void clear_int_preserves_simultaneous_non_target_request(void) {
   UW uart_priority_after = in_w(PLIC_PRIORITY_REG(UART_IRQ));
   UW rtc_priority_after = in_w(PLIC_PRIORITY_REG(RTC_IRQ));
   UW threshold_after = in_w(PLIC_THRESHOLD_REG);
-  UW mstatus_after = read_mstatus();
+  UW mstatus_after = test_read_mstatus();
   UINT uart_hits_before_restore = s_hits;
   set_mstatus_mie(TRUE);
   BOOL rtc_fired = WAIT_UNTIL(s_second_hits == 1);
@@ -1154,7 +1109,7 @@ static void clear_int_preserves_simultaneous_non_target_request(void) {
   UINT last_intno = s_last_intno;
   BOOL handler_pending = s_handler_pending;
   clear_int_cleanup();
-  set_mstatus_mie((mstatus_before & MSTATUS_MIE_BIT) != 0);
+  set_mstatus_mie((mstatus_before & MSTATUS_MIE) != 0);
 
   TEST_ASSERT_EQUAL(E_OK, uart_defined);
   TEST_ASSERT_EQUAL(E_OK, rtc_defined);
@@ -1167,10 +1122,10 @@ static void clear_int_preserves_simultaneous_non_target_request(void) {
                            "ClearInt() consumed the non-target RTC request");
   TEST_ASSERT_TRUE(uart_enabled_after);
   TEST_ASSERT_TRUE(rtc_enabled_after);
-  TEST_ASSERT_EQUAL_UINT32(3, uart_priority_after);
-  TEST_ASSERT_EQUAL_UINT32(4, rtc_priority_after);
+  TEST_ASSERT_EQUAL_UINT32(UART_LEVEL, uart_priority_after);
+  TEST_ASSERT_EQUAL_UINT32(RTC_LEVEL, rtc_priority_after);
   TEST_ASSERT_EQUAL_UINT32(threshold_before, threshold_after);
-  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE);
   TEST_ASSERT_EQUAL_UINT(0, uart_hits_before_restore);
   TEST_ASSERT_TRUE_MESSAGE(rtc_fired,
                            "the restored RTC request was not served");
@@ -1203,7 +1158,7 @@ static void clear_int_does_not_complete_active_uncompleted_claim(void) {
   s_clear_uart_hits = 0;
   ER defined = tk_def_int(
       UART_IRQ, &(T_DINT){.intatr = TA_HLNG, .inthdr = clear_int_uart_handler});
-  EnableInt(UART_IRQ, 3);
+  EnableInt(UART_IRQ, UART_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_clear_uart_hits == 1);
   UINT hits = s_clear_uart_hits;
@@ -1222,8 +1177,8 @@ static void clear_int_does_not_complete_active_uncompleted_claim(void) {
   TEST_ASSERT_EQUAL_UINT(1, depth_after);
   TEST_ASSERT_FALSE(pending_before);
   TEST_ASSERT_FALSE(pending_after);
-  TEST_ASSERT_EQUAL_HEX32(0, mstatus_before & MSTATUS_MIE_BIT);
-  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_before & MSTATUS_MIE);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE);
 }
 
 static void clear_int_handles_new_pending_request_after_end_of_int(void) {
@@ -1235,7 +1190,7 @@ static void clear_int_handles_new_pending_request_after_end_of_int(void) {
   ER defined = tk_def_int(
       UART_IRQ,
       &(T_DINT){.intatr = TA_HLNG, .inthdr = clear_int_completed_uart_handler});
-  EnableInt(UART_IRQ, 3);
+  EnableInt(UART_IRQ, UART_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL fired = WAIT_UNTIL(s_clear_completed_hits >= 1);
   UINT hits = s_clear_completed_hits;
@@ -1262,8 +1217,8 @@ static void clear_int_handles_new_pending_request_after_end_of_int(void) {
                             "ClearInt() left the new UART request pending");
   TEST_ASSERT_EQUAL_UINT(1, depth_before);
   TEST_ASSERT_EQUAL_UINT(1, depth_after);
-  TEST_ASSERT_EQUAL_HEX32(0, mstatus_before & MSTATUS_MIE_BIT);
-  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_before & MSTATUS_MIE);
+  TEST_ASSERT_EQUAL_HEX32(0, mstatus_after & MSTATUS_MIE);
 }
 
 // ---- Nested external interrupts -------------------------------------------
@@ -1314,12 +1269,6 @@ static UW current_sp(void) {
   return sp;
 }
 
-static UW read_mie(void) {
-  UW mie;
-  __asm__ volatile("csrr %0, mie" : "=r"(mie));
-  return mie;
-}
-
 static UW read_mip(void) {
   UW mip;
   __asm__ volatile("csrr %0, mip" : "=r"(mip));
@@ -1361,7 +1310,7 @@ static void nested_outer_handler(UINT intno) {
   s_outer_depth = tkmc_isr_depth;
   s_outer_sp = current_sp();
   s_outer_threshold = in_w(PLIC_THRESHOLD_REG);
-  s_outer_mie = read_mie();
+  s_outer_mie = test_read_mie();
   if ((s_outer_mie & MIE_TIMER_AND_SOFTWARE) != 0) {
     // The kernel left the timer and software interrupts on. They do not nest,
     // so a handler that turned interrupts on would stop the machine; the case
@@ -1507,7 +1456,7 @@ static void clear_int_from_inner_handler_preserves_active_outer_claim(void) {
   const nest_t nest = {
       .rtc_level = HIGHER_LEVEL, .wait_for_inner = TRUE, .inner_wakes = FALSE};
   nested_set_up(&nest);
-  paint_the_interrupt_stack();
+  paint_stack(_isr_stack_start, _isr_stack_end);
   s_clear_outer_from_inner = TRUE;
   BOOL done = nested_run(3);
   UINT used = interrupt_stack_high_water();
@@ -1578,10 +1527,10 @@ static void nested_interrupt_woken_task_runs_after_outermost_handler(void) {
 // They are served once it has returned, and mie is as it was.
 static void timer_waits_for_handler_that_has_interrupts_on(void) {
   const nest_t nest = {.rtc_level = HIGHER_LEVEL, .spin_ms = 15};
-  UW mie_before = read_mie();
+  UW mie_before = test_read_mie();
   nested_set_up(&nest);
   BOOL done = nested_run_without_the_timer(3);
-  UW mie_after = read_mie();
+  UW mie_after = test_read_mie();
   // Whatever mie is, the case goes on with the timer and software interrupts
   // on, so that a wrong mie fails the asserts below and does not stop the run.
   __asm__ volatile("csrs mie, %0" ::"r"(MIE_TIMER_AND_SOFTWARE) : "memory");
@@ -1620,7 +1569,7 @@ static void interrupt_stack_holds_nested_handlers(void) {
   const nest_t nest = {
       .rtc_level = HIGHER_LEVEL, .wait_for_inner = TRUE, .inner_wakes = TRUE};
   nested_set_up(&nest);
-  paint_the_interrupt_stack();
+  paint_stack(_isr_stack_start, _isr_stack_end);
   BOOL done = nested_run(4);
   UINT used = interrupt_stack_high_water();
   nested_finish(TRUE);
@@ -1687,7 +1636,7 @@ void asm_irq_callback(UINT intno, void *frame) {
     s_outer_depth = tkmc_isr_depth;
     s_outer_sp = current_sp();
     s_outer_threshold = in_w(PLIC_THRESHOLD_REG);
-    s_outer_mie = read_mie();
+    s_outer_mie = test_read_mie();
     EI(0);
     s_timer_calls_in = s_timer_handler_calls;
     EnableInt(RTC_IRQ, s_rtc_level);
@@ -1756,14 +1705,14 @@ static void run_asm_irq_exit(BOOL direct, UINT manual_eoi_calls) {
       .intatr = TA_ASM,
       .inthdr = (FP)(direct ? asm_irq_direct_entry : asm_irq_ret_entry)};
   ER defined = tk_def_int(UART_IRQ, &dint);
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   reset_trap_records();
   s_last_mcause = 0;
-  UW mie_before = read_mie();
+  UW mie_before = test_read_mie();
   UW changed = test_spin_with_registers(
       &s_flag, test_mtime() + WAIT_MS * TEST_MTIME_PER_MS,
       (volatile UB *)UART_IER, IER_THRE);
-  UW mie_after = read_mie();
+  UW mie_after = test_read_mie();
   test_join();
   UINT external_schedules = s_schedule_calls[TRAP_EXTERNAL];
   UINT software_schedules = s_schedule_calls[TRAP_SOFTWARE];
@@ -1771,16 +1720,16 @@ static void run_asm_irq_exit(BOOL direct, UINT manual_eoi_calls) {
   BOOL disabled = !source_is_enabled(UART_IRQ);
 
   // Prove a second claim of the same source can run after the first complete.
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   s_flag = 0;
   s_asm_irq_disable_source = FALSE;
   s_asm_irq_wake_child = FALSE;
   reset_trap_records();
-  UW mie_before_again = read_mie();
+  UW mie_before_again = test_read_mie();
   UW changed_again = test_spin_with_registers(
       &s_flag, test_mtime() + WAIT_MS * TEST_MTIME_PER_MS,
       (volatile UB *)UART_IER, IER_THRE);
-  UW mie_after_again = read_mie();
+  UW mie_after_again = test_read_mie();
   clean_up();
   ER deleted = tk_del_sem(s_sem);
 
@@ -1806,7 +1755,7 @@ static void run_asm_irq_exit(BOOL direct, UINT manual_eoi_calls) {
   TEST_ASSERT_EQUAL_HEX32(mie_before, mie_after);
   TEST_ASSERT_EQUAL_HEX32(mie_before_again, mie_after_again);
   TEST_ASSERT_EQUAL_UINT(0, tkmc_isr_depth);
-  TEST_ASSERT_EQUAL_HEX32(0, asm_irq_seen_mstatus & MSTATUS_MIE_BIT);
+  TEST_ASSERT_EQUAL_HEX32(0, asm_irq_seen_mstatus & MSTATUS_MIE);
   TEST_ASSERT_EQUAL_HEX32(0, asm_irq_seen_mie & MIE_TIMER_AND_SOFTWARE);
   TEST_ASSERT_TRUE_MESSAGE(disabled,
                            "the raw handler's DisableInt() was undone");
@@ -1854,7 +1803,7 @@ static void run_mixed_nested_entries(BOOL asm_outer, BOOL direct_asm_inner) {
     TEST_ASSERT_EQUAL(E_OK, tk_def_int(RTC_IRQ, &inner));
   }
 
-  paint_the_interrupt_stack();
+  paint_stack(_isr_stack_start, _isr_stack_end);
   reset_trap_records();
   s_last_mcause = 0;
   BOOL done = nested_run(4);
@@ -1867,6 +1816,7 @@ static void run_mixed_nested_entries(BOOL asm_outer, BOOL direct_asm_inner) {
   nested_finish(TRUE);
   s_track_mixed_cause = FALSE;
   s_endint_outer_on_inner = FALSE;
+  s_asm_nested_outer = FALSE;
 
   TEST_ASSERT_TRUE_MESSAGE(done, "the mixed handlers and child did not run");
   TEST_ASSERT_GREATER_OR_EQUAL_UINT_MESSAGE(
@@ -1891,7 +1841,6 @@ static void run_mixed_nested_entries(BOOL asm_outer, BOOL direct_asm_inner) {
     TEST_ASSERT_EQUAL_UINT_MESSAGE(0, software_schedules,
                                    "a nested direct return dispatched early");
   }
-  s_asm_nested_outer = FALSE;
 }
 
 static void
@@ -2010,7 +1959,7 @@ hlng_handler_returning_with_interrupts_on_completes_with_them_off(void) {
   EnableInt(UART_IRQ, OUTER_LEVEL);
   out_b(UART_IER, IER_THRE);
   BOOL ran = hlng_poll_until(&s_hlng_runs, 1);
-  UW task_mstatus = read_mstatus();
+  UW task_mstatus = test_read_mstatus();
   s_finish_armed = FALSE;
   UINT calls = s_finish_calls;
   UINT entries = s_finish_entries_with_mie;
@@ -2028,8 +1977,7 @@ hlng_handler_returning_with_interrupts_on_completes_with_them_off(void) {
   TEST_ASSERT_EQUAL_UINT_MESSAGE(
       0, exits, "the completion returned with interrupts on (MIE=1 at exit)");
   TEST_ASSERT_EQUAL_UINT_MESSAGE(0, depth, "the trap depth after the return");
-  TEST_ASSERT_EQUAL_HEX32_MESSAGE(MSTATUS_MIE_BIT,
-                                  task_mstatus & MSTATUS_MIE_BIT,
+  TEST_ASSERT_EQUAL_HEX32_MESSAGE(MSTATUS_MIE, task_mstatus & MSTATUS_MIE,
                                   "the interrupted task resumed with MIE off");
   TEST_ASSERT_EQUAL_MESSAGE(E_TMOUT, sleep,
                             "a wait call from the task was refused");
@@ -2069,7 +2017,7 @@ static void hlng_nested_outer_handler(UINT intno) {
   while (!s_hlng_second_entered &&
          (UW)(test_mtime() - start) < WAIT_MS * TEST_MTIME_PER_MS) {
   }
-  s_hlng_outer_mstatus = read_mstatus();
+  s_hlng_outer_mstatus = test_read_mstatus();
   s_hlng_outer_depth = tkmc_isr_depth;
   s_hlng_outer_threshold = in_w(PLIC_THRESHOLD_REG);
   UINT intsts;
@@ -2126,8 +2074,8 @@ nested_hlng_handler_returning_with_interrupts_on_completes_with_them_off(void) {
       0, entries, "a completion ran with interrupts on (MIE=1 at entry)");
   TEST_ASSERT_EQUAL_UINT_MESSAGE(
       0, exits, "a completion returned with interrupts on (MIE=1 at exit)");
-  TEST_ASSERT_EQUAL_HEX32_MESSAGE(MSTATUS_MIE_BIT,
-                                  s_hlng_outer_mstatus & MSTATUS_MIE_BIT,
+  TEST_ASSERT_EQUAL_HEX32_MESSAGE(MSTATUS_MIE,
+                                  s_hlng_outer_mstatus & MSTATUS_MIE,
                                   "the outer handler resumed with MIE off");
   TEST_ASSERT_EQUAL_UINT_MESSAGE(1, s_hlng_outer_depth,
                                  "the outer handler resumed at another depth");
@@ -2400,7 +2348,7 @@ static void restart_from_an_isr_right_after_the_exit(BOOL deletes) {
   }
   const T_DINT dint = {.intatr = TA_HLNG, .inthdr = restarting_handler};
   ER defined = tk_def_int(UART_IRQ, &dint);
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   ER started = tk_sta_tsk(s_exit_task, 0);
   // Here the task has ended: it outranks the case. An exit that switched
   // without taking an interrupt left the three bits of mie off.

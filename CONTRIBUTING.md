@@ -65,6 +65,18 @@ file, the commit stops: stage the change and commit again.
    that fits (Added, Changed, Removed or Fixed). A change to documentation
    alone needs none.
 
+### APIs that accept TSK_SELF
+
+When you add an API that accepts `TSK_SELF`, the alias for the calling task:
+
+- Check the API's specification for whether it accepts `TSK_SELF`, which
+  contexts may call it and the order of the errors.
+- Never treat an ISR, or a missing current task, as the caller's own task.
+- Tell task context apart with the kernel's common ISR check, not with the
+  interrupt-enable flag (`MIE`).
+- Check separately that a current task exists and that the API is allowed in
+  the calling context.
+
 ## License headers
 
 Put an SPDX header at the top of every new source file, as the existing files

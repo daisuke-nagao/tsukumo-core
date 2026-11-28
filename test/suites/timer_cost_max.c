@@ -33,10 +33,10 @@
 
 #include <tk/tkernel.h>
 
-#include "../finish.h"
-#include "../putstring.h"
 #include "asm/rv32/address.h"
 #include "cost.h"
+#include "finish.h"
+#include "putstring.h"
 #include "runner.h"
 #include "task.h"
 

@@ -26,12 +26,14 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../putstring.h"
 #include "asm/rv32/address.h"
 #include "dispatch.h"
 #include "intctl.h"
+#include "isr_stack.h"
+#include "putstring.h"
 #include "qemu_virt.h"
 #include "runner.h"
+#include "spin_with_registers.h"
 #include "task.h"
 
 #ifndef NEST_DEPTH
@@ -42,13 +44,9 @@ _Static_assert(NEST_DEPTH >= 3 && NEST_DEPTH <= PLIC_MAX_PRIORITY,
 
 __typeof__(schedule) __real_schedule, __wrap_schedule;
 extern volatile UINT tkmc_isr_depth;
-extern unsigned char _isr_stack_start[];
-extern unsigned char _isr_stack_end[];
 extern unsigned char _stack_start[];
 extern unsigned char _stack_end[];
 
-extern UW depth_spin_arm_byte(volatile UW *flag, UW deadline, volatile UB *reg,
-                              UB value);
 extern UW depth_paint_task_stack(volatile UW *bottom, UW canary, UW paint,
                                  UW *sp_out, UW guard);
 extern void depth_asm_entry(void);
@@ -56,10 +54,8 @@ extern UW depth_spin_arm_word(volatile UW *flag, UW deadline, volatile UW *reg,
                               UW value);
 
 enum {
-  LOWEST_LEVEL = 1, // The lowest PLIC priority.
   WAIT_MS = 400,
   CHILD_PRIORITY = 2,
-  PAINT = 0x5a5a5a5a,
   ISR_STACK_SIZE = 2048,
   // shortcut: keep 256 bytes below the live task SP unpainted; increase it if
   // the task's pre-interrupt frames grow.
@@ -68,14 +64,11 @@ enum {
   TASK_INITIAL_FRAME_SIZE = 32 * sizeof(UW),
   TASK_STACK_SIZE = TEST_STACK_WORDS * sizeof(UW),
   SPIN_TIMED_OUT = 0x80000000u,
-  MIE_TIMER_AND_SOFTWARE = (1u << 7) | (1u << 3),
   // The level between the outermost and the deepest one that wakes the task.
   MIDDLE_LEVEL = (NEST_DEPTH + 1) / 2
 };
 _Static_assert(CHILD_PRIORITY < TEST_CASE_PRIORITY,
                "the woken task outranks the case");
-
-#define PLIC_THRESHOLD_REG (PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET)
 
 // The schedule() wrap keeps the mcause of the first trap that switches tasks
 // after the chain of a case has started, and whether every switch ran on the
@@ -86,10 +79,6 @@ static volatile UW s_last_mcause;
 static volatile UINT s_order;
 static volatile UINT s_external_schedules, s_software_schedules;
 static volatile BOOL s_schedule_ok = TRUE;
-
-static BOOL on_the_interrupt_stack(UW address) {
-  return address > (UW)_isr_stack_start && address <= (UW)_isr_stack_end;
-}
 
 void *__wrap_schedule(void *frame) {
   UW cause, sp;
@@ -122,42 +111,19 @@ static UW current_sp(void) {
   return sp;
 }
 
-static UW read_mstatus(void) {
-  UW value;
-  __asm__ volatile("csrr %0, mstatus" : "=r"(value));
-  return value;
-}
-
-static UW read_mie(void) {
-  UW value;
-  __asm__ volatile("csrr %0, mie" : "=r"(value));
-  return value;
-}
-
 static UW threshold(void) { return in_w(PLIC_THRESHOLD_REG); }
 
 static UINT source_of(UINT level) { return (level % 2) ? UART_IRQ : RTC_IRQ; }
-
-// Sets the alarm to a time that has passed, so the RTC raises its interrupt as
-// soon as the IRQ-enable register is written, whatever clock QEMU runs on.
-static void rtc_set_alarm(void) {
-  UW low = in_w(RTC_TIME_LOW);
-  UW high = in_w(RTC_TIME_HIGH);
-  out_w(RTC_ALARM_HIGH, high);
-  out_w(RTC_ALARM_LOW, low);
-}
 
 static void quiet(UINT src) {
   if (src == UART_IRQ) {
     out_b(UART_IER, 0);
   } else {
-    out_w(RTC_IRQ_ENABLED, 0);
-    out_w(RTC_CLEAR_ALARM, 1);
-    out_w(RTC_CLEAR_INTERRUPT, 1);
+    rtc_quiet();
   }
 }
 
-// Raises src with the patterned register wait of test/interrupt_depth_entries.S
+// Raises src with the patterned register wait of test/spin_with_registers.h
 // and returns its result once *flag is set or the wait ran out.
 // Inlined so that it adds no frame to each level of the chain, which the
 // stack measurement would otherwise count as part of a handler.
@@ -165,8 +131,8 @@ static inline __attribute__((always_inline)) UW
 raise_and_wait(UINT src, volatile UW *flag) {
   UW deadline = test_mtime() + WAIT_MS * TEST_MTIME_PER_MS;
   if (src == UART_IRQ) {
-    return depth_spin_arm_byte(flag, deadline, (volatile UB *)UART_IER,
-                               IER_THRE);
+    return test_spin_with_registers(flag, deadline, (volatile UB *)UART_IER,
+                                    IER_THRE);
   }
   rtc_set_alarm();
   return depth_spin_arm_word(flag, deadline, (volatile UW *)RTC_IRQ_ENABLED, 1);
@@ -232,7 +198,7 @@ static BOOL in_isr_stack(UW address, UW size) {
 static BOOL boot_stack_is_intact(void) {
   for (const volatile UW *word = (const volatile UW *)_stack_start;
        word < (const volatile UW *)_stack_end; ++word) {
-    if (*word != PAINT) {
+    if (*word != STACK_PAINT) {
       return FALSE;
     }
   }
@@ -243,21 +209,6 @@ static BOOL stack_boundary_ok(void) {
   UW sp;
   __asm__ volatile("mv %0, sp" : "=r"(sp));
   return in_isr_stack(sp, 0) && (sp & 15) == 0 && boot_stack_is_intact();
-}
-
-static void paint(unsigned char *start, unsigned char *end) {
-  for (volatile UW *word = (volatile UW *)start; word < (volatile UW *)end;
-       ++word) {
-    *word = PAINT;
-  }
-}
-
-static UINT interrupt_stack_high_water(void) {
-  const volatile UW *word = (const volatile UW *)_isr_stack_start;
-  while (word < (const volatile UW *)_isr_stack_end && *word == PAINT) {
-    ++word;
-  }
-  return (UINT)((UW)_isr_stack_end - (UW)word);
 }
 
 static void wake_the_task(level_t *level) {
@@ -316,8 +267,8 @@ static inline __attribute__((always_inline)) void level_body(UINT intno) {
   level->intno = intno;
   level->depth = depth;
   level->sp_entry = current_sp();
-  level->mstatus_entry = read_mstatus();
-  level->mie_entry = read_mie();
+  level->mstatus_entry = test_read_mstatus();
+  level->mie_entry = test_read_mie();
   level->threshold_entry = threshold();
   level->ctx = tkmc_active_interrupt_context;
   level->ctx_previous = level->ctx->previous;
@@ -347,8 +298,8 @@ static inline __attribute__((always_inline)) void level_body(UINT intno) {
       EI(0);
       level->probe = raise_and_wait(next, &s_levels[depth + 1].done);
       level->threshold_after_child = threshold();
-      level->mstatus_after_child = read_mstatus();
-      level->mie_after_child = read_mie();
+      level->mstatus_after_child = test_read_mstatus();
+      level->mie_after_child = test_read_mie();
       level->sp_after_child = current_sp();
       UINT intsts;
       DI(intsts);
@@ -420,7 +371,7 @@ static BOOL paint_task_stack_prefix(task_view_t *view) {
     return FALSE;
   }
   view->task_paint_end = depth_paint_task_stack(
-      (volatile UW *)view->task_bottom, TASK_STACK_CANARY, PAINT,
+      (volatile UW *)view->task_bottom, TASK_STACK_CANARY, STACK_PAINT,
       &view->task_sp, TASK_STACK_GUARD);
   return view->task_sp > view->task_bottom + TASK_STACK_GUARD &&
          view->task_sp <= view->task_top &&
@@ -434,7 +385,7 @@ static BOOL paint_task_stack_prefix(task_view_t *view) {
 // used, so that it fails the bound instead of shrinking it.
 static void measure_task_stack(task_view_t *view) {
   volatile UW *word = (volatile UW *)(view->task_bottom + sizeof(UW));
-  while (word < (volatile UW *)view->task_paint_end && *word == PAINT) {
+  while (word < (volatile UW *)view->task_paint_end && *word == STACK_PAINT) {
     ++word;
   }
   view->task_stack_canary_intact =
@@ -455,7 +406,7 @@ static void measure_task_stack(task_view_t *view) {
 
 static void run_chain(const chain_case_t *chain, const T_DINT *uart,
                       const T_DINT *rtc, task_view_t *view) {
-  view->mie_chain_entry = read_mie();
+  view->mie_chain_entry = test_read_mie();
   s_case = chain;
   for (UINT i = 0; i < NEST_DEPTH + 2; ++i) {
     s_levels[i] = (level_t){.wake_er = E_SYS};
@@ -481,22 +432,22 @@ static void run_chain(const chain_case_t *chain, const T_DINT *uart,
 
   view->defined_uart = tk_def_int(UART_IRQ, uart);
   view->defined_rtc = tk_def_int(RTC_IRQ, rtc);
-  EnableInt(UART_IRQ, LOWEST_LEVEL);
+  EnableInt(UART_IRQ, PLIC_LOWEST_LEVEL);
   DisableInt(RTC_IRQ);
 
-  view->mie_prepaint = read_mie();
-  view->mstatus_prepaint = read_mstatus();
+  view->mie_prepaint = test_read_mie();
+  view->mstatus_prepaint = test_read_mstatus();
   UINT intsts;
   DI(intsts);
   view->task_stack_prepared = paint_task_stack_prefix(view);
   EI(intsts);
-  view->mie_postpaint = read_mie();
-  view->mstatus_postpaint = read_mstatus();
+  view->mie_postpaint = test_read_mie();
+  view->mstatus_postpaint = test_read_mstatus();
   if (!view->task_stack_prepared) {
     s_abort = TRUE;
   }
-  paint(_stack_start, _stack_end);
-  paint(_isr_stack_start, _isr_stack_end);
+  paint_stack(_stack_start, _stack_end);
+  paint_stack(_isr_stack_start, _isr_stack_end);
   view->mie_before = view->mie_postpaint;
   // Counted from here, after the switches that test_spawn() made.
   s_external_schedules = 0;
@@ -510,7 +461,7 @@ static void run_chain(const chain_case_t *chain, const T_DINT *uart,
     view->probe = SPIN_TIMED_OUT;
   }
   view->children_ran_at_resume = s_children_ran;
-  view->mie_after = read_mie();
+  view->mie_after = test_read_mie();
   view->threshold_after = threshold();
   view->depth_after = tkmc_isr_depth;
   view->active_after = tkmc_active_interrupt_context;

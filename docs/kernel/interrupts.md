@@ -302,6 +302,11 @@ Nothing detects an overflow. RAM is flat and the kernel uses no PMP (the
 RISC-V physical memory protection unit), so the interrupt stack runs into the
 boot stack below it.
 
+For the same reason nothing protects memory at run time. All code, the kernel,
+the handlers and every task, runs in machine mode, and without a PMP all of RAM
+can be written and executed. `linker.ld` declares the one RAM region `wxa`
+(writable, executable, allocated) and places code and data in it.
+
 ### Stack size and nesting
 
 The stack held seven levels of the tested handlers in each of the six cross
@@ -409,14 +414,9 @@ machine, without QEMU (see [testing.md](../developer/testing.md)).
   pending software interrupt, and it runs nested `DI()`/`EI()` with interrupts
   initially on and off. The PC regression test is
   `test/host/test_interrupt_state.c`.
-- External interrupts: the `interrupt` QEMU suite tests the calls with the
-  UART transmitter-empty interrupt, and nesting with the UART and the RTC
-  alarm. Software raises both. It raises the RTC by an alarm at a time that
-  has already passed, which does not depend on the clock the machine runs on.
-  It also checks that a `TA_HLNG` handler, single or nested, that returns with
-  interrupts on has them off while the kernel completes the interrupt, and that
-  a requested task switch is made at the outermost exit of the same trap and a
-  pending tick is taken after `mret`, at ISR depth 1.
+- External interrupts: the `interrupt` QEMU suite, with the UART and the RTC
+  as sources. [The interrupt suite](../developer/notes/run_qemu.md#the-interrupt-suite)
+  lists what it checks.
 - What QEMU cannot be made to produce (a claim with no source, a source beyond
   the table) and the PLIC threshold are tested by the PC unit tests in
   `test/host/test_intctl.c`.

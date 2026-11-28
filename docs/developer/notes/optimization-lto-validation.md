@@ -5,7 +5,9 @@ functions, the mailbox queue, the compiler flags or the toolchain. It shows
 whether copying, filling and sending messages keep their expected results at
 every optimization level, with and without link-time optimization (LTO).
 
-Validated on 2026-10-31 (JST).
+Validated on 2026-10-31 (JST). The test counts below are those of that date;
+later runs in the six presets are in the
+[test history](../../kernel/spec-conformance-history.md#test-runs-by-date).
 
 ## Summary
 

@@ -107,7 +107,8 @@ file before rebuilding and rerunning the same tests.
 
 The evidence covers the configured source range and QEMU platform. Physical
 devices, a larger source configuration and deeper interrupt nesting require
-additional platform validation. Later additions complete the
+additional platform validation. Later, on 2026-11-18, the [deep nesting record](deep-interrupt-nesting-validation.md)
+validated chains of three to seven levels on QEMU. Later additions complete the
 [interrupt-controller profile](../../kernel/spec-conformance-review.md#interrupt-controller-profile).
 The [ClearInt record](clearint-validation.md) and
 [EndOfInt record](interrupt-completion-validation.md) describe their checks.

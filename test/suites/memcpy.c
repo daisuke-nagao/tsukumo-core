@@ -22,13 +22,13 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../runner.h"
 #include "memcpy.h"
 #include "memset.h"
+#include "runner.h"
 
 enum { CANARY = 8, MAX_OFFSET = 3, MAX_LENGTH = 70 };
 enum { BUF_SIZE = CANARY + MAX_OFFSET + MAX_LENGTH + CANARY };
-enum { BACKGROUND = 0x00, FILL = 0x3f };
+enum { BACKGROUND = 0x00, FILL = 0x3f, PATTERN_FIRST = 0x41 };
 
 static _Alignas(4) UB g_src[BUF_SIZE];
 static _Alignas(4) UB g_dst[BUF_SIZE];
@@ -106,10 +106,10 @@ _Static_assert(sizeof(record_t) == 4 + 4 + 2 + 2 + sizeof(void *) + 16,
                "record_t has no padding");
 _Static_assert(sizeof(record_t) >= 32, "record_t takes the word path");
 
-static void pattern(void *object, UINT size, UB seed) {
+static void pattern(void *object, UINT size) {
   volatile UB *p = object;
   for (UINT i = 0; i < size; ++i) {
-    p[i] = (UB)(seed + i);
+    p[i] = (UB)(PATTERN_FIRST + i);
   }
 }
 
@@ -134,7 +134,7 @@ static void check_same_bytes(const void *observed, const void *expected,
 #define CHECK_ARRAY(type, count, call)                                         \
   do {                                                                         \
     type target[count], source[count], expected[count], observed[count];       \
-    pattern(source, sizeof source, 0x41);                                      \
+    pattern(source, sizeof source);                                            \
     for (UINT i = 0; i < (count); ++i) {                                       \
       target[i] = (type)7; /* a constant: no soft-float library is linked */   \
     }                                                                          \
@@ -147,7 +147,7 @@ static void check_same_bytes(const void *observed, const void *expected,
 
 #define COPY_ARRAY(type, count)                                                \
   CHECK_ARRAY(type, count,                                                     \
-              (pattern(expected, sizeof expected, 0x41),                       \
+              (pattern(expected, sizeof expected),                             \
                tkmc_memcpy(target, source, sizeof target)))
 #define FILL_ARRAY(type, count)                                                \
   CHECK_ARRAY(type, count,                                                     \
@@ -185,8 +185,8 @@ static void tkmc_memcpy_reaches_objects_of_every_type(void) {
   COPY_ARRAY(double, 4);
 
   record_t target, source, expected, observed;
-  pattern(&source, sizeof source, 0x41);
-  pattern(&expected, sizeof expected, 0x41);
+  pattern(&source, sizeof source);
+  pattern(&expected, sizeof expected);
   write_old_record(&target);
   tkmc_memcpy(&target, &source, sizeof target);
   read_record(&observed, &target);
