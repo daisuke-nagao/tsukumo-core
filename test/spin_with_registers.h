@@ -169,8 +169,8 @@
 extern "C" {
 #endif /* __cplusplus */
 
-/// The spin of the interrupt suite, armed by a byte store
-/// (test/spin_with_registers.S).
+/// The spin armed by a byte store (test/spin_with_registers.S), for the
+/// interrupt suite and the UART levels of the interrupt-depth suites.
 extern UW test_spin_with_registers(volatile UW *flag, UW deadline,
                                    volatile UB *reg, UB value);
 

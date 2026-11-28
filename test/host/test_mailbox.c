@@ -18,8 +18,6 @@
 #include <unity.h>
 
 #include "fakes.h"
-#include "mailbox.h"
-#include "task.h"
 
 static void test_tk_cre_mbx_refuses_attributes_of_features_kernel_lacks(void) {
   static const ATR refused[] = {TA_TFIFO | TA_DSNAME, TA_TFIFO | TA_NODISWAI};

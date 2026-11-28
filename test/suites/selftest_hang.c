@@ -10,7 +10,7 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../runner.h"
+#include "runner.h"
 
 static void pass_case(void) { TEST_ASSERT_EQUAL(1, 1); }
 

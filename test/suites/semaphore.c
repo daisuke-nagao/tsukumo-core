@@ -18,8 +18,8 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../runner.h"
-#include "../sem_request.h"
+#include "runner.h"
+#include "sem_request.h"
 
 enum {
   ROUNDS = 5,

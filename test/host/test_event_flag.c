@@ -25,11 +25,7 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "event_flag.h"
 #include "fakes.h"
-#include "task.h"
-
-enum { WAIT_MS = 100 };
 
 static const UINT SENTINEL = 0xdeadbeefU;
 
@@ -97,7 +93,7 @@ static void check_null_output(ID flgid, UINT mode, TMO tmout, ER expected) {
 }
 
 static void test_tk_wai_flg_null_output_neither_clears_nor_waits(void) {
-  const TMO limits[] = {TMO_POL, WAIT_MS, TMO_FEVR};
+  const TMO limits[] = {TMO_POL, HOST_WAIT_MS, TMO_FEVR};
   const UINT modes[] = {TWF_ORW, TWF_ORW | TWF_CLR, TWF_ORW | TWF_BITCLR};
   for (UINT pattern = 0; pattern < 2; ++pattern) {
     host_reset();
@@ -147,7 +143,7 @@ static void test_tk_wai_flg_checks_null_output_before_single_waiter_rule(void) {
   UINT output = SENTINEL;
   make_waiter(flgid, HOST_HIGH_PRIORITY, 0x2, TWF_ORW, &output);
   host_set_current(host_make_task(HOST_LOW_PRIORITY));
-  const TMO limits[] = {TMO_POL, WAIT_MS, TMO_FEVR};
+  const TMO limits[] = {TMO_POL, HOST_WAIT_MS, TMO_FEVR};
   for (UINT disabled = 0; disabled < 2; ++disabled) {
     UINT intsts;
     if (disabled) {
@@ -183,7 +179,7 @@ static void test_tk_wai_flg_refuses_second_waiter_before_pattern_check(void) {
   TEST_ASSERT_EQUAL(E_OK, tk_set_flg(flgid, 0x1)); // Not what the waiter wants.
   host_set_current(host_make_task(HOST_LOW_PRIORITY));
 
-  static const TMO limits[] = {TMO_POL, WAIT_MS, TMO_FEVR};
+  static const TMO limits[] = {TMO_POL, HOST_WAIT_MS, TMO_FEVR};
   for (UINT i = 0; i < HOST_COUNT(limits); ++i) {
     UINT flgptn = SENTINEL;
     host_snapshot_t before;
@@ -327,7 +323,8 @@ static void check_combined_clear_mode(const combined_clear_case_t *test_case,
   UINT waiter_pattern = SENTINEL;
   ID waiter = host_make_task(HOST_HIGH_PRIORITY);
   host_set_current(waiter);
-  HOST_EXPECT_WAIT(tk_wai_flg(flgid, 0x80, TWF_ORW, &waiter_pattern, WAIT_MS));
+  HOST_EXPECT_WAIT(
+      tk_wai_flg(flgid, 0x80, TWF_ORW, &waiter_pattern, HOST_WAIT_MS));
   host_set_current(current_task);
   TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(waiter)->tskstat);
   TEST_ASSERT_TRUE(host_in_queue(&tkmc_flgcbs[flgid - 1].wait_queue,
@@ -345,16 +342,11 @@ static void check_combined_clear_mode(const combined_clear_case_t *test_case,
   host_take_snapshot(&before);
 
   ER ercd = E_SYS;
-  BOOL waited = FALSE;
-  host_waited = 0;
-  if (setjmp(host_wait_jmp) == 0) {
-    host_arm_wait();
-    ercd = tk_wai_flg(flgid, 0x3, test_case->wait_mode | TWF_CLR | TWF_BITCLR,
-                      &output, test_case->timeout);
-  } else {
-    waited = TRUE;
-  }
-  host_wait_armed = 0;
+  BOOL waited;
+  HOST_TRY_WAIT(waited,
+                ercd = tk_wai_flg(flgid, 0x3,
+                                  test_case->wait_mode | TWF_CLR | TWF_BITCLR,
+                                  &output, test_case->timeout));
 
   TEST_ASSERT_FALSE_MESSAGE(waited, test_case->label);
   TEST_ASSERT_EQUAL_MESSAGE(E_PAR, ercd, test_case->label);
@@ -381,8 +373,8 @@ static void test_tk_wai_flg_rejects_combined_clear_modes_without_waiting(void) {
       {TWF_ORW, 0x7, TMO_POL, "OR poll with extra matched bits"},
       {TWF_ANDW, 0x1, TMO_POL, "unmatched AND poll"},
       {TWF_ORW, 0x4, TMO_POL, "unmatched OR poll"},
-      {TWF_ANDW, 0x1, WAIT_MS, "unmatched finite AND wait"},
-      {TWF_ORW, 0x4, WAIT_MS, "unmatched finite OR wait"},
+      {TWF_ANDW, 0x1, HOST_WAIT_MS, "unmatched finite AND wait"},
+      {TWF_ORW, 0x4, HOST_WAIT_MS, "unmatched finite OR wait"},
   };
 
   for (UINT disabled = 0; disabled < 2; ++disabled) {

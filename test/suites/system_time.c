@@ -24,6 +24,7 @@
 extern void __real_tkmc_timer_handler(void);
 
 enum { CHILD_PRIORITY = 2, WAIT_MS = 50, SLACK_MS = 2000 };
+enum { SPIN_MS = 2000 }; // The longest a case waits for the timer trap.
 _Static_assert(CHILD_PRIORITY < TEST_CASE_PRIORITY,
                "the child must preempt the case, to block before the case goes "
                "on");
@@ -51,12 +52,6 @@ static void expect_utc_within(UD from, UW window_ms, const char *message) {
   UD now = read_utc();
   TEST_ASSERT_TRUE_MESSAGE(now >= from, message);
   TEST_ASSERT_TRUE_MESSAGE(now - from < window_ms, message);
-}
-
-static BOOL irq_enabled(void) {
-  UINT status;
-  __asm__ volatile("csrr %0, mstatus" : "=r"(status)::"memory");
-  return (status & MSTATUS_MIE) != 0;
 }
 
 // Keep this case first: it is the only one that looks at the clock before a
@@ -216,14 +211,14 @@ void __wrap_tkmc_timer_handler(void) {
   }
   s_armed = FALSE;
   s_in_isr = tkmc_in_isr();
-  s_mie_before = irq_enabled();
+  s_mie_before = test_irq_enabled();
   s_isr_output = s_sentinel;
   s_null_set = tk_set_utc(NULL);
   s_null_get = tk_get_utc(NULL);
   s_negative_set = tk_set_utc(&s_negative);
   s_valid_set = tk_set_utc(&s_rejected);
   s_valid_get = tk_get_utc(&s_isr_output);
-  s_mie_after = irq_enabled();
+  s_mie_after = test_irq_enabled();
   s_observed = TRUE;
 }
 
@@ -234,7 +229,7 @@ static void system_time_calls_in_real_interrupt_handler_are_refused(void) {
   s_armed = TRUE;
   UW started = test_mtime();
   while (!s_observed &&
-         (UW)(test_mtime() - started) < 2000 * TEST_MTIME_PER_MS) {
+         (UW)(test_mtime() - started) < SPIN_MS * TEST_MTIME_PER_MS) {
   }
   TEST_ASSERT_TRUE_MESSAGE(s_observed, "no timer interrupt");
   TEST_ASSERT_TRUE(s_in_isr);

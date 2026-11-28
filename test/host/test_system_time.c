@@ -23,17 +23,10 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "asm/rv32/address.h"
-#include "context.h"
 #include "fakes.h"
-#include "task.h"
 #include "timer.h"
 
-enum {
-  MTIMECMP_LOW = CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET,
-  MTIMECMP_HIGH = MTIMECMP_LOW + 4,
-  HIGH_WORD_MAX = 0x7fffffff
-};
+enum { HIGH_WORD_MAX = 0x7fffffff };
 
 #define LOW_WORD_MAX 0xffffffffu
 
@@ -397,15 +390,15 @@ test_tk_set_utc_and_tk_get_utc_write_no_timer_compare_register(void) {
   EXPECT_UTC(0, 5);
   set_utc(4, 4);
   EXPECT_UTC(4, 4);
-  TEST_ASSERT_EQUAL_UINT(0, host_write_count(MTIMECMP_LOW));
-  TEST_ASSERT_EQUAL_UINT(0, host_write_count(MTIMECMP_HIGH));
+  TEST_ASSERT_EQUAL_UINT(0, host_write_count(HOST_MTIMECMP_LOW));
+  TEST_ASSERT_EQUAL_UINT(0, host_write_count(HOST_MTIMECMP_HIGH));
   TEST_ASSERT_EQUAL_UINT(0, host_write_count(HOST_MSIP));
 
   host_log_count = 0;
   tkmc_timer_handler();
   TEST_ASSERT_EQUAL_UINT64(3 * HOST_TICK,
-                           (host_last_write(MTIMECMP_HIGH) << 32) |
-                               host_last_write(MTIMECMP_LOW));
+                           (host_last_write(HOST_MTIMECMP_HIGH) << 32) |
+                               host_last_write(HOST_MTIMECMP_LOW));
   EXPECT_UTC(4, 4);
 }
 

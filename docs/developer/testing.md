@@ -10,7 +10,7 @@ kernel rules that the tests check are in
 | Kind | What it is | Preset | Run with |
 | --- | --- | --- | --- |
 | QEMU tests | One RISC-V program per test suite (`tsukumo-core-test-<suite>.elf`). QEMU runs each one, and the suite ends the run by itself. | `debug` or another RISC-V preset | `ctest --test-dir <build dir> --output-on-failure --no-tests=error` |
-| PC unit tests | One program for the PC, `host-tests`, that compiles the kernel's logic and runs it without QEMU | `host` | `ctest --preset host` |
+| PC unit tests | One program for the PC, `host-tests`, that compiles the kernel's logic and runs it without QEMU. The preset also runs the three [public-declaration checks](#other-ctest-tests). | `host` | `ctest --preset host` |
 
 Each preset builds in its own directory, `../build/<preset>`, beside the
 repository.
@@ -85,27 +85,76 @@ loops access memory as a type that may alias any object. CMake registers it
 only together with the QEMU tests, so
 `--no-tests=error` still fails when QEMU is missing.
 
+### Other CTest tests
+
+Besides the suites and `word-access-tbaa`, the build directory registers these
+tests:
+
+| Test | What it checks |
+| --- | --- |
+| `qemu-interrupt-completion-trace`, `qemu-asm-task-trace`, `qemu-interrupt-depth-<n>-trace` | Runs the suite's program on QEMU with a trace of memory writes. `test/check_interrupt_completion.py` checks the PLIC completions of each case against the set it keeps for the suite. |
+| `interrupt-completion-trace-self-test` | The self-test of that script. It runs no QEMU. |
+| `public-declarations-direct`, `public-declarations-umbrella-off`, `public-declarations-umbrella-on` | Two translation units that include the public headers directly, through the umbrella header, and through it with `TKERNEL_CHECK_CONST`, compile and link. The `host` preset runs each as a program. The RISC-V presets register each as `<name>-link`, which builds it, one at a time. |
+
+The trace tests, the self-test and the `-link` checks are registered only when
+CMake finds QEMU, like the suites.
+
+### Building with TKERNEL_CHECK_CONST off
+
+The tests are run with the CMake option `TKERNEL_CHECK_CONST` on, the default,
+which declares the packet arguments of the system calls `const`. With it off,
+the build and the tests still pass, but the suites `interrupt`,
+`interrupt-depth-<n>`, `system-time`, `task-context-<case>` and `task-create`
+warn that they pass a `const` packet to a parameter without `const`. Those
+warnings are expected with the option off.
+
 ### Guest clock and host-clock runs
 
-By default, each QEMU test runs with `-icount shift=5,sleep=off`: guest time
-follows the number of instructions the guest runs instead of the host clock,
-so the output is the same on every run. Because one fixed schedule can hide a
-race, each suite that is meant to pass also runs once on the host clock, as
-`qemu-<suite>-hostclock` with the label `host-clock`. These runs go one at a
-time.
+By default each test runs QEMU on an instruction-count clock:
 
-- To run only the host-clock tests, add `-L host-clock` to the `ctest`
-  command. To skip them, add `-LE host-clock`.
-- To run every test on the host clock with no extra tests, configure with
-  `-DQEMU_ICOUNT_SHIFT=` (empty). The cache variable `QEMU_ICOUNT_SHIFT` sets
-  the shift (default 5) and also accepts `auto`.
-- The suites `idle-halt`, `mailbox-cost`, `timer-cost` and `timer-cost-max`
-  count instructions, so they have no host-clock run. CMake registers them only
-  when `QEMU_ICOUNT_SHIFT` is a number of 8 or less, and warns at configure
-  time when it skips them.
+```sh
+qemu-system-riscv32 -machine virt -bios none -nographic -icount shift=5,sleep=off -kernel <suite ELF>
+```
 
-[Guest clock and host-clock runs in the QEMU reference](notes/run_qemu.md)
-explains the clock options in full.
+With `-icount`, guest time follows the number of instructions the guest has
+run instead of the host clock: one instruction takes 2^shift ns, so 32 ns at
+shift 5, and a 10 ms kernel tick holds 312500 instructions. With `sleep=off`,
+guest time jumps to the next timer deadline while the idle task halts in `wfi`
+(the RISC-V wait-for-interrupt instruction), instead of waiting in real time.
+The tests wait on timers, so on the host clock a stalled host stretches the
+guest's waits and runs differ. On the instruction-count clock the UART log is
+the same on every run, and a suite takes a fraction of a second.
+
+A fixed schedule can hide a race that only the host clock shows. So every suite
+that is meant to pass also runs once on the host clock, as
+`qemu-<suite>-hostclock`, with this command:
+
+```sh
+qemu-system-riscv32 -machine virt -bios none -nographic -kernel <suite ELF>
+```
+
+These tests carry the label `host-clock`: `ctest -L host-clock` runs only them,
+and `ctest -LE host-clock` skips them. They run one at a time (CTest
+`RUN_SERIAL`), because a stalled host would stretch the guest's waits.
+
+The cache variable `QEMU_ICOUNT_SHIFT` selects the clock:
+
+| `QEMU_ICOUNT_SHIFT` | Main tests run with | Main tests one at a time | `-hostclock` tests | Instruction-count suites |
+| --- | --- | --- | --- | --- |
+| A number (default `5`) | `-icount shift=<number>,sleep=off` | No | Registered | Registered only for a number of 8 or less |
+| `auto` | `-icount shift=auto`, which lets QEMU follow the host clock | Yes | Registered | Not registered |
+| Empty (`-DQEMU_ICOUNT_SHIFT=`) | The host clock | Yes | Not registered | Not registered |
+
+The instruction-count suites are `idle-halt`, `mailbox-cost`, `timer-cost` and
+`timer-cost-max`. They read `minstret`, the RISC-V counter of retired
+instructions. QEMU counts instructions in `minstret` only under `-icount`; on
+the host clock the counter returns host timer ticks, which are not comparable.
+These suites therefore have no `-hostclock` run. They also depend on how many
+instructions fit in a unit of guest time: with `auto` that ratio follows the
+host, and with a shift above 8 a spinning idle task would run too few
+instructions for `idle-halt` to tell it from a halted one. When CMake skips one
+of these suites, it warns at configure time: `<suite>: not run, it needs
+QEMU_ICOUNT_SHIFT to be a number of 8 or less`.
 
 ## Run the tests at every optimization level
 

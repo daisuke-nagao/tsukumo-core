@@ -9,6 +9,10 @@
 // be a wild pointer. These go to a small fake device model in
 // test/host/fakes.c instead, which keeps a log of every access and refuses
 // addresses the kernel has no reason to touch.
+//
+// The PC build calls only out_w() and in_w(). The other six stay so that this
+// header offers every function the real one does, and kernel code that starts
+// using one still compiles here.
 
 #ifndef UUID_01A17C3E_90B6_7913_8466_4F7028FB79E3
 #define UUID_01A17C3E_90B6_7913_8466_4F7028FB79E3

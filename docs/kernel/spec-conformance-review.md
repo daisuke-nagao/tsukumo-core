@@ -78,14 +78,13 @@ difference, the kernel was fixed on that date, and the entry now passes. The
   the measured fixture, real hardware and more than one hart. The
   [deep nesting record](../developer/notes/deep-interrupt-nesting-validation.md)
   covers three-to-seven-level alternating-source chains.
-- The assembly-entry update passed 167 PC unit tests, three public consumers
-  and all 104 RV32 CTests in each of six presets. Its
-  [validation record](../developer/notes/assembly-entry-validation.md) includes
-  the isolated fault experiments and restoration checks.
-- The time-representation update passed 162 PC unit tests, three host
-  consumer checks and all 90 RV32 CTests in each of the six presets. The
+- The latest full run, on 2026-11-29, passed 168 PC unit tests, the three
+  public-declaration checks of the `host` preset and all 126 RV32 CTests in
+  each of the six presets. The
   [test history](spec-conformance-history.md#test-runs-by-date) records this
-  and the earlier results.
+  and the earlier results, and the
+  [assembly-entry validation record](../developer/notes/assembly-entry-validation.md)
+  keeps the isolated fault experiments and restoration checks.
 
 ## Terms used in this review
 
@@ -93,16 +92,13 @@ difference, the kernel was fixed on that date, and the entry now passes. The
 | --- | --- |
 | Specification | The official μT-Kernel 3.0 specification Ver.3.00.01, in Japanese. The section links in this review point into it. |
 | Reference implementation | The TRON Forum's reference implementation of μT-Kernel 3.0: the [`mtkernel_3`](https://github.com/tron-forum/mtkernel_3) source released with the specification. The specification delegates detailed behavior to it ([reference-code role](https://tron-forum.github.io/mtk3_spec_jp/reference_code_of_utk.html)). |
-| Task-independent portion, ISR | The specification calls code that runs outside any task, such as an interrupt handler, the task-independent portion. This review calls it an ISR (interrupt service routine). The kernel treats code as an ISR while it runs inside a trap, whatever the state of MIE; `tkmc_in_isr()` reports this (see [interrupts](interrupts.md)). |
-| MIE | The machine interrupt-enable bit of the RISC-V `mstatus` register (`MSTATUS_MIE`, bit 3). While it is clear, the processor takes no interrupt. The `mie` register is a different thing: it enables individual interrupt sources. |
+| Task-independent portion, ISR, MIE, PLIC, TCB | As defined in [Kernel behavior](behavior.md#terms-used-on-this-page). This review calls the task-independent portion an ISR. |
 | `DI`, `EI`, `isDI` | Macros in `include/sys/interrupt.h`. `DI(intsts)` clears MIE and saves its previous state in the caller's variable `intsts`. `EI(intsts)` restores that state, and `EI(0)` sets MIE. `isDI(intsts)` tells whether the saved state was disabled. |
 | Service profile | The macros in `include/sys/profile.h` that tell application code which optional features the kernel provides. `TK_SUPPORT_*` flags announce a feature (for example `TK_SUPPORT_INTCTRL`, interrupt-controller management) and `TK_HAS_*` flags a variant (for example `TK_HAS_ENAINTLEVEL`, an `EnableInt` that takes a level). |
-| PLIC | The platform-level interrupt controller of the QEMU `virt` machine, which delivers external interrupts. The level of `EnableInt` is a PLIC priority, 1 to 7. |
-| TCB | Task control block, the kernel's record of one task. `tk_exd_tsk` returns the TCB to a free list, and `tk_cre_tsk` reuses it. |
 | DORMANT | The specification's task state between creation (or `tk_ext_tsk`) and `tk_sta_tsk` (`TTS_DMT` in the source). |
 | PC unit test | A test case in `test/host/`, written with the Unity C test framework. The `host` preset builds it for the PC with AddressSanitizer and UBSan. It runs the kernel sources on a fake machine (`test/host/fakes.h`) that cannot switch stacks, so it checks kernel state and queues but not the values a woken task returns. The [testing guide](../developer/testing.md) explains how to run these tests. |
 | QEMU suite | A test program from `test/suites/` that runs the kernel on QEMU's RV32 `virt` machine. Suite `task-create` comes from `test/suites/task_create.c` and runs as the CTest `qemu-task-create`; the other names follow the same pattern. `task-context` stands for the fifteen `task-context-<case>` suites built from `test/suites/task_context.c`. |
-| Instruction-count clock, host clock | By default (`QEMU_ICOUNT_SHIFT` 5) QEMU runs with `-icount shift=5,sleep=off`: guest time follows the number of instructions run, so every run is the same. Most suites also run once on the host clock, where guest time follows real time, as the CTest `qemu-<name>-hostclock`; the suites that read the instruction counter do not. "Both clocks" means both runs. |
+| Instruction-count clock, host clock | The two clocks QEMU runs the suites on, explained in [Guest clock and host-clock runs](../developer/testing.md#guest-clock-and-host-clock-runs). "Both clocks" means both runs. |
 | Preset | A configuration in `CMakePresets.json`. `debug` (`-O0`), `relwithdebinfo` (`-O2`) and `minsizerel` (`-Os`) build for RV32, and each has an `-lto` twin with link-time optimization. `host` builds the PC unit tests. Preset `<p>` builds in `../build/<p>`. |
 | Probe | A short program written for the review, in addition to the committed tests, to observe one behavior. |
 
@@ -195,7 +191,7 @@ and the [I/O access chapter](https://tron-forum.github.io/mtk3_spec_jp/io_port_m
 | `CheckInt` | Checked / Defined choice | `kernel/intctl.c`, `test/host/test_pending_int.c`, `interrupt`. Pending snapshots with disabled sources, repeated reads, and a claim observed from C and assembly handlers. |
 | `ClearInt` | Checked / Defined choice | `kernel/intctl.c`, `test/host/test_pending_int.c`, `interrupt`. One target-only claim and completion, full enable-word isolation, priority-zero handling, state restoration and active-claim preservation. |
 | `EndOfInt` | Checked / Defined choice | `kernel/intctl.c`, `test/host/test_asm_interrupt.c`, `interrupt`. Newest matching active context, synchronous EOI once, repeated/inactive calls, source and CPU state preservation, and coordination with C and ASM exits. |
-| `DI` | Checked | `include/sys/interrupt.h`, `wait-context`, an RV32 probe. Saves and clears MIE in one instruction and assigns the caller's variable. |
+| `DI` | Checked | `include/sys/interrupt.h`, `wait-context`, `interrupt-state` (`di_fills_variable_named_status`), an RV32 probe. Saves and clears MIE in one instruction and assigns the caller's variable. |
 | `EI` | Checked (Difference corrected 2026-11-09) | `include/sys/interrupt.h`, `interrupt-state` (`test/suites/interrupt_state.c`), `test/host/test_interrupt_state.c`. Restores the saved MIE state whatever MIE is when `EI` runs ([history](spec-conformance-history.md#ei-did-not-restore-a-saved-disabled-state)). |
 | `isDI` | Checked | `include/sys/interrupt.h`, `wait-context`, an RV32 probe. Tests the MIE bit of the saved value. |
 | `in_b` | Checked | `include/sys/ioport.h`, generated RV32 assembly. Volatile byte load. |
@@ -265,7 +261,17 @@ the review found the kernel's choice permitted.
 | `tk_ext_tsk`, `tk_exd_tsk` | A call from an invalid context does not return. | [Task-management chapter](https://tron-forum.github.io/mtk3_spec_jp/utk_os_functions.html) |
 | `tk_def_int`, `EnableInt`, `DisableInt` | [Interrupts](interrupts.md) describes how these calls behave where the specification leaves the behavior open, for example for a bad interrupt number or level. | [SM interrupt chapter](https://tron-forum.github.io/mtk3_spec_jp/interrupt_management_functions_sm.html) |
 | `in_d`, `out_d` | A 64-bit access is split into two 32-bit volatile accesses, lower half first. | [I/O access chapter](https://tron-forum.github.io/mtk3_spec_jp/io_port_management_functions.html) |
-| `tk_set_utc`, `tk_get_utc` | A call from an ISR, or before the first task starts, returns `E_CTX` after the argument checks and changes nothing. `tk_set_utc` returns `E_PAR` for a negative time, and the clock stops at 2^63 − 1 ms (see [kernel behavior](behavior.md#system-time-utc)). | The [time-management chapter](https://tron-forum.github.io/mtk3_spec_jp/time_management_functions.html) marks both calls as not available in the task-independent portion, and the specification's notes on the API description format make detecting `E_CTX` implementation-dependent. `SYSTIM` is a signed 64-bit millisecond count; the `E_PAR` of `tk_set_utc` covers an invalid time without defining which times are invalid, and the specification does not say what follows the largest value. |
+| `tk_set_utc`, `tk_get_utc` | A call from an ISR, or before the first task starts, returns `E_CTX` after the argument checks and changes nothing. `tk_set_utc` returns `E_PAR` for a negative time, and the clock stops at 2^63 − 1 ms (see [kernel behavior](behavior.md#system-time-utc)). | [Time-management chapter](https://tron-forum.github.io/mtk3_spec_jp/time_management_functions.html); see [The system time calls](#the-system-time-calls) below. |
+
+### The system time calls
+
+The [time-management chapter](https://tron-forum.github.io/mtk3_spec_jp/time_management_functions.html)
+marks `tk_set_utc` and `tk_get_utc` as not available in the task-independent
+portion, and the specification's notes on the API description format make
+detecting `E_CTX` implementation-dependent. `SYSTIM` is a signed 64-bit
+millisecond count. The `E_PAR` of `tk_set_utc` covers an invalid time without
+defining which times are invalid, and the specification does not say what
+follows the largest value.
 
 ## Evidence gaps
 

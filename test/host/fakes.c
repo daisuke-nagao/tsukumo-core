@@ -65,24 +65,6 @@ static UINT plic_claim_pending(void) {
   return claimed;
 }
 
-// The only addresses the kernel has a reason to touch. Anything else is a wild
-// access, and fails the running test.
-enum {
-  MTIMECMP_LOW = CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET,
-  MTIMECMP_HIGH = MTIMECMP_LOW + 4,
-  MTIME_LOW = CLINT_BASE_ADDRESS + CLINT_MTIME_OFFSET,
-  MTIME_HIGH = MTIME_LOW + 4,
-  PLIC_PRIORITY_FIRST = PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET + 4,
-  PLIC_PRIORITY_LAST = PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET +
-      4 * (PLIC_SOURCE_COUNT - 1),
-  PLIC_ENABLE_FIRST = PLIC_BASE_ADDRESS + PLIC_ENABLE_OFFSET,
-  PLIC_ENABLE_LAST = PLIC_ENABLE_FIRST + 4 * ((PLIC_SOURCE_COUNT - 1) / 32),
-  PLIC_PENDING_FIRST = PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET,
-  PLIC_PENDING_LAST = PLIC_PENDING_FIRST + 4 * ((PLIC_SOURCE_COUNT - 1) / 32),
-  PLIC_THRESHOLD = PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET,
-  PLIC_CLAIM = PLIC_BASE_ADDRESS + PLIC_CLAIM_OFFSET,
-};
-
 static void record(INT port, UINT width, UD value, BOOL is_write) {
   TEST_ASSERT_LESS_THAN_UINT_MESSAGE(HOST_LOG_MAX, host_log_count,
                                      "the access log is full");
@@ -97,20 +79,21 @@ void host_out(INT port, UINT width, UD data) {
   case HOST_MSIP:
     s_msip = data;
     break;
-  case MTIMECMP_LOW:
+  case HOST_MTIMECMP_LOW:
     s_mtimecmp_low = data;
     break;
-  case MTIMECMP_HIGH:
+  case HOST_MTIMECMP_HIGH:
     s_mtimecmp_high = data;
     break;
-  case PLIC_THRESHOLD:
+  case HOST_PLIC_THRESHOLD:
     s_plic_threshold = (UW)data;
     if (s_plic_threshold > s_plic_threshold_highest) {
       s_plic_threshold_highest = s_plic_threshold;
     }
     break;
-  case PLIC_CLAIM: // A completion for a disabled source is ignored, and the
-                   // source stays claimed until a later enabled completion.
+  case HOST_PLIC_CLAIM: // A completion for a disabled source is ignored, and
+                        // the source stays claimed until a later enabled
+                        // completion.
     if (data >= PLIC_SOURCE_COUNT || !plic_enabled((UINT)data)) {
       s_plic_ignored_completions += 1;
     } else {
@@ -118,12 +101,12 @@ void host_out(INT port, UINT width, UD data) {
     }
     break;
   default:
-    if (port >= PLIC_PRIORITY_FIRST && port <= PLIC_PRIORITY_LAST) {
-      s_plic_priority[(port - PLIC_PRIORITY_FIRST) / 4 + 1] = (UW)data;
+    if (port >= HOST_PLIC_PRIORITY_FIRST && port <= HOST_PLIC_PRIORITY_LAST) {
+      s_plic_priority[(port - HOST_PLIC_PRIORITY_FIRST) / 4 + 1] = (UW)data;
       break;
     }
-    if (port >= PLIC_ENABLE_FIRST && port <= PLIC_ENABLE_LAST) {
-      s_plic_enable[(port - PLIC_ENABLE_FIRST) / 4] = (UW)data;
+    if (port >= HOST_PLIC_ENABLE_FIRST && port <= HOST_PLIC_ENABLE_LAST) {
+      s_plic_enable[(port - HOST_PLIC_ENABLE_FIRST) / 4] = (UW)data;
       break;
     }
     TEST_FAIL_MESSAGE("the kernel wrote to an address the fake machine does "
@@ -137,39 +120,40 @@ UD host_in(INT port, UINT width) {
   case HOST_MSIP:
     value = s_msip;
     break;
-  case MTIMECMP_LOW:
+  case HOST_MTIMECMP_LOW:
     value = s_mtimecmp_low;
     break;
-  case MTIMECMP_HIGH:
+  case HOST_MTIMECMP_HIGH:
     value = s_mtimecmp_high;
     break;
-  case MTIME_LOW:
+  case HOST_MTIME_LOW:
     value = (UW)host_mtime;
     host_mtime += host_mtime_advance_after_low_read;
     host_mtime_advance_after_low_read = 0;
     break;
-  case MTIME_HIGH:
+  case HOST_MTIME_HIGH:
     value = (UW)(host_mtime >> 32);
     break;
-  case PLIC_THRESHOLD:
+  case HOST_PLIC_THRESHOLD:
     value = s_plic_threshold;
     break;
-  case PLIC_CLAIM: // Claim one enabled, nonzero-priority pending source. The
-                   // threshold affects notifications, not the claim result.
+  case HOST_PLIC_CLAIM: // Claim one enabled, nonzero-priority pending source.
+                        // The threshold affects notifications, not the claim
+                        // result.
     value = plic_claim_pending();
     s_plic_ignored_completions = 0;
     break;
   default:
-    if (port >= PLIC_PRIORITY_FIRST && port <= PLIC_PRIORITY_LAST) {
-      value = s_plic_priority[(port - PLIC_PRIORITY_FIRST) / 4 + 1];
+    if (port >= HOST_PLIC_PRIORITY_FIRST && port <= HOST_PLIC_PRIORITY_LAST) {
+      value = s_plic_priority[(port - HOST_PLIC_PRIORITY_FIRST) / 4 + 1];
       break;
     }
-    if (port >= PLIC_ENABLE_FIRST && port <= PLIC_ENABLE_LAST) {
-      value = s_plic_enable[(port - PLIC_ENABLE_FIRST) / 4];
+    if (port >= HOST_PLIC_ENABLE_FIRST && port <= HOST_PLIC_ENABLE_LAST) {
+      value = s_plic_enable[(port - HOST_PLIC_ENABLE_FIRST) / 4];
       break;
     }
-    if (port >= PLIC_PENDING_FIRST && port <= PLIC_PENDING_LAST) {
-      value = s_plic_pending[(port - PLIC_PENDING_FIRST) / 4];
+    if (port >= HOST_PLIC_PENDING_FIRST && port <= HOST_PLIC_PENDING_LAST) {
+      value = s_plic_pending[(port - HOST_PLIC_PENDING_FIRST) / 4];
       break;
     }
     TEST_FAIL_MESSAGE("the kernel read from an address the fake machine does "
@@ -413,9 +397,9 @@ void host_reset(void) {
   host_log_count = 0;
 }
 
-enum { STACK_WORDS = 256, MAX_TASKS = 32 };
+enum { STACK_WORDS = 256 };
 
-static UW s_stacks[MAX_TASKS][STACK_WORDS] __attribute__((aligned(16)));
+static UW s_stacks[CFN_MAX_TSKID][STACK_WORDS] __attribute__((aligned(16)));
 
 static void never_run(INT stacd, void *exinf) {
   (void)stacd;
@@ -423,7 +407,7 @@ static void never_run(INT stacd, void *exinf) {
 }
 
 ID host_make_task(PRI prio) {
-  TEST_ASSERT_LESS_THAN_UINT(MAX_TASKS, s_stacks_used);
+  TEST_ASSERT_LESS_THAN_UINT(CFN_MAX_TSKID, s_stacks_used);
   ID tskid = tk_cre_tsk(&(T_CTSK){.exinf = 0,
                                   .tskatr = TA_HLNG | TA_USERBUF,
                                   .task = (FP)never_run,
@@ -499,6 +483,13 @@ void host_two_tasks_and_objects(void) {
   host_set_current(host_make_task(HOST_HIGH_PRIORITY));
   host_make_task(HOST_HIGH_PRIORITY);
   host_make_objects();
+}
+
+ID host_create_semaphore(void) {
+  ID semid = tk_cre_sem(
+      &(T_CSEM){.exinf = 0, .sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 1});
+  TEST_ASSERT_GREATER_THAN(0, semid);
+  return semid;
 }
 
 UINT host_count_creatable_semaphores(void) {
@@ -604,7 +595,7 @@ BOOL host_plic_pending(UINT src) {
   if (src >= PLIC_SOURCE_COUNT) {
     return FALSE;
   }
-  INT port = PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET + 4 * (src / 32);
+  INT port = HOST_PLIC_PENDING_FIRST + 4 * (src / 32);
   return (in_w(port) & (1u << (src % 32))) != 0;
 }
 
@@ -631,4 +622,4 @@ void host_plic_set_priority(UINT src, UW priority) {
   }
 }
 
-INT host_plic_claim_port(void) { return PLIC_CLAIM; }
+INT host_plic_claim_port(void) { return HOST_PLIC_CLAIM; }

@@ -101,7 +101,7 @@ DEPTH_LATE_CASES = (
     "nested_interrupt_lower_priority_request_waits_for_whole_chain",
 )
 
-# The expected sets by suite; --expect=<name> picks one, "interrupt" if absent.
+# The expected sets by suite; --expect=<name> picks one.
 EXPECTED_SETS = {
     "interrupt": EXPECTED,
     # TA_ASM tasks: no interrupt completes while they run.
@@ -211,7 +211,12 @@ def self_test():
         EXPECTED_SETS["interrupt-depth-3"],
         ["qemu", "-kernel", "x.elf"],
     )
-    assert split_expect(["qemu", "-kernel", "x.elf"]) == (EXPECTED, ["qemu", "-kernel", "x.elf"])
+    try:
+        split_expect(["qemu", "-kernel", "x.elf"])
+    except RuntimeError as error:
+        assert "--expect" in str(error), error
+    else:
+        raise AssertionError("a command line without --expect= was accepted")
     for argv in (["--expect=unknown", "qemu", "-kernel", "x.elf"], ["--expect=", "qemu"]):
         try:
             split_expect(argv)
@@ -230,7 +235,7 @@ def self_test():
         assert set(cases) == set(DEPTH_CHAIN_CASES + DEPTH_LATE_CASES)
         assert all(cases[name] == chain for name in DEPTH_CHAIN_CASES)
         assert all(cases[name] == late for name in DEPTH_LATE_CASES)
-    for argv in ([], ["qemu"], ["--expect=interrupt-depth-3"]):
+    for argv in (["--expect=interrupt"], ["--expect=interrupt", "qemu"], ["--expect=interrupt-depth-3"]):
         try:
             command_args(argv)
         except RuntimeError:
@@ -240,20 +245,20 @@ def self_test():
 
 
 def split_expect(argv):
-    """Takes a leading --expect=<set> off argv before QEMU's own arguments."""
-    if argv and argv[0].startswith("--expect="):
-        name = argv[0][len("--expect="):]
-        if name not in EXPECTED_SETS:
-            raise RuntimeError(f"unknown expected set: {name!r}")
-        return EXPECTED_SETS[name], argv[1:]
-    return EXPECTED, argv
+    """Takes the leading --expect=<set> off argv before QEMU's own arguments."""
+    if not argv or not argv[0].startswith("--expect="):
+        raise RuntimeError("the first argument must be --expect=SET")
+    name = argv[0][len("--expect="):]
+    if name not in EXPECTED_SETS:
+        raise RuntimeError(f"unknown expected set: {name!r}")
+    return EXPECTED_SETS[name], argv[1:]
 
 
 def command_args(argv):
-    """Validate the wrapper arguments after the optional expected-set flag."""
+    """Validate the wrapper arguments after the expected-set flag."""
     expected, qemu_argv = split_expect(argv)
     if len(qemu_argv) < 3:
-        raise RuntimeError("usage: check_interrupt_completion.py [--expect=SET] QEMU QEMU-OPTION ELF")
+        raise RuntimeError("usage: check_interrupt_completion.py --expect=SET QEMU QEMU-OPTION ELF")
     return expected, qemu_argv
 
 

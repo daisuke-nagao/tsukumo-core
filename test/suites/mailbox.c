@@ -17,7 +17,7 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../runner.h"
+#include "runner.h"
 
 enum { HI_PRIORITY = 2, LO_PRIORITY = 3, RECEIVE_WAIT_MS = 1000 };
 _Static_assert(
@@ -39,15 +39,9 @@ typedef struct {
   INT value;
 } priority_message_t;
 
-static ID create_mailbox(ATR attributes) {
-  ID mbxid = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = attributes});
-  TEST_ASSERT_GREATER_THAN(E_OK, mbxid);
-  return mbxid;
-}
-
 // Messages leave a FIFO mailbox in the order they were sent.
 static void mailbox_fifo_queue_delivers_in_send_order(void) {
-  ID mbxid = create_mailbox(TA_TFIFO | TA_MFIFO);
+  ID mbxid = test_create_mailbox(TA_TFIFO | TA_MFIFO);
   message_t first = {.value = 1};
   message_t second = {.value = 2};
   T_MSG *received = 0;
@@ -68,7 +62,7 @@ static void mailbox_fifo_queue_delivers_in_send_order(void) {
 // and messages of the same priority leave in the order they were sent. A
 // message priority of 0 is refused.
 static void mailbox_priority_queue_delivers_by_message_priority(void) {
-  ID mbxid = create_mailbox(TA_TFIFO | TA_MPRI);
+  ID mbxid = test_create_mailbox(TA_TFIFO | TA_MPRI);
   priority_message_t low = {.hdr.msgpri = 9, .value = 9};
   priority_message_t high1 = {.hdr.msgpri = 1, .value = 1};
   priority_message_t mid = {.hdr.msgpri = 5, .value = 5};
@@ -116,7 +110,7 @@ static message_t g_direct_message = {.value = 100};
 static receiver_t g_direct_receiver;
 
 static void tk_snd_mbx_delivers_directly_to_waiting_receiver(void) {
-  ID mbxid = create_mailbox(TA_TFIFO | TA_MFIFO);
+  ID mbxid = test_create_mailbox(TA_TFIFO | TA_MFIFO);
   g_direct_receiver =
       (receiver_t){mbxid, &g_direct_message.hdr, RECEIVE_WAIT_MS};
 
@@ -159,7 +153,7 @@ static ordered_receiver_t g_hi_receiver;
 
 static void run_wait_order(ATR attributes, T_MSG *lo_expected,
                            T_MSG *hi_expected, INT first, INT second) {
-  ID mbxid = create_mailbox(attributes);
+  ID mbxid = test_create_mailbox(attributes);
   g_order[0] = g_order[1] = 0;
   g_order_count = 0;
   g_lo_receiver =
@@ -200,7 +194,7 @@ static void receive_deleted(void *arg) {
 }
 
 static void tk_del_mbx_releases_waiter(void) {
-  ID mbxid = create_mailbox(TA_TFIFO | TA_MFIFO);
+  ID mbxid = test_create_mailbox(TA_TFIFO | TA_MFIFO);
 
   test_spawn(receive_deleted, HI_PRIORITY, (void *)(INT)mbxid);
   TEST_ASSERT_EQUAL(E_OK, tk_del_mbx(mbxid));
@@ -219,7 +213,7 @@ static void receive_times_out(void *arg) {
 }
 
 static void tk_rcv_mbx_timeout_leaves_no_waiter(void) {
-  ID mbxid = create_mailbox(TA_TFIFO | TA_MFIFO);
+  ID mbxid = test_create_mailbox(TA_TFIFO | TA_MFIFO);
   message_t message = {.value = 77};
   T_MSG *received = 0;
 
@@ -237,7 +231,7 @@ static void tk_rcv_mbx_timeout_leaves_no_waiter(void) {
 // and can be sent to another mailbox: the deleted one leaves them untouched,
 // links and all, and a send overwrites the link.
 static void tk_del_mbx_leaves_messages_that_can_be_sent_again(void) {
-  ID doomed = create_mailbox(TA_TFIFO | TA_MPRI);
+  ID doomed = test_create_mailbox(TA_TFIFO | TA_MPRI);
   priority_message_t first = {.hdr.msgpri = 2, .value = 1};
   priority_message_t second = {.hdr.msgpri = 1, .value = 2};
   T_MSG *received = 0;
@@ -246,7 +240,7 @@ static void tk_del_mbx_leaves_messages_that_can_be_sent_again(void) {
   TEST_ASSERT_EQUAL(E_OK, tk_snd_mbx(doomed, (T_MSG *)&second.hdr));
   TEST_ASSERT_EQUAL(E_OK, tk_del_mbx(doomed));
 
-  ID mbxid = create_mailbox(TA_TFIFO | TA_MPRI);
+  ID mbxid = test_create_mailbox(TA_TFIFO | TA_MPRI);
   TEST_ASSERT_EQUAL(E_OK, tk_snd_mbx(mbxid, (T_MSG *)&first.hdr));
   TEST_ASSERT_EQUAL(E_OK, tk_snd_mbx(mbxid, (T_MSG *)&second.hdr));
   TEST_ASSERT_EQUAL(E_OK, tk_rcv_mbx(mbxid, &received, TMO_POL));

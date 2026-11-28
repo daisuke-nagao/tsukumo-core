@@ -10,32 +10,27 @@
 // be made to give (a claim that finds nothing, a source above the table) are
 // only tested here.
 
-#include <stdio.h>
-#include <string.h>
-
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "asm/rv32/address.h"
 #include "context.h"
 #include "fakes.h"
 #include "intctl.h"
 
-enum { SOME_SOURCE = 10 };
-enum { OUTER_SOURCE = 10, INNER_SOURCE = 11, QUIET_SOURCE = 12 };
+enum { QUIET_SOURCE = 12 };
 
 static void
 test_external_interrupt_with_no_source_calls_no_handler_and_completes_nothing(
     void) {
-  TEST_ASSERT_EQUAL(
-      E_OK,
-      tk_def_int(SOME_SOURCE, &(T_DINT){.intatr = TA_HLNG,
-                                        .inthdr = (FP)host_counting_handler}));
-  host_plic_set_enabled(SOME_SOURCE, TRUE);
+  TEST_ASSERT_EQUAL(E_OK,
+                    tk_def_int(HOST_SOME_SOURCE,
+                               &(T_DINT){.intatr = TA_HLNG,
+                                         .inthdr = (FP)host_counting_handler}));
+  host_plic_set_enabled(HOST_SOME_SOURCE, TRUE);
   tkmc_external_interrupt();
   TEST_ASSERT_EQUAL_UINT(0, host_handler_calls);
   TEST_ASSERT_EQUAL_UINT(0, host_write_count(host_plic_claim_port()));
-  TEST_ASSERT_TRUE(host_plic_is_enabled(SOME_SOURCE));
+  TEST_ASSERT_TRUE(host_plic_is_enabled(HOST_SOME_SOURCE));
 }
 
 // A source above the table has no handler, so the default handler runs for it:
@@ -43,10 +38,10 @@ test_external_interrupt_with_no_source_calls_no_handler_and_completes_nothing(
 // one of its own number, not the first.
 static void
 test_default_handler_switches_off_source_beyond_table_and_completes_it(void) {
-  TEST_ASSERT_EQUAL(
-      E_OK,
-      tk_def_int(SOME_SOURCE, &(T_DINT){.intatr = TA_HLNG,
-                                        .inthdr = (FP)host_counting_handler}));
+  TEST_ASSERT_EQUAL(E_OK,
+                    tk_def_int(HOST_SOME_SOURCE,
+                               &(T_DINT){.intatr = TA_HLNG,
+                                         .inthdr = (FP)host_counting_handler}));
   for (UINT src = CFN_MAX_INTNO; src < PLIC_SOURCE_COUNT; ++src) {
     for (UINT other = 1; other < PLIC_SOURCE_COUNT; ++other) {
       host_plic_set_enabled(other, TRUE);
@@ -118,10 +113,10 @@ static void enable_as_the_profile_says(UINT intno, INT level) {
 
 static void test_enable_int_sets_source_at_its_level_for_profile_driver(void) {
   enum { LEVEL = 3 };
-  enable_as_the_profile_says(SOME_SOURCE, LEVEL);
-  TEST_ASSERT_TRUE(host_plic_is_enabled(SOME_SOURCE));
-  TEST_ASSERT_EQUAL_UINT32(
-      LEVEL, in_w(PLIC_BASE_ADDRESS + PLIC_PRIORITY_OFFSET + 4 * SOME_SOURCE));
+  enable_as_the_profile_says(HOST_SOME_SOURCE, LEVEL);
+  TEST_ASSERT_TRUE(host_plic_is_enabled(HOST_SOME_SOURCE));
+  TEST_ASSERT_EQUAL_UINT32(LEVEL,
+                           in_w(host_plic_priority_port(HOST_SOME_SOURCE)));
 }
 
 // A number outside the table, and a level that is no priority, are ignored
@@ -133,9 +128,9 @@ test_enable_int_ignores_bad_number_or_level_without_register_access(void) {
   EnableInt(0, 1);
   EnableInt(CFN_MAX_INTNO, 1);
   EnableInt(0xffffffffu, 1);
-  EnableInt(SOME_SOURCE, 0);
-  EnableInt(SOME_SOURCE, PLIC_MAX_PRIORITY + 1);
-  EnableInt(SOME_SOURCE, -1);
+  EnableInt(HOST_SOME_SOURCE, 0);
+  EnableInt(HOST_SOME_SOURCE, PLIC_MAX_PRIORITY + 1);
+  EnableInt(HOST_SOME_SOURCE, -1);
   DisableInt(0);
   DisableInt(CFN_MAX_INTNO);
   DisableInt(0xffffffffu);
@@ -147,19 +142,19 @@ test_enable_int_ignores_bad_number_or_level_without_register_access(void) {
 // A call that is refused changes nothing, and the handler defined before it is
 // still the one that runs.
 static void test_tk_def_int_refused_definition_keeps_old_handler(void) {
-  TEST_ASSERT_EQUAL(E_OK, tk_def_int(SOME_SOURCE, &host_counting_hlng));
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(HOST_SOME_SOURCE, &host_counting_hlng));
   T_DINT no_handler = {.intatr = TA_HLNG, .inthdr = NULL};
   T_DINT unknown_attribute = {.intatr = 2, .inthdr = (FP)host_counting_handler};
   TEST_ASSERT_EQUAL(E_PAR, tk_def_int(0, NULL));
   TEST_ASSERT_EQUAL(E_PAR, tk_def_int(CFN_MAX_INTNO, NULL));
   TEST_ASSERT_EQUAL(E_PAR, tk_def_int(0xffffffffu, NULL));
-  TEST_ASSERT_EQUAL(E_PAR, tk_def_int(SOME_SOURCE, &no_handler));
-  TEST_ASSERT_EQUAL(E_RSATR, tk_def_int(SOME_SOURCE, &unknown_attribute));
-  EnableInt(SOME_SOURCE, 1);
-  host_plic_raise(SOME_SOURCE);
+  TEST_ASSERT_EQUAL(E_PAR, tk_def_int(HOST_SOME_SOURCE, &no_handler));
+  TEST_ASSERT_EQUAL(E_RSATR, tk_def_int(HOST_SOME_SOURCE, &unknown_attribute));
+  EnableInt(HOST_SOME_SOURCE, 1);
+  host_plic_raise(HOST_SOME_SOURCE);
   tkmc_external_interrupt();
   TEST_ASSERT_EQUAL_UINT(1, host_handler_calls);
-  TEST_ASSERT_EQUAL_UINT(SOME_SOURCE, host_handler_intno);
+  TEST_ASSERT_EQUAL_UINT(HOST_SOME_SOURCE, host_handler_intno);
 }
 
 // The ISR state alone refuses the call, with interrupts on: on the target a
@@ -169,11 +164,11 @@ static void test_tk_def_int_refuses_call_in_isr_state(void) {
   // Depth 2 is a trap taken inside a trap: still the ISR state.
   for (UINT depth = 1; depth <= 2; ++depth) {
     tkmc_isr_depth = depth;
-    TEST_ASSERT_EQUAL(E_CTX, tk_def_int(SOME_SOURCE, &host_counting_hlng));
+    TEST_ASSERT_EQUAL(E_CTX, tk_def_int(HOST_SOME_SOURCE, &host_counting_hlng));
   }
   tkmc_isr_depth = 0;
-  EnableInt(SOME_SOURCE, 1);
-  host_plic_raise(SOME_SOURCE);
+  EnableInt(HOST_SOME_SOURCE, 1);
+  host_plic_raise(HOST_SOME_SOURCE);
   tkmc_external_interrupt();
   TEST_ASSERT_EQUAL_UINT_MESSAGE(0, host_handler_calls,
                                  "a refused call defined a handler");
@@ -190,28 +185,30 @@ static void disabling_handler(UINT intno) {
 static void test_disable_int_in_handler_still_completes_source(void) {
   TEST_ASSERT_EQUAL(
       E_OK,
-      tk_def_int(SOME_SOURCE, &(T_DINT){.intatr = TA_HLNG,
-                                        .inthdr = (FP)disabling_handler}));
-  EnableInt(SOME_SOURCE, 1);
-  host_plic_raise(SOME_SOURCE);
+      tk_def_int(HOST_SOME_SOURCE, &(T_DINT){.intatr = TA_HLNG,
+                                             .inthdr = (FP)disabling_handler}));
+  EnableInt(HOST_SOME_SOURCE, 1);
+  host_plic_raise(HOST_SOME_SOURCE);
   tkmc_external_interrupt();
   TEST_ASSERT_EQUAL_UINT(1, host_handler_calls);
-  TEST_ASSERT_FALSE_MESSAGE(host_plic_is_enabled(SOME_SOURCE),
+  TEST_ASSERT_FALSE_MESSAGE(host_plic_is_enabled(HOST_SOME_SOURCE),
                             "the handler's DisableInt() was undone");
   TEST_ASSERT_EQUAL_UINT(0, host_plic_ignored_completions());
-  TEST_ASSERT_EQUAL_UINT(SOME_SOURCE, host_last_write(host_plic_claim_port()));
+  TEST_ASSERT_EQUAL_UINT(HOST_SOME_SOURCE,
+                         host_last_write(host_plic_claim_port()));
 }
 
 // A source that the default handler switches off is completed while it is
 // still enabled, for the same reason.
 static void
 test_default_handler_completes_source_before_switching_it_off(void) {
-  EnableInt(SOME_SOURCE, 1);
-  host_plic_raise(SOME_SOURCE);
+  EnableInt(HOST_SOME_SOURCE, 1);
+  host_plic_raise(HOST_SOME_SOURCE);
   tkmc_external_interrupt();
-  TEST_ASSERT_FALSE(host_plic_is_enabled(SOME_SOURCE));
+  TEST_ASSERT_FALSE(host_plic_is_enabled(HOST_SOME_SOURCE));
   TEST_ASSERT_EQUAL_UINT(0, host_plic_ignored_completions());
-  TEST_ASSERT_EQUAL_UINT(SOME_SOURCE, host_last_write(host_plic_claim_port()));
+  TEST_ASSERT_EQUAL_UINT(HOST_SOME_SOURCE,
+                         host_last_write(host_plic_claim_port()));
 }
 
 // The calls that save and restore the interrupt flag put it back as they found
@@ -219,10 +216,10 @@ test_default_handler_completes_source_before_switching_it_off(void) {
 static void test_interrupt_calls_leave_interrupts_off_when_found_off(void) {
   UINT intsts;
   DI(intsts);
-  EnableInt(SOME_SOURCE, 1);
-  DisableInt(SOME_SOURCE);
+  EnableInt(HOST_SOME_SOURCE, 1);
+  DisableInt(HOST_SOME_SOURCE);
   EnableInt(0, 1);
-  TEST_ASSERT_EQUAL(E_CTX, tk_def_int(SOME_SOURCE, &host_counting_hlng));
+  TEST_ASSERT_EQUAL(E_CTX, tk_def_int(HOST_SOME_SOURCE, &host_counting_hlng));
   TEST_ASSERT_FALSE(host_interrupts_enabled());
   EI(intsts);
   TEST_ASSERT_TRUE(host_interrupts_enabled());
@@ -248,9 +245,9 @@ static void defines(UINT intno, void (*handler)(UINT)) {
 }
 
 static void test_handler_runs_with_threshold_at_priority_of_its_source(void) {
-  defines(OUTER_SOURCE, threshold_probe);
-  EnableInt(OUTER_SOURCE, 3);
-  host_plic_raise(OUTER_SOURCE);
+  defines(HOST_OUTER_SOURCE, threshold_probe);
+  EnableInt(HOST_OUTER_SOURCE, 3);
+  host_plic_raise(HOST_OUTER_SOURCE);
   tkmc_external_interrupt();
   TEST_ASSERT_EQUAL_UINT(1, host_handler_calls);
   TEST_ASSERT_EQUAL_UINT_MESSAGE(3, s_threshold_seen,
@@ -262,7 +259,7 @@ static void test_handler_runs_with_threshold_at_priority_of_its_source(void) {
 static void nesting_handler(UINT intno) {
   (void)intno;
   s_threshold_seen = host_plic_threshold();
-  host_plic_raise(INNER_SOURCE);
+  host_plic_raise(HOST_INNER_SOURCE);
   tkmc_external_interrupt(); // The trap of a higher priority source.
   s_threshold_seen_after_nested = host_plic_threshold();
 }
@@ -273,11 +270,11 @@ static void inner_handler(UINT intno) {
 }
 
 static void test_nested_trap_raises_threshold_and_restores_outer_one(void) {
-  defines(OUTER_SOURCE, nesting_handler);
-  defines(INNER_SOURCE, inner_handler);
-  EnableInt(OUTER_SOURCE, 2);
-  EnableInt(INNER_SOURCE, 5);
-  host_plic_raise(OUTER_SOURCE);
+  defines(HOST_OUTER_SOURCE, nesting_handler);
+  defines(HOST_INNER_SOURCE, inner_handler);
+  EnableInt(HOST_OUTER_SOURCE, 2);
+  EnableInt(HOST_INNER_SOURCE, 5);
+  host_plic_raise(HOST_OUTER_SOURCE);
   tkmc_external_interrupt();
   TEST_ASSERT_EQUAL_UINT(2, s_threshold_seen);
   TEST_ASSERT_EQUAL_UINT_MESSAGE(5, s_inner_threshold_seen,
@@ -309,9 +306,9 @@ static void enabling_handler(UINT intno) {
 // (see kernel/intctl.c). It writes the value the threshold has: a 0 would let
 // every source into the handler that called it.
 static void test_enable_int_keeps_threshold_it_finds(void) {
-  defines(OUTER_SOURCE, enabling_handler);
-  EnableInt(OUTER_SOURCE, 4);
-  host_plic_raise(OUTER_SOURCE);
+  defines(HOST_OUTER_SOURCE, enabling_handler);
+  EnableInt(HOST_OUTER_SOURCE, 4);
+  host_plic_raise(HOST_OUTER_SOURCE);
   tkmc_external_interrupt();
   TEST_ASSERT_EQUAL_UINT_MESSAGE(4, s_threshold_seen,
                                  "EnableInt() changed the threshold");

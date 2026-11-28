@@ -19,7 +19,7 @@
 enum { WAIT_MS = 400 };
 #define WAIT_UNTIL(cond) TEST_WAIT_UNTIL(cond, WAIT_MS)
 
-// FormalASM task entry points record the startup ABI and then take one of the
+// TA_ASM task entry points record the startup ABI and then take one of the
 // three supported termination paths. The assembly leaves gp/tp untouched.
 extern void asm_task_return_entry(void);
 extern void asm_task_ext_entry(void);

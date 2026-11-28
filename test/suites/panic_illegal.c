@@ -11,13 +11,8 @@
 
 #include <tk/tkernel.h>
 
-#include "../panic_expect.h"
-#include "../runner.h"
-
-enum { ILLEGAL_INSTRUCTION = 2 };
-
-// All ones: no instruction has this encoding.
-#define ILLEGAL_WORD 0xffffffffu
+#include "panic_expect.h"
+#include "runner.h"
 
 static void panic_illegal_instruction_reports_cause_and_address(void) {
   panic_expect.mcause = ILLEGAL_INSTRUCTION;

@@ -10,7 +10,6 @@ set(CMAKE_SYSTEM_PROCESSOR riscv32)
 
 # Set Clang path (For Windows, adjust the path as appropriate)
 set(CMAKE_C_COMPILER clang)
-set(CMAKE_CXX_COMPILER clang++)
 set(CMAKE_ASM_COMPILER clang)
 
 # Explicitly set cross-compilation
@@ -25,7 +24,6 @@ set(RISCV_MABI "ilp32")
 set(RISCV_COMPILE_OPTIONS
     "-target ${TARGET_ARCH} -march=${RISCV_MARCH} -mabi=${RISCV_MABI} -mcmodel=medany"
 )
-set(CMAKE_CXX_FLAGS_INIT "${RISCV_COMPILE_OPTIONS}")
 set(CMAKE_C_FLAGS_INIT "${RISCV_COMPILE_OPTIONS}")
 set(CMAKE_ASM_FLAGS_INIT "${RISCV_COMPILE_OPTIONS}")
 

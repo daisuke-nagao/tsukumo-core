@@ -136,6 +136,8 @@ ClearInt in `kernel/intctl.c`, configure a separate host tree and run
 registration.
 
 Physical devices, three-level nesting and multi-hart or additional PLIC
-contexts require separate validation. The device cause remains under driver
-control, so the tests do not establish a permanent absence of pending requests
-while a device continues to assert its line.
+contexts require separate validation. Later, on 2026-11-18, the
+[deep nesting record](deep-interrupt-nesting-validation.md) validated chains
+of three to seven levels. The device cause remains under driver control, so
+the tests do not establish a permanent absence of pending requests while a
+device continues to assert its line.

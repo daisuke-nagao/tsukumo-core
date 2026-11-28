@@ -25,6 +25,11 @@ suites count instructions, for this note and the other measurement notes.
   handler that read `mtime` after each elapsed edge. The longest measured
   lateness is 200 ticks (2 s). The kernel does not bound how long interrupts
   stay disabled.
+- After the single-sample change, the largest call measured was 27270
+  instructions, in `debug` with `-icount shift=5`, ending 31 semaphore waits 31
+  ticks late (see [single-sample measurements](#single-sample-measurements)).
+  The per-edge cost in the original results has not been derived again since
+  that change.
 
 ## The budget
 

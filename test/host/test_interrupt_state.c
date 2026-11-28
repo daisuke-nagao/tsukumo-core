@@ -11,12 +11,9 @@
 // kernel on the same contract, and that an EI() that turns interrupts off does
 // not take the switch the fake machine takes when they come on.
 
-#include <setjmp.h>
-
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "asm/rv32/address.h"
 #include "fakes.h"
 
 typedef struct {
@@ -131,15 +128,8 @@ test_ei_turning_interrupts_off_keeps_switch_request_for_later(void) {
   EI(outer);
 
   host_set_current(host_make_task(HOST_HIGH_PRIORITY));
-  host_waited = 0;
-  if (setjmp(host_wait_jmp) == 0) {
-    host_arm_wait();
-    tk_slp_tsk(TMO_FEVR);
-  } else {
-    host_waited = 1;
-  }
-  host_wait_armed = 0;
-  const BOOL normal_wait_switched = host_waited;
+  BOOL normal_wait_switched;
+  HOST_TRY_WAIT(normal_wait_switched, tk_slp_tsk(TMO_FEVR));
   const BOOL normal_wait_enabled = host_interrupts_enabled();
   if (!normal_wait_switched || !normal_wait_enabled) {
     host_reset();

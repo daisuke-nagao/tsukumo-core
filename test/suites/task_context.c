@@ -7,14 +7,14 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../finish.h"
-#include "../putstring.h"
 #include "asm/rv32/address.h"
 #include "context.h"
 #include "dispatch.h"
 #include "event_flag.h"
+#include "finish.h"
 #include "mailbox.h"
 #include "panic.h"
+#include "putstring.h"
 #include "qemu_virt.h"
 #include "runner.h"
 #include "semaphore.h"
@@ -54,6 +54,21 @@ extern void asm_task_di_ret_entry(void);
 #endif
 
 enum { MSIP = CLINT_BASE_ADDRESS + CLINT_MSIP_OFFSET, SENTINEL = 0x12345678 };
+// The longest a case spins for an event that a trap or another task brings.
+enum { SPIN_MS = 2000 };
+enum {
+  // The child of the ISR case runs as soon as it starts.
+  CHILD_PRIORITY = 2,
+  // The task that the ISR probe creates and never starts.
+  PROBE_PRIORITY = 3,
+  // The TA_ASM task of the RET_ASM_TASK_DI run, which usermain starts; it
+  // ranks below the initial task, of priority 1, so it runs once usermain
+  // sleeps.
+  ASM_TASK_PRIORITY = 2,
+};
+_Static_assert(TEST_RUNNER_PRIORITY < CHILD_PRIORITY &&
+                   CHILD_PRIORITY < TEST_CASE_PRIORITY,
+               "the child must outrank the case and not the runner");
 static struct {
   TCB tasks[CFN_MAX_TSKID];
   tkmc_list_head ready[CFN_MAX_PRI], timer;
@@ -111,12 +126,6 @@ static BOOL unchanged(void) {
          snapshot.isr == tkmc_isr_depth && snapshot.msip == in_w(MSIP);
 }
 
-static BOOL irq_enabled(void) {
-  UINT status;
-  __asm__ volatile("csrr %0, mstatus" : "=r"(status)::"memory");
-  return (status & MSTATUS_MIE) != 0;
-}
-
 static void make_objects(void) {
   semid = tk_cre_sem(&(T_CSEM){.maxsem = 1, .isemcnt = 1});
   flgid = tk_cre_flg(&(T_CFLG){.flgatr = TA_WSGL, .iflgptn = 1});
@@ -171,7 +180,7 @@ static void probe_waits(void) {
           result = tk_rcv_mbx(mbxid, &received, limits[limit]);
           break;
         }
-        if (result != E_CTX || irq_enabled() != (BOOL)irq ||
+        if (result != E_CTX || test_irq_enabled() != (BOOL)irq ||
             pattern != SENTINEL || received != &sentinel || !unchanged()) {
           fail("wait refusal changed state, output or interrupt status");
         }
@@ -189,7 +198,7 @@ static void never_run(INT stacd, void *exinf) {
 }
 
 static void check_isr_call(ER result, BOOL returns_id, const char *reason) {
-  if ((returns_id ? result <= E_OK : result != E_OK) || irq_enabled()) {
+  if ((returns_id ? result <= E_OK : result != E_OK) || test_irq_enabled()) {
     fail(reason);
   }
 }
@@ -198,7 +207,7 @@ static void probe_compatible_calls(void) {
   static UW probe_stack[256] __attribute__((aligned(16)));
   probe_task = tk_cre_tsk(&(T_CTSK){.tskatr = TA_HLNG | TA_USERBUF,
                                     .task = (FP)never_run,
-                                    .itskpri = 3,
+                                    .itskpri = PROBE_PRIORITY,
                                     .stksz = sizeof(probe_stack),
                                     .bufptr = probe_stack});
   check_isr_call(probe_task, TRUE, "tk_cre_tsk failed or changed IRQ state");
@@ -250,7 +259,7 @@ __attribute__((__noreturn__)) void tkmc_context_panic(tkmc_context_api api) {
                                     ? TKMC_CONTEXT_EXT_TSK
                                     : TKMC_CONTEXT_RET_INT;
     if (api != expected || tkmc_last_context_failure.api != expected ||
-        tkmc_last_context_failure.error != E_CTX || irq_enabled() ||
+        tkmc_last_context_failure.error != E_CTX || test_irq_enabled() ||
         !unchanged()) {
       fail("invalid return context failure or state mismatch");
     }
@@ -261,7 +270,7 @@ __attribute__((__noreturn__)) void tkmc_context_panic(tkmc_context_api api) {
       CONTEXT_TEST_MODE % 2 ? TKMC_CONTEXT_EXD_TSK : TKMC_CONTEXT_EXT_TSK;
   if (CONTEXT_TEST_MODE < DI_EXT || api != expected ||
       tkmc_last_context_failure.api != expected ||
-      tkmc_last_context_failure.error != E_CTX || irq_enabled() ||
+      tkmc_last_context_failure.error != E_CTX || test_irq_enabled() ||
       !unchanged()) {
     fail("wrong context failure or task state changed before stop");
   }
@@ -367,13 +376,14 @@ static void isr_context_compatible_calls_work_in_real_isr_then_dispatch(void) {
   make_objects();
   gate = tk_cre_sem(&(T_CSEM){.maxsem = 1});
   TEST_ASSERT_GREATER_THAN(0, gate);
-  test_spawn(child, 2, NULL);
+  test_spawn(child, CHILD_PRIORITY, NULL);
   current->wupcnt = 1;
   expected_current = current;
   UINT before = dispatches;
   armed = TRUE;
   UW started = test_mtime();
-  while (!observed && (UW)(test_mtime() - started) < 2000 * TEST_MTIME_PER_MS) {
+  while (!observed &&
+         (UW)(test_mtime() - started) < SPIN_MS * TEST_MTIME_PER_MS) {
   }
   ER deleted = tk_del_sem(gate);
   test_join_expect(1);
@@ -413,7 +423,7 @@ static void isr_context_compatible_calls_work_in_real_isr_then_dispatch(void) {
   BOOL quiet_return = FALSE;
   started = test_mtime();
   while (!quiet_return &&
-         (UW)(test_mtime() - started) < 2000 * TEST_MTIME_PER_MS) {
+         (UW)(test_mtime() - started) < SPIN_MS * TEST_MTIME_PER_MS) {
     if (quiet_seen) {
       UINT saved;
       DI(saved);
@@ -469,7 +479,7 @@ void usermain(int argument) {
     static _Alignas(16) UW stack[128];
     ID id = tk_cre_tsk(&(T_CTSK){.tskatr = TA_ASM | TA_USERBUF,
                                  .task = (FP)asm_task_di_ret_entry,
-                                 .itskpri = 2,
+                                 .itskpri = ASM_TASK_PRIORITY,
                                  .stksz = sizeof(stack),
                                  .bufptr = stack});
     if (id <= 0 || tk_sta_tsk(id, 0) != E_OK) {
@@ -487,7 +497,7 @@ void usermain(int argument) {
     EnableInt(UART_IRQ, PLIC_MAX_PRIORITY);
     out_b(UART_IER, IER_THRE);
     UW start = test_mtime();
-    while ((UW)(test_mtime() - start) < 2000 * TEST_MTIME_PER_MS) {
+    while ((UW)(test_mtime() - start) < SPIN_MS * TEST_MTIME_PER_MS) {
     }
     fail("UART context handler did not run");
   }
@@ -504,7 +514,7 @@ void usermain(int argument) {
   expected_current = current;
   armed = TRUE;
   UW started = test_mtime();
-  while ((UW)(test_mtime() - started) < 2000 * TEST_MTIME_PER_MS) {
+  while ((UW)(test_mtime() - started) < SPIN_MS * TEST_MTIME_PER_MS) {
   }
   fail("ISR termination did not stop");
 }

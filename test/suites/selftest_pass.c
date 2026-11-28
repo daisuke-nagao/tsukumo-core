@@ -13,7 +13,13 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../runner.h"
+#include "runner.h"
+
+// The children run as soon as they start: above the case, below the runner.
+enum { CHILD_PRIORITY = 2 };
+_Static_assert(TEST_RUNNER_PRIORITY < CHILD_PRIORITY &&
+                   CHILD_PRIORITY < TEST_CASE_PRIORITY,
+               "a child must outrank the case and not the runner");
 
 typedef struct {
   TMO delay_ms;
@@ -33,7 +39,7 @@ static job_t g_short_first = {50, 0};
 static job_t g_long_second = {150, 0};
 
 static void join_waits_for_child(void) {
-  test_spawn(finish_after_delay, 2, &g_single);
+  test_spawn(finish_after_delay, CHILD_PRIORITY, &g_single);
   test_join();
   TEST_ASSERT_EQUAL(1, g_single.done);
 }
@@ -41,8 +47,8 @@ static void join_waits_for_child(void) {
 // The child that ends last is spawned first: a runner that tracks only the
 // last child would stop waiting too early.
 static void join_long_child_first(void) {
-  test_spawn(finish_after_delay, 2, &g_long_first);
-  test_spawn(finish_after_delay, 2, &g_short_second);
+  test_spawn(finish_after_delay, CHILD_PRIORITY, &g_long_first);
+  test_spawn(finish_after_delay, CHILD_PRIORITY, &g_short_second);
   test_join();
   TEST_ASSERT_EQUAL(1, g_long_first.done);
   TEST_ASSERT_EQUAL(1, g_short_second.done);
@@ -51,8 +57,8 @@ static void join_long_child_first(void) {
 // The child that ends last is spawned last: a runner that skips the last child
 // would stop waiting too early.
 static void join_long_child_last(void) {
-  test_spawn(finish_after_delay, 2, &g_short_first);
-  test_spawn(finish_after_delay, 2, &g_long_second);
+  test_spawn(finish_after_delay, CHILD_PRIORITY, &g_short_first);
+  test_spawn(finish_after_delay, CHILD_PRIORITY, &g_long_second);
   test_join();
   TEST_ASSERT_EQUAL(1, g_short_first.done);
   TEST_ASSERT_EQUAL(1, g_long_second.done);
@@ -71,7 +77,7 @@ static void checkpoint_child(void *arg) {
 
 static void the_most_children(void) {
   for (UINT i = 0; i < MOST_CHILDREN; ++i) {
-    test_spawn(checkpoint_child, 2, 0);
+    test_spawn(checkpoint_child, CHILD_PRIORITY, 0);
   }
   test_join_expect(MOST_CHILDREN);
 }

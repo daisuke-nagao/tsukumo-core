@@ -9,18 +9,13 @@
 // sources, the PLIC configuration or a claim a handler holds.
 
 #include <stdio.h>
-#include <string.h>
 
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "asm/rv32/address.h"
 #include "context.h"
 #include "fakes.h"
 #include "intctl.h"
-
-enum { SOME_SOURCE = 10 };
-enum { OUTER_SOURCE = 10, INNER_SOURCE = 11 };
 
 // The value of the last read of the claim register in the access log.
 static UD last_claim_read(void) {
@@ -51,9 +46,9 @@ static UD last_claim_read(void) {
 static void check_threshold_sequence(UINT target, UW priority,
                                      UW restored_threshold, const char *label) {
   enum { ENABLE_WORDS = (PLIC_SOURCE_COUNT + 31) / 32 };
-  const INT enable_first = PLIC_BASE_ADDRESS + PLIC_ENABLE_OFFSET;
-  const INT enable_last = enable_first + 4 * ((PLIC_SOURCE_COUNT - 1) / 32);
-  const INT threshold_port = PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET;
+  const INT enable_first = HOST_PLIC_ENABLE_FIRST;
+  const INT enable_last = HOST_PLIC_ENABLE_LAST;
+  const INT threshold_port = HOST_PLIC_THRESHOLD;
   INT threshold_writes[2] = {-1, -1};
   INT claim_read = -1;
   INT claim_write = -1;
@@ -137,8 +132,8 @@ static void check_threshold_sequence(UINT target, UW priority,
 #undef SEQUENCE_RULE
 
 static BOOL plic_pending_was_written(void) {
-  const INT first = PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET;
-  const INT last = first + 4 * ((PLIC_SOURCE_COUNT - 1) / 32);
+  const INT first = HOST_PLIC_PENDING_FIRST;
+  const INT last = HOST_PLIC_PENDING_LAST;
   for (UINT i = 0; i < host_log_count; ++i) {
     if (host_log[i].is_write && host_log[i].port >= first &&
         host_log[i].port <= last) {
@@ -167,9 +162,22 @@ test_clear_int_refuses_invalid_numbers_without_mmio_and_keeps_mie(void) {
   }
 }
 
+// One ClearInt() configuration of HOST_SOME_SOURCE: whether it has a handler,
+// whether it is enabled, its priority, the threshold, and whether MIE is on.
+typedef struct {
+  BOOL registered;
+  BOOL enabled;
+  UW priority;
+  UW threshold;
+  BOOL mie;
+  char label[80];
+} clear_int_config_t;
+
+// Calls check once for every configuration, each on a fresh kernel with the
+// handler already defined when the configuration has one, and names the
+// configuration in label.
 static void
-test_clear_int_without_pending_never_completes_and_restores_configuration(
-    void) {
+for_each_clear_int_config(void (*check)(const clear_int_config_t *)) {
   static const UW priorities[] = {0, 1, 7};
   static const UW thresholds[] = {0, 7};
   for (UINT registered = 0; registered < 2; ++registered) {
@@ -177,53 +185,22 @@ test_clear_int_without_pending_never_completes_and_restores_configuration(
       for (UINT p = 0; p < HOST_COUNT(priorities); ++p) {
         for (UINT t = 0; t < HOST_COUNT(thresholds); ++t) {
           for (UINT mie = 0; mie < 2; ++mie) {
-            host_reset();
-            if (registered != 0) {
-              TEST_ASSERT_EQUAL(E_OK,
-                                tk_def_int(SOME_SOURCE, &host_counting_hlng));
-            }
-            host_plic_set_enabled(SOME_SOURCE, enabled != 0);
-            host_plic_set_priority(SOME_SOURCE, priorities[p]);
-            host_plic_set_threshold(thresholds[t]);
-            char label[80];
-            snprintf(label, sizeof(label),
+            clear_int_config_t c = {.registered = registered != 0,
+                                    .enabled = enabled != 0,
+                                    .priority = priorities[p],
+                                    .threshold = thresholds[t],
+                                    .mie = mie != 0};
+            snprintf(c.label, sizeof(c.label),
                      "registered %u, enabled %u, priority %u, threshold %u, "
                      "MIE %u",
                      registered, enabled, (unsigned)priorities[p],
                      (unsigned)thresholds[t], mie);
-            UINT saved = 0;
-            if (mie != 0) {
-              EI(0);
-            } else {
-              DI(saved);
+            host_reset();
+            if (c.registered) {
+              TEST_ASSERT_EQUAL(
+                  E_OK, tk_def_int(HOST_SOME_SOURCE, &host_counting_hlng));
             }
-
-            // Twice: a second ClearInt() finds nothing either.
-            for (UINT call = 0; call < 2; ++call) {
-              host_log_count = 0;
-              ClearInt(SOME_SOURCE);
-              TEST_ASSERT_EQUAL_UINT_MESSAGE(
-                  1, host_access_count(host_plic_claim_port(), FALSE), label);
-              TEST_ASSERT_EQUAL_UINT_MESSAGE(
-                  0, host_access_count(host_plic_claim_port(), TRUE), label);
-              TEST_ASSERT_EQUAL_UINT_MESSAGE(0, last_claim_read(), label);
-              TEST_ASSERT_FALSE_MESSAGE(plic_pending_was_written(), label);
-              TEST_ASSERT_EQUAL_MESSAGE(mie != 0, host_interrupts_enabled(),
-                                        label);
-            }
-            TEST_ASSERT_EQUAL_MESSAGE(enabled != 0,
-                                      host_plic_is_enabled(SOME_SOURCE), label);
-            TEST_ASSERT_EQUAL_UINT_MESSAGE(
-                priorities[p], in_w(host_plic_priority_port(SOME_SOURCE)),
-                label);
-            TEST_ASSERT_EQUAL_UINT_MESSAGE(thresholds[t], host_plic_threshold(),
-                                           label);
-            TEST_ASSERT_FALSE_MESSAGE(CheckInt(SOME_SOURCE), label);
-            TEST_ASSERT_EQUAL_MESSAGE(mie != 0, host_interrupts_enabled(),
-                                      label);
-            TEST_ASSERT_EQUAL_UINT_MESSAGE(0, host_plic_ignored_completions(),
-                                           label);
-            EI(saved);
+            check(&c);
           }
         }
       }
@@ -231,108 +208,121 @@ test_clear_int_without_pending_never_completes_and_restores_configuration(
   }
 }
 
+static void check_clear_int_without_pending(const clear_int_config_t *c) {
+  host_plic_set_enabled(HOST_SOME_SOURCE, c->enabled != 0);
+  host_plic_set_priority(HOST_SOME_SOURCE, c->priority);
+  host_plic_set_threshold(c->threshold);
+  UINT saved = 0;
+  if (c->mie != 0) {
+    EI(0);
+  } else {
+    DI(saved);
+  }
+
+  // Twice: a second ClearInt() finds nothing either.
+  for (UINT call = 0; call < 2; ++call) {
+    host_log_count = 0;
+    ClearInt(HOST_SOME_SOURCE);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        1, host_access_count(host_plic_claim_port(), FALSE), c->label);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        0, host_access_count(host_plic_claim_port(), TRUE), c->label);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(0, last_claim_read(), c->label);
+    TEST_ASSERT_FALSE_MESSAGE(plic_pending_was_written(), c->label);
+    TEST_ASSERT_EQUAL_MESSAGE(c->mie != 0, host_interrupts_enabled(), c->label);
+  }
+  TEST_ASSERT_EQUAL_MESSAGE(c->enabled != 0,
+                            host_plic_is_enabled(HOST_SOME_SOURCE), c->label);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      c->priority, in_w(host_plic_priority_port(HOST_SOME_SOURCE)), c->label);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(c->threshold, host_plic_threshold(), c->label);
+  TEST_ASSERT_FALSE_MESSAGE(CheckInt(HOST_SOME_SOURCE), c->label);
+  TEST_ASSERT_EQUAL_MESSAGE(c->mie != 0, host_interrupts_enabled(), c->label);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0, host_plic_ignored_completions(), c->label);
+  EI(saved);
+}
+
+static void
+test_clear_int_without_pending_never_completes_and_restores_configuration(
+    void) {
+  for_each_clear_int_config(check_clear_int_without_pending);
+}
+
+static void check_clear_int_with_pending(const clear_int_config_t *c) {
+  const UINT smaller = 1, other_word = 40, last_word = 70;
+  UW priority_before[PLIC_SOURCE_COUNT] = {0};
+  BOOL enabled_before[PLIC_SOURCE_COUNT] = {0};
+  host_plic_set_enabled(HOST_SOME_SOURCE, c->enabled != 0);
+  host_plic_set_priority(HOST_SOME_SOURCE, c->priority);
+  host_plic_set_enabled(smaller, TRUE);
+  host_plic_set_priority(smaller, 7);
+  host_plic_set_enabled(other_word, TRUE);
+  host_plic_set_priority(other_word, 1);
+  host_plic_set_enabled(last_word, TRUE);
+  host_plic_set_priority(last_word, 7);
+  host_plic_set_threshold(c->threshold);
+  host_plic_raise(HOST_SOME_SOURCE);
+  host_plic_raise(smaller);
+  host_plic_raise(other_word);
+  host_plic_raise(last_word);
+  for (UINT src = 1; src < PLIC_SOURCE_COUNT; ++src) {
+    enabled_before[src] = host_plic_is_enabled(src);
+    priority_before[src] = in_w(host_plic_priority_port(src));
+  }
+
+  UINT saved = 0;
+  if (c->mie != 0) {
+    EI(0);
+  } else {
+    DI(saved);
+  }
+  host_log_count = 0;
+  host_snapshot_t before;
+  host_take_snapshot(&before);
+  ClearInt(HOST_SOME_SOURCE);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      1, host_access_count(host_plic_claim_port(), FALSE), c->label);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      1, host_access_count(host_plic_claim_port(), TRUE), c->label);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      HOST_SOME_SOURCE, host_last_write(host_plic_claim_port()), c->label);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0, host_plic_ignored_completions(), c->label);
+  TEST_ASSERT_FALSE_MESSAGE(plic_pending_was_written(), c->label);
+  const INT threshold_port = HOST_PLIC_THRESHOLD;
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(2, host_access_count(threshold_port, TRUE),
+                                 c->label);
+  check_threshold_sequence(HOST_SOME_SOURCE, c->priority, c->threshold,
+                           c->label);
+  TEST_ASSERT_EQUAL_MESSAGE(c->mie != 0, host_interrupts_enabled(), c->label);
+  TEST_ASSERT_FALSE_MESSAGE(host_plic_pending(HOST_SOME_SOURCE), c->label);
+  TEST_ASSERT_TRUE_MESSAGE(host_plic_pending(smaller), c->label);
+  TEST_ASSERT_TRUE_MESSAGE(host_plic_pending(other_word), c->label);
+  TEST_ASSERT_TRUE_MESSAGE(host_plic_pending(last_word), c->label);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(c->threshold, host_plic_threshold(), c->label);
+  for (UINT src = 1; src < PLIC_SOURCE_COUNT; ++src) {
+    TEST_ASSERT_EQUAL_MESSAGE(enabled_before[src], host_plic_is_enabled(src),
+                              c->label);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        priority_before[src], in_w(host_plic_priority_port(src)), c->label);
+  }
+  const UINT claim_order[] = {smaller, last_word, other_word};
+  for (UINT i = 0; i < HOST_COUNT(claim_order); ++i) {
+    UINT claimed = in_w(host_plic_claim_port());
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(claim_order[i], claimed, c->label);
+    out_w(host_plic_claim_port(), claimed);
+  }
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0, in_w(host_plic_claim_port()), c->label);
+  TEST_ASSERT_FALSE_MESSAGE(host_plic_pending(smaller), c->label);
+  TEST_ASSERT_FALSE_MESSAGE(host_plic_pending(other_word), c->label);
+  TEST_ASSERT_FALSE_MESSAGE(host_plic_pending(last_word), c->label);
+  TEST_ASSERT_EQUAL_MESSAGE(c->mie != 0, host_interrupts_enabled(), c->label);
+  host_assert_unchanged(&before, "ClearInt changed queues or dispatch");
+  EI(saved);
+}
+
 static void
 test_clear_int_claims_only_its_pending_source_and_preserves_all_words(void) {
-  static const UW priorities[] = {0, 1, 7};
-  static const UW thresholds[] = {0, 7};
-  for (UINT registered = 0; registered < 2; ++registered) {
-    for (UINT enabled = 0; enabled < 2; ++enabled) {
-      for (UINT p = 0; p < HOST_COUNT(priorities); ++p) {
-        for (UINT t = 0; t < HOST_COUNT(thresholds); ++t) {
-          for (UINT mie = 0; mie < 2; ++mie) {
-            host_reset();
-            if (registered != 0) {
-              TEST_ASSERT_EQUAL(E_OK,
-                                tk_def_int(SOME_SOURCE, &host_counting_hlng));
-            }
-            const UINT smaller = 1, other_word = 40, last_word = 70;
-            UW priority_before[PLIC_SOURCE_COUNT] = {0};
-            BOOL enabled_before[PLIC_SOURCE_COUNT] = {0};
-            host_plic_set_enabled(SOME_SOURCE, enabled != 0);
-            host_plic_set_priority(SOME_SOURCE, priorities[p]);
-            host_plic_set_enabled(smaller, TRUE);
-            host_plic_set_priority(smaller, 7);
-            host_plic_set_enabled(other_word, TRUE);
-            host_plic_set_priority(other_word, 1);
-            host_plic_set_enabled(last_word, TRUE);
-            host_plic_set_priority(last_word, 7);
-            host_plic_set_threshold(thresholds[t]);
-            host_plic_raise(SOME_SOURCE);
-            host_plic_raise(smaller);
-            host_plic_raise(other_word);
-            host_plic_raise(last_word);
-            for (UINT src = 1; src < PLIC_SOURCE_COUNT; ++src) {
-              enabled_before[src] = host_plic_is_enabled(src);
-              priority_before[src] = in_w(host_plic_priority_port(src));
-            }
-
-            char label[80];
-            snprintf(label, sizeof(label),
-                     "registered %u, enabled %u, priority %u, threshold %u, "
-                     "MIE %u",
-                     registered, enabled, (unsigned)priorities[p],
-                     (unsigned)thresholds[t], mie);
-            UINT saved = 0;
-            if (mie != 0) {
-              EI(0);
-            } else {
-              DI(saved);
-            }
-            host_log_count = 0;
-            host_snapshot_t before;
-            host_take_snapshot(&before);
-            ClearInt(SOME_SOURCE);
-            TEST_ASSERT_EQUAL_UINT_MESSAGE(
-                1, host_access_count(host_plic_claim_port(), FALSE), label);
-            TEST_ASSERT_EQUAL_UINT_MESSAGE(
-                1, host_access_count(host_plic_claim_port(), TRUE), label);
-            TEST_ASSERT_EQUAL_UINT_MESSAGE(
-                SOME_SOURCE, host_last_write(host_plic_claim_port()), label);
-            TEST_ASSERT_EQUAL_UINT_MESSAGE(0, host_plic_ignored_completions(),
-                                           label);
-            TEST_ASSERT_FALSE_MESSAGE(plic_pending_was_written(), label);
-            const INT threshold_port =
-                PLIC_BASE_ADDRESS + PLIC_THRESHOLD_OFFSET;
-            TEST_ASSERT_EQUAL_UINT_MESSAGE(
-                2, host_access_count(threshold_port, TRUE), label);
-            check_threshold_sequence(SOME_SOURCE, priorities[p], thresholds[t],
-                                     label);
-            TEST_ASSERT_EQUAL_MESSAGE(mie != 0, host_interrupts_enabled(),
-                                      label);
-            TEST_ASSERT_FALSE_MESSAGE(host_plic_pending(SOME_SOURCE), label);
-            TEST_ASSERT_TRUE_MESSAGE(host_plic_pending(smaller), label);
-            TEST_ASSERT_TRUE_MESSAGE(host_plic_pending(other_word), label);
-            TEST_ASSERT_TRUE_MESSAGE(host_plic_pending(last_word), label);
-            TEST_ASSERT_EQUAL_UINT_MESSAGE(thresholds[t], host_plic_threshold(),
-                                           label);
-            for (UINT src = 1; src < PLIC_SOURCE_COUNT; ++src) {
-              TEST_ASSERT_EQUAL_MESSAGE(enabled_before[src],
-                                        host_plic_is_enabled(src), label);
-              TEST_ASSERT_EQUAL_UINT_MESSAGE(priority_before[src],
-                                             in_w(host_plic_priority_port(src)),
-                                             label);
-            }
-            const UINT claim_order[] = {smaller, last_word, other_word};
-            for (UINT i = 0; i < HOST_COUNT(claim_order); ++i) {
-              UINT claimed = in_w(host_plic_claim_port());
-              TEST_ASSERT_EQUAL_UINT_MESSAGE(claim_order[i], claimed, label);
-              out_w(host_plic_claim_port(), claimed);
-            }
-            TEST_ASSERT_EQUAL_UINT_MESSAGE(0, in_w(host_plic_claim_port()),
-                                           label);
-            TEST_ASSERT_FALSE_MESSAGE(host_plic_pending(smaller), label);
-            TEST_ASSERT_FALSE_MESSAGE(host_plic_pending(other_word), label);
-            TEST_ASSERT_FALSE_MESSAGE(host_plic_pending(last_word), label);
-            TEST_ASSERT_EQUAL_MESSAGE(mie != 0, host_interrupts_enabled(),
-                                      label);
-            host_assert_unchanged(&before,
-                                  "ClearInt changed queues or dispatch");
-            EI(saved);
-          }
-        }
-      }
-    }
-  }
+  for_each_clear_int_config(check_clear_int_with_pending);
 }
 
 static void
@@ -344,19 +334,19 @@ test_clear_int_in_nested_handler_preserves_outer_claim_and_record(void) {
                             .inthdr = (FP)host_counting_handler};
   ID task = host_make_task(1);
   host_set_current(task);
-  TEST_ASSERT_EQUAL(E_OK, tk_def_int(OUTER_SOURCE, &assembler));
-  TEST_ASSERT_EQUAL(E_OK, tk_def_int(INNER_SOURCE, &assembler));
-  EnableInt(OUTER_SOURCE, 2);
-  EnableInt(INNER_SOURCE, 5);
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(HOST_OUTER_SOURCE, &assembler));
+  TEST_ASSERT_EQUAL(E_OK, tk_def_int(HOST_INNER_SOURCE, &assembler));
+  EnableInt(HOST_OUTER_SOURCE, 2);
+  EnableInt(HOST_INNER_SOURCE, 5);
   host_plic_set_threshold(1);
   UINT saved;
   DI(saved);
 
   tkmc_isr_depth = 1;
-  host_plic_raise(OUTER_SOURCE);
+  host_plic_raise(HOST_OUTER_SOURCE);
   tkmc_prepare_external_interrupt(&outer, outer_frame);
   tkmc_isr_depth = 2;
-  host_plic_raise(INNER_SOURCE);
+  host_plic_raise(HOST_INNER_SOURCE);
   tkmc_prepare_external_interrupt(&inner, inner_frame);
   tkmc_interrupt_context outer_before = outer;
   tkmc_interrupt_context inner_before = inner;
@@ -366,7 +356,7 @@ test_clear_int_in_nested_handler_preserves_outer_claim_and_record(void) {
 
   // ClearInt() of the source the outer handler is serving finds its claim
   // outstanding and leaves both records alone.
-  ClearInt(OUTER_SOURCE);
+  ClearInt(HOST_OUTER_SOURCE);
   TEST_ASSERT_EQUAL_UINT(1, host_access_count(host_plic_claim_port(), FALSE));
   TEST_ASSERT_EQUAL_UINT(0, host_access_count(host_plic_claim_port(), TRUE));
   TEST_ASSERT_EQUAL_MEMORY(&outer_before, &outer, sizeof(outer));
@@ -374,29 +364,30 @@ test_clear_int_in_nested_handler_preserves_outer_claim_and_record(void) {
   TEST_ASSERT_EQUAL_PTR(&inner, tkmc_active_interrupt_context);
   TEST_ASSERT_EQUAL_UINT(2, tkmc_isr_depth);
   TEST_ASSERT_EQUAL_UINT(5, host_plic_threshold());
-  host_plic_raise(OUTER_SOURCE);
-  TEST_ASSERT_FALSE_MESSAGE(CheckInt(OUTER_SOURCE),
+  host_plic_raise(HOST_OUTER_SOURCE);
+  TEST_ASSERT_FALSE_MESSAGE(CheckInt(HOST_OUTER_SOURCE),
                             "the gateway let a claimed source be raised");
-  EndOfInt(OUTER_SOURCE);
+  EndOfInt(HOST_OUTER_SOURCE);
   TEST_ASSERT_EQUAL_UINT(1, host_access_count(host_plic_claim_port(), TRUE));
   TEST_ASSERT_TRUE((outer.kind & TKMC_INTERRUPT_COMPLETED) != 0);
   TEST_ASSERT_TRUE((inner.kind & TKMC_INTERRUPT_COMPLETED) == 0);
 
   // After EndOfInt() a new request of the source is pending, and ClearInt()
   // claims and completes it, still leaving the nested records alone.
-  host_plic_raise(OUTER_SOURCE);
-  TEST_ASSERT_TRUE(CheckInt(OUTER_SOURCE));
+  host_plic_raise(HOST_OUTER_SOURCE);
+  TEST_ASSERT_TRUE(CheckInt(HOST_OUTER_SOURCE));
   // The log is cleared below; the first ClearInt() and EndOfInt() must have
   // asked for no task switch.
   TEST_ASSERT_EQUAL_UINT(0, host_write_count(HOST_MSIP));
   outer_before = outer;
   inner_before = inner;
   host_log_count = 0;
-  ClearInt(OUTER_SOURCE);
+  ClearInt(HOST_OUTER_SOURCE);
   TEST_ASSERT_EQUAL_UINT(1, host_access_count(host_plic_claim_port(), FALSE));
   TEST_ASSERT_EQUAL_UINT(1, host_access_count(host_plic_claim_port(), TRUE));
-  TEST_ASSERT_EQUAL_UINT(OUTER_SOURCE, host_last_write(host_plic_claim_port()));
-  TEST_ASSERT_FALSE(CheckInt(OUTER_SOURCE));
+  TEST_ASSERT_EQUAL_UINT(HOST_OUTER_SOURCE,
+                         host_last_write(host_plic_claim_port()));
+  TEST_ASSERT_FALSE(CheckInt(HOST_OUTER_SOURCE));
   TEST_ASSERT_EQUAL_MEMORY(&outer_before, &outer, sizeof(outer));
   TEST_ASSERT_EQUAL_MEMORY(&inner_before, &inner, sizeof(inner));
   TEST_ASSERT_EQUAL_PTR(&inner, tkmc_active_interrupt_context);
@@ -404,10 +395,10 @@ test_clear_int_in_nested_handler_preserves_outer_claim_and_record(void) {
   TEST_ASSERT_EQUAL_UINT(2, tkmc_isr_depth);
   TEST_ASSERT_EQUAL_UINT(5, host_plic_threshold());
   TEST_ASSERT_FALSE(host_interrupts_enabled());
-  TEST_ASSERT_TRUE(host_plic_is_enabled(OUTER_SOURCE));
-  TEST_ASSERT_TRUE(host_plic_is_enabled(INNER_SOURCE));
-  TEST_ASSERT_EQUAL_UINT(2, in_w(host_plic_priority_port(OUTER_SOURCE)));
-  TEST_ASSERT_EQUAL_UINT(5, in_w(host_plic_priority_port(INNER_SOURCE)));
+  TEST_ASSERT_TRUE(host_plic_is_enabled(HOST_OUTER_SOURCE));
+  TEST_ASSERT_TRUE(host_plic_is_enabled(HOST_INNER_SOURCE));
+  TEST_ASSERT_EQUAL_UINT(2, in_w(host_plic_priority_port(HOST_OUTER_SOURCE)));
+  TEST_ASSERT_EQUAL_UINT(5, in_w(host_plic_priority_port(HOST_INNER_SOURCE)));
   TEST_ASSERT_FALSE(plic_pending_was_written());
   TEST_ASSERT_EQUAL_UINT(0, host_plic_ignored_completions());
 
@@ -438,8 +429,7 @@ static void test_check_int_reads_one_pending_word_without_claiming(void) {
   enum { NO_CURRENT, TASK_CONTEXT, ISR_CONTEXT, CONTEXTS };
   static const char *const context_name[CONTEXTS] = {"no current task", "task",
                                                      "ISR"};
-  const INT pending_port =
-      PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET + 4 * (31 / 32);
+  const INT pending_port = HOST_PLIC_PENDING_FIRST + 4 * (31 / 32);
   ID task = host_make_task(1);
 
   host_plic_set_enabled(31, FALSE);
@@ -456,7 +446,7 @@ static void test_check_int_reads_one_pending_word_without_claiming(void) {
   // Source 1 is the first valid number and can be pending without source 31.
   host_log_count = 0;
   TEST_ASSERT_TRUE(CheckInt(1));
-  check_one_read_of(PLIC_BASE_ADDRESS + PLIC_PENDING_OFFSET, "source 1");
+  check_one_read_of(HOST_PLIC_PENDING_FIRST, "source 1");
   host_log_count = 0;
   TEST_ASSERT_FALSE(CheckInt(31));
   check_one_read_of(pending_port, "source 31 not raised");

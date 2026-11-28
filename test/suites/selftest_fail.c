@@ -11,7 +11,7 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../runner.h"
+#include "runner.h"
 
 static volatile int g_after_fail;
 

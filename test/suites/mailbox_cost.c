@@ -30,8 +30,8 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "../cost.h"
-#include "../runner.h"
+#include "cost.h"
+#include "runner.h"
 
 enum {
   QUEUED = 256,
@@ -54,12 +54,6 @@ enum {
 
 // QUEUED messages, and one that the measured send takes.
 static T_MSG_PRI s_messages[QUEUED + 1];
-
-static ID create_mailbox(ATR attributes) {
-  ID mbxid = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = attributes});
-  TEST_ASSERT_GREATER_THAN(E_OK, mbxid);
-  return mbxid;
-}
 
 // Queues `count` messages: the first `high` of QUEUED_PRIORITY, the others of
 // BEHIND_PRIORITY. Each goes behind or at the end of the queue, so none scans.
@@ -98,7 +92,7 @@ static void start_on_a_tick_edge(void) {
 
 // The instructions of tk_del_mbx() on a mailbox with `queued` messages.
 static UW instructions_to_delete(UINT queued) {
-  ID mbxid = create_mailbox(TA_TFIFO | TA_MPRI);
+  ID mbxid = test_create_mailbox(TA_TFIFO | TA_MPRI);
   queue_messages(mbxid, queued, queued);
 
   start_on_a_tick_edge();
@@ -115,7 +109,7 @@ static UW instructions_to_delete(UINT queued) {
 // BEHIND_PRIORITY. The message must end up `expected_index`th in the queue.
 static UW instructions_to_send(UINT queued, UINT high, PRI priority,
                                UINT expected_index) {
-  ID mbxid = create_mailbox(TA_TFIFO | TA_MPRI);
+  ID mbxid = test_create_mailbox(TA_TFIFO | TA_MPRI);
   queue_messages(mbxid, queued, high);
   T_MSG_PRI *probe = &s_messages[QUEUED];
   probe->msgpri = priority;

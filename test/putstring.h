@@ -9,10 +9,9 @@
 #include <tk/tkernel.h>
 
 #include "finish.h"
+#include "qemu_virt.h"
 
-static const INT UART0_BASE = (INT)0x10000000;
-
-static inline void tkmc_putchar(INT c) { out_w(UART0_BASE, c); }
+static inline void tkmc_putchar(INT c) { out_w(UART_BASE, c); }
 
 static inline void putstring(const char *str) {
   while (*str != '\0') {

@@ -22,6 +22,8 @@ call-by-call review against it, see the
 | Weak hook | A function that the kernel defines with the `weak` attribute. A board replaces it by defining a function of the same name; the linker then uses the board's version. |
 | `wfi` | The RISC-V "wait for interrupt" instruction. The default hooks stop the system in a loop of `wfi`. |
 | `tkmc_` prefix | Marks a name that belongs to this kernel's own interface and is not part of the μT-Kernel API. |
+| PLIC | The platform-level interrupt controller of the QEMU `virt` machine, which delivers external interrupts. The level of `EnableInt` is a PLIC priority, 1 to 7. |
+| TCB | Task control block, the kernel's record of one task. `tk_exd_tsk` returns the TCB to a free list, and `tk_cre_tsk` reuses it. |
 
 The ISR state does not depend on `MIE`. A handler that turns interrupts on with
 `EI()` is still in the ISR state, and a task that calls `DI()` is still a task.
@@ -73,6 +75,15 @@ numeric address sum of the buffer start and `stksz` must not wrap the address
 space and must be 16-byte aligned. Only the end has this alignment requirement.
 After validating the attributes, `tk_cre_tsk` returns `E_PAR` for a NULL buffer,
 a size of 128 bytes or less, a wrapping sum, or a misaligned end.
+
+These are the only checks on the buffer. `tk_cre_tsk` does not check that it
+stays clear of the kernel's data, the stacks of other tasks, the boot and
+interrupt stacks or the code. It reserves the top 128 bytes of the buffer for
+the task's initial register frame, which `tk_sta_tsk` writes there each time it
+starts the task. Every task runs in machine mode whatever its
+`TA_RNG0` to `TA_RNG3` attribute, in the single privileged execution
+environment of the [specification review](spec-conformance-review.md#defined-choices),
+so a task can write anywhere in RAM.
 
 The [RISC-V ILP32 psABI integer calling convention](https://riscv-non-isa.github.io/riscv-elf-psabi-doc/#integer-cc)
 requires the stack pointer to be 16-byte aligned at procedure entry. The kernel
@@ -205,20 +216,11 @@ records which faults in this check the tests detect.
 
 ## Calls from interrupt handlers
 
-The specification lists the calls that must work in the task-independent
-portion and leaves the others to the implementation. Of the calls this kernel
-implements, the required ones are `tk_sta_tsk`, `tk_rel_wai`, `tk_wup_tsk`,
-`tk_sig_sem` and `tk_set_flg`. This kernel also allows `tk_cre_tsk`,
-`tk_cre_sem`, `tk_cre_flg`, `tk_cre_mbx`, `tk_del_sem`, `tk_del_mbx`,
-`tk_clr_flg` and `tk_snd_mbx` from a handler, with valid arguments and their
-normal error returns. The wait calls, `tk_def_int`, `tk_set_utc` and
-`tk_get_utc` return `E_CTX`, and `tk_ext_tsk` and `tk_exd_tsk` stop the system.
-
-This list is verified for a single-level handler only. Calls from a nested
-handler (one that interrupted another handler) need separate validation.
-
-[interrupts.md](interrupts.md) has the full table of calls and the
-specification references. It also covers PLIC handler registration with
+Which calls an interrupt handler may make, which return `E_CTX` and which stop
+the system is in the table of
+[Calls from a handler](interrupts.md#calls-from-a-handler), with the
+specification references and the limits of its verification.
+[interrupts.md](interrupts.md) also covers PLIC handler registration with
 `tk_def_int`, source control with `EnableInt` and `DisableInt`, pending queries
 with `CheckInt`, pending-request clearing with `ClearInt`, explicit completion
 with `EndOfInt`, the interrupt stack,
@@ -281,10 +283,11 @@ number of messages ahead of it. A constant time for this send would need one
 queue per priority, and so a limit on `msgpri`, which the specification does
 not give.
 
-The budget for this send is 31250 instructions, a tenth of a 10 ms tick when
-QEMU runs with `-icount shift=5` (QEMU then counts guest time as 2^5 ns per
-instruction). The budget holds for 256 queued messages in the QEMU Debug and
-MinSizeRel configurations. Latency on hardware needs a measurement on the
+The budget for this send is `BUDGET_INSTRUCTIONS` in `test/cost.h`, a tenth
+of a 10 ms tick when QEMU runs with `-icount shift=5` (QEMU then counts guest
+time as 2^5 ns per instruction). The budget holds for `QUEUED` queued messages
+(`test/suites/mailbox_cost.c`) in the QEMU Debug and MinSizeRel
+configurations. Latency on hardware needs a measurement on the
 target. The `mailbox-cost` QEMU suite measures these calls, and
 [mailbox-di-budget.md](../developer/notes/mailbox-di-budget.md) records the
 budget and the counts.

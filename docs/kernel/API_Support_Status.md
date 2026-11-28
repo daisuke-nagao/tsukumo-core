@@ -279,23 +279,11 @@ by tsukumo-core accepts the alias. Semaphore, event flag and mailbox IDs of
 
 | API | Provided | `TSK_SELF` (0) |
 | --- | --- | --- |
-| `tk_sta_tsk` | yes | The specification does not define `TSK_SELF` for it. 0 is an invalid ID and returns `E_ID`; nothing changes. |
-| `tk_wup_tsk` | yes | The specification does not define `TSK_SELF` for it. 0 is an invalid ID and returns `E_ID`; nothing changes. |
-| `tk_rel_wai` | yes | The specification does not define `TSK_SELF` for it. 0 is an invalid ID and returns `E_ID`; nothing changes. |
-| `tk_can_wup` | no | The specification accepts `TSK_SELF` as the calling task. A `TSK_SELF` call from the task-independent portion returns `E_ID`. |
-| `tk_ref_tsk` | no | The specification accepts `TSK_SELF` as the calling task. A `TSK_SELF` call from the task-independent portion returns `E_ID`. |
-| `tk_chg_pri` | no | The specification accepts `TSK_SELF` as the calling task. A `TSK_SELF` call from the task-independent portion returns `E_ID`. |
+| `tk_sta_tsk`, `tk_wup_tsk`, `tk_rel_wai` | yes | The specification does not define `TSK_SELF` for them. 0 is an invalid ID and returns `E_ID`; nothing changes. |
 
 When a running task calls `tk_wup_tsk` or `tk_rel_wai` with its own real ID,
 the call returns `E_OBJ`. An ISR can use the interrupted task's real ID
 subject to each API's usual target state and context requirements.
 
-Rules for implementing an API that accepts `TSK_SELF`:
-
-* Check the API's specification for whether it accepts `TSK_SELF`, which
-  contexts may call it and the order of the errors.
-* Never treat an ISR, or a missing current task, as the caller's own task.
-* Tell task context apart with the kernel's common ISR check, not with the
-  interrupt-enable flag (`MIE`).
-* Check separately that a current task exists and that the API is allowed in
-  the calling context.
+The rules for adding an API that accepts `TSK_SELF` are in
+[CONTRIBUTING.md](../../CONTRIBUTING.md#apis-that-accept-tsk_self).

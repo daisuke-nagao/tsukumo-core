@@ -34,6 +34,9 @@ extern tkmc_list_head tkmc_timer_queue;
 extern void __real_tkmc_timer_handler(void);
 
 enum {
+  // The kernel's limit on queued wake-up requests (TK_WAKEUP_MAXCNT),
+  // written out on purpose: a test that used the constant would pass
+  // whatever its value.
   WAKEUP_LIMIT = 4095,
   CHILD_PRIORITY = 2,
   SLEEP_MS = 1000, // The longest a child may sleep if nothing wakes it.
@@ -80,12 +83,6 @@ static struct {
   TCB *running;
   TCB *scheduled;
 } s_before;
-
-static BOOL irq_enabled(void) {
-  UINT status;
-  __asm__ volatile("csrr %0, mstatus" : "=r"(status)::"memory");
-  return (status & MSTATUS_MIE) != 0;
-}
 
 static void capture(void) {
   test_copy_bytes(s_before.tasks, tkmc_tcbs, sizeof(s_before.tasks));
@@ -140,10 +137,10 @@ void __wrap_tkmc_timer_handler(void) {
   ID target = s_target;
   capture();
   s_obs.in_isr_before = tkmc_in_isr();
-  s_obs.irq_before = irq_enabled();
+  s_obs.irq_before = test_irq_enabled();
   s_obs.count_before = tkmc_tcbs[target - 1].wupcnt;
   s_obs.ercd = tk_wup_tsk(target);
-  s_obs.irq_after = irq_enabled();
+  s_obs.irq_after = test_irq_enabled();
   s_obs.in_isr_after = tkmc_in_isr();
   s_obs.count_after = tkmc_tcbs[target - 1].wupcnt;
   s_obs.target_state_after = tkmc_tcbs[target - 1].tskstat;

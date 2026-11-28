@@ -34,8 +34,8 @@
 
 #include <tk/tkernel.h>
 
-#include "../finish.h"
-#include "../putstring.h"
+#include "finish.h"
+#include "putstring.h"
 
 extern unsigned char _bss_start[];
 extern unsigned char _bss_end[];

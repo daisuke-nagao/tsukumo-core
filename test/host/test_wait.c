@@ -22,20 +22,7 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "asm/rv32/address.h"
-#include "context.h"
-#include "event_flag.h"
 #include "fakes.h"
-#include "mailbox.h"
-#include "semaphore.h"
-#include "task.h"
-
-static ID create_semaphore(INT initial) {
-  ID semid = tk_cre_sem(&(T_CSEM){
-      .exinf = 0, .sematr = TA_TFIFO, .isemcnt = initial, .maxsem = 1});
-  TEST_ASSERT_GREATER_THAN(0, semid);
-  return semid;
-}
 
 // A task that waits for a semaphore blocks, leaves the ready queue and joins
 // the semaphore's wait queue, and the other task is the one to run next. A
@@ -43,7 +30,7 @@ static ID create_semaphore(INT initial) {
 static void test_tk_wai_sem_blocks_until_tk_sig_sem_wakes_waiter(void) {
   ID waiter = host_make_task(HOST_HIGH_PRIORITY);
   ID other = host_make_task(HOST_LOW_PRIORITY);
-  ID semid = create_semaphore(0);
+  ID semid = host_create_semaphore();
   SEMCB *semcb = &tkmc_semcbs[semid - 1];
   TCB *tcb = host_tcb(waiter);
 
@@ -75,7 +62,7 @@ static void test_tk_wai_sem_blocks_until_tk_sig_sem_wakes_waiter(void) {
 // takes it off the timer queue.
 static void test_tk_wai_sem_ends_with_e_tmout_when_time_limit_runs_out(void) {
   ID waiter = host_make_task(HOST_HIGH_PRIORITY);
-  ID semid = create_semaphore(0);
+  ID semid = host_create_semaphore();
   SEMCB *semcb = &tkmc_semcbs[semid - 1];
   TCB *tcb = host_tcb(waiter);
 
@@ -127,7 +114,7 @@ static void test_tk_rel_wai_wakes_sleeping_task(void) {
 static void test_tk_rel_wai_takes_timed_semaphore_waiter_off_both_queues(void) {
   ID waiter = host_make_task(HOST_HIGH_PRIORITY);
   ID other = host_make_task(HOST_LOW_PRIORITY);
-  ID semid = create_semaphore(0);
+  ID semid = host_create_semaphore();
   SEMCB *semcb = &tkmc_semcbs[semid - 1];
   TCB *tcb = host_tcb(waiter);
 
@@ -157,7 +144,7 @@ static void test_tk_rel_wai_takes_timed_semaphore_waiter_off_both_queues(void) {
 static void test_tk_rel_wai_keeps_queued_wakeup(void) {
   ID waiter = host_make_task(HOST_HIGH_PRIORITY);
   ID other = host_make_task(HOST_LOW_PRIORITY);
-  ID semid = create_semaphore(0);
+  ID semid = host_create_semaphore();
   TCB *tcb = host_tcb(waiter);
 
   host_set_current(waiter);
@@ -185,7 +172,7 @@ static void test_tk_rel_wai_keeps_queued_wakeup(void) {
 static void test_tk_sig_sem_disarms_time_limit_of_its_waiter(void) {
   ID waiter = host_make_task(HOST_HIGH_PRIORITY);
   ID other = host_make_task(HOST_LOW_PRIORITY);
-  ID semid = create_semaphore(0);
+  ID semid = host_create_semaphore();
   TCB *tcb = host_tcb(waiter);
 
   host_set_current(waiter);
@@ -202,69 +189,13 @@ static void test_tk_sig_sem_disarms_time_limit_of_its_waiter(void) {
   host_check_kernel_state();
 }
 
-// Several tasks can be on the timer queue at once, and each one times out on
-// its own tick: one that expires does not hold up or hurry up the others, and
-// two that expire together are both woken.
-static void test_timer_queue_times_out_each_task_on_its_own_tick(void) {
-  ID early = host_make_task(HOST_HIGH_PRIORITY);
-  ID late = host_make_task(HOST_HIGH_PRIORITY);
-  ID twin = host_make_task(HOST_HIGH_PRIORITY);
-  ID semid = create_semaphore(0);
-
-  host_set_current(early);
-  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, 10)); // 2 ticks
-  host_set_current(late);
-  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, 30)); // 4 ticks
-  host_set_current(twin);
-  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, 10)); // 2 ticks
-  host_check_kernel_state();
-
-  host_tick(1);
-  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(early)->tskstat);
-  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(late)->tskstat);
-  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(twin)->tskstat);
-  host_tick(1);
-  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(early)->tskstat);
-  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(twin)->tskstat);
-  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(late)->tskstat);
-  host_check_kernel_state();
-  host_tick(1);
-  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(late)->tskstat);
-  host_tick(1);
-  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(late)->tskstat);
-  TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_timer_queue));
-  host_check_kernel_state();
-}
-
-// A timed wait records what the task waits for (sleeping, delay, semaphore).
-// The kernel tells the waits apart by this field; what each kind lets wake the
-// task is not tested here.
-static void test_timer_queue_timed_waits_record_what_task_waits_for(void) {
-  ID sleeper = host_make_task(HOST_HIGH_PRIORITY);
-  ID delayer = host_make_task(HOST_HIGH_PRIORITY);
-  ID waiter = host_make_task(HOST_HIGH_PRIORITY);
-  ID semid = create_semaphore(0);
-
-  host_set_current(sleeper);
-  HOST_EXPECT_WAIT(tk_slp_tsk(50));
-  host_set_current(delayer);
-  HOST_EXPECT_WAIT(tk_dly_tsk(50));
-  host_set_current(waiter);
-  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, 50));
-
-  TEST_ASSERT_EQUAL_UINT(TTW_SLP, host_tcb(sleeper)->tskwait);
-  TEST_ASSERT_EQUAL_UINT(TTW_DLY, host_tcb(delayer)->tskwait);
-  TEST_ASSERT_EQUAL_UINT(TTW_SEM, host_tcb(waiter)->tskwait);
-  host_check_kernel_state();
-}
-
 // tk_rel_wai() refuses a task that is not waiting, the running task, and a task
 // that does not exist, and changes nothing.
 static void test_tk_rel_wai_refuses_task_that_is_not_waiting(void) {
   ID running = host_make_task(HOST_HIGH_PRIORITY);
   ID ready = host_make_task(HOST_LOW_PRIORITY);
   ID blocked = host_make_task(HOST_LOW_PRIORITY);
-  ID semid = create_semaphore(0);
+  ID semid = host_create_semaphore();
 
   // A task that has just blocked is still the current one until it is switched
   // out, and it cannot release itself.
@@ -355,7 +286,7 @@ test_tk_rel_wai_in_isr_releases_task_it_interrupted_right_after_wait_began(
 static void test_tk_sig_sem_after_time_out_leaves_unit_and_cause(void) {
   ID waiter = host_make_task(HOST_HIGH_PRIORITY);
   ID other = host_make_task(HOST_LOW_PRIORITY);
-  ID semid = create_semaphore(0);
+  ID semid = host_create_semaphore();
   SEMCB *semcb = &tkmc_semcbs[semid - 1];
   TCB *tcb = host_tcb(waiter);
 
@@ -377,8 +308,8 @@ static void test_tk_sig_sem_after_time_out_leaves_unit_and_cause(void) {
 static void test_tk_sig_sem_does_not_wake_task_that_left_semaphore(void) {
   ID waiter = host_make_task(HOST_HIGH_PRIORITY);
   ID other = host_make_task(HOST_LOW_PRIORITY);
-  ID first = create_semaphore(0);
-  ID second = create_semaphore(0);
+  ID first = host_create_semaphore();
+  ID second = host_create_semaphore();
   TCB *tcb = host_tcb(waiter);
 
   host_set_current(waiter);
@@ -400,8 +331,8 @@ static void test_tk_sig_sem_does_not_wake_task_that_left_semaphore(void) {
   host_check_kernel_state();
 }
 
-static ID create_flag(ATR attributes) {
-  ID flgid = tk_cre_flg(&(T_CFLG){.exinf = 0, .flgatr = attributes});
+static ID create_flag(void) {
+  ID flgid = tk_cre_flg(&(T_CFLG){.exinf = 0, .flgatr = TA_WSGL});
   TEST_ASSERT_GREATER_THAN(0, flgid);
   return flgid;
 }
@@ -411,7 +342,7 @@ static ID create_flag(ATR attributes) {
 static void test_tk_set_flg_after_time_out_keeps_pattern_and_cause(void) {
   ID waiter = host_make_task(HOST_HIGH_PRIORITY);
   ID other = host_make_task(HOST_LOW_PRIORITY);
-  ID flgid = create_flag(TA_WSGL);
+  ID flgid = create_flag();
   TCB *tcb = host_tcb(waiter);
   UINT pattern = 0;
 
@@ -433,7 +364,7 @@ static void test_tk_set_flg_after_time_out_keeps_pattern_and_cause(void) {
 static void test_tk_wai_flg_single_waiter_flag_is_free_after_time_out(void) {
   ID first = host_make_task(HOST_HIGH_PRIORITY);
   ID second = host_make_task(HOST_HIGH_PRIORITY);
-  ID flgid = create_flag(TA_WSGL);
+  ID flgid = create_flag();
   UINT pattern = 0;
 
   host_set_current(first);
@@ -498,14 +429,14 @@ static void test_tk_wup_tsk_on_timed_sleeper_clears_time_limit(void) {
 // unlinking the task later would corrupt that list.
 static void test_tk_del_sem_after_time_out_leaves_no_link_to_task(void) {
   ID waiter = host_make_task(HOST_HIGH_PRIORITY);
-  ID semid = create_semaphore(0);
+  ID semid = host_create_semaphore();
   TCB *tcb = host_tcb(waiter);
 
   host_set_current(waiter);
   HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, 10));
   host_tick(2);
   TEST_ASSERT_EQUAL(E_OK, tk_del_sem(semid));
-  ID again = create_semaphore(0);
+  ID again = host_create_semaphore();
 
   TEST_ASSERT_TRUE(tkmc_list_empty(&tcb->winfo.wait_queue));
   TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_semcbs[again - 1].wait_queue));
@@ -519,7 +450,7 @@ static void test_tk_del_sem_releases_every_waiter_with_deleted_cause(void) {
   ID first = host_make_task(HOST_HIGH_PRIORITY);
   ID second = host_make_task(HOST_HIGH_PRIORITY);
   ID other = host_make_task(HOST_LOW_PRIORITY);
-  ID semid = create_semaphore(0);
+  ID semid = host_create_semaphore();
 
   host_set_current(first);
   HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, TMO_FEVR));
@@ -550,7 +481,7 @@ static void test_tk_del_sem_ends_time_limit_of_its_waiter(void) {
   ID forever = host_make_task(HOST_HIGH_PRIORITY);
   ID timed = host_make_task(HOST_HIGH_PRIORITY);
   ID other = host_make_task(HOST_LOW_PRIORITY);
-  ID semid = create_semaphore(0);
+  ID semid = host_create_semaphore();
 
   host_set_current(forever);
   HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, TMO_FEVR));
@@ -574,7 +505,7 @@ static void test_tk_del_sem_ends_time_limit_of_its_waiter(void) {
 static void test_tk_del_sem_with_waiters_keeps_free_list_whole(void) {
   ID waiter = host_make_task(HOST_HIGH_PRIORITY);
   ID other = host_make_task(HOST_LOW_PRIORITY);
-  ID semid = create_semaphore(0);
+  ID semid = host_create_semaphore();
 
   host_set_current(waiter);
   HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, 50));
@@ -723,8 +654,6 @@ void run_wait_tests(void) {
   RUN_TEST(test_tk_del_sem_ends_time_limit_of_its_waiter);
   RUN_TEST(test_tk_del_sem_with_waiters_keeps_free_list_whole);
   RUN_TEST(test_tk_del_sem_after_time_out_leaves_no_link_to_task);
-  RUN_TEST(test_timer_queue_times_out_each_task_on_its_own_tick);
-  RUN_TEST(test_timer_queue_timed_waits_record_what_task_waits_for);
   RUN_TEST(test_tk_rel_wai_refuses_task_that_is_not_waiting);
   RUN_TEST(
       test_tk_rel_wai_in_isr_releases_task_it_interrupted_right_after_wait_began);

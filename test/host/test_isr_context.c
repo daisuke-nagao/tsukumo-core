@@ -8,13 +8,10 @@
 #include <unity.h>
 
 #include "context.h"
-#include "event_flag.h"
 #include "fakes.h"
-#include "mailbox.h"
-#include "semaphore.h"
-#include "task.h"
 
-enum { PRIORITY = 4, HIGH_PRIORITY = 3, LOW_PRIORITY = 5 };
+// A task that outranks the one at HOST_HIGH_PRIORITY.
+enum { HIGHER_PRIORITY = HOST_HIGH_PRIORITY - 1 };
 
 static ID s_self;
 static host_objects_t s_obj;
@@ -27,7 +24,7 @@ static void never_run(INT stacd, void *exinf) {
 }
 
 static void fresh(void) {
-  s_self = host_make_task(PRIORITY);
+  s_self = host_make_task(HOST_HIGH_PRIORITY);
   host_set_current(s_self);
   s_obj = host_make_objects();
   TEST_ASSERT_EQUAL(E_OK, tk_set_flg(s_obj.flgid, 5));
@@ -38,7 +35,7 @@ static ER create_task(void) {
   return tk_cre_tsk(&(T_CTSK){.exinf = 0,
                               .tskatr = TA_HLNG | TA_USERBUF,
                               .task = (FP)never_run,
-                              .itskpri = PRIORITY,
+                              .itskpri = HOST_HIGH_PRIORITY,
                               .stksz = sizeof(s_task_stack),
                               .bufptr = s_task_stack});
 }
@@ -57,51 +54,57 @@ static ER delete_mailbox(void) { return tk_del_mbx(s_obj.mbxid); }
 static ER clear_flag(void) { return tk_clr_flg(s_obj.flgid, 0); }
 static ER send_mailbox(void) { return tk_snd_mbx(s_obj.mbxid, &s_message); }
 
+// What each call left behind, checked after the ISR has been left.
+static void check_task_created(ER tskid) {
+  TEST_ASSERT_EQUAL_UINT(TTS_DMT, tkmc_tcbs[tskid - 1].tskstat);
+}
+static void check_sem_created(ER semid) {
+  TEST_ASSERT_EQUAL_UINT(semid, tkmc_semcbs[semid - 1].semid);
+  TEST_ASSERT_EQUAL(E_OK, tk_del_sem(semid));
+}
+static void check_flag_created(ER flgid) {
+  TEST_ASSERT_EQUAL_UINT(flgid, tkmc_flgcbs[flgid - 1].flgid);
+}
+static void check_mailbox_created(ER mbxid) {
+  TEST_ASSERT_EQUAL_UINT(mbxid, tkmc_mbxcbs[mbxid - 1].mbxid);
+  TEST_ASSERT_EQUAL(E_OK, tk_del_mbx(mbxid));
+}
+static void check_sem_deleted(ER result) {
+  (void)result;
+  TEST_ASSERT_EQUAL(E_NOEXS, tk_sig_sem(s_obj.semid, 1));
+}
+static void check_mailbox_deleted(ER result) {
+  (void)result;
+  TEST_ASSERT_EQUAL(E_NOEXS, tk_snd_mbx(s_obj.mbxid, &s_message));
+}
+static void check_flag_cleared(ER result) {
+  (void)result;
+  TEST_ASSERT_EQUAL_UINT(0, tkmc_flgcbs[s_obj.flgid - 1].flgptn);
+}
+static void check_message_sent(ER result) {
+  (void)result;
+  T_MSG *received = NULL;
+  TEST_ASSERT_EQUAL(E_OK, tk_rcv_mbx(s_obj.mbxid, &received, TMO_POL));
+  TEST_ASSERT_EQUAL_PTR(&s_message, received);
+}
+
 typedef struct {
   const char *name;
   ER (*call)(void);
   BOOL creates;
+  void (*check)(ER result);
 } api_case_t;
 
 static const api_case_t s_calls[] = {
-    {"tk_cre_tsk", create_task, TRUE}, {"tk_cre_sem", create_sem, TRUE},
-    {"tk_cre_flg", create_flag, TRUE}, {"tk_cre_mbx", create_mailbox, TRUE},
-    {"tk_del_sem", delete_sem, FALSE}, {"tk_del_mbx", delete_mailbox, FALSE},
-    {"tk_clr_flg", clear_flag, FALSE}, {"tk_snd_mbx", send_mailbox, FALSE},
+    {"tk_cre_tsk", create_task, TRUE, check_task_created},
+    {"tk_cre_sem", create_sem, TRUE, check_sem_created},
+    {"tk_cre_flg", create_flag, TRUE, check_flag_created},
+    {"tk_cre_mbx", create_mailbox, TRUE, check_mailbox_created},
+    {"tk_del_sem", delete_sem, FALSE, check_sem_deleted},
+    {"tk_del_mbx", delete_mailbox, FALSE, check_mailbox_deleted},
+    {"tk_clr_flg", clear_flag, FALSE, check_flag_cleared},
+    {"tk_snd_mbx", send_mailbox, FALSE, check_message_sent},
 };
-
-static void check_effect(UINT api, ER result) {
-  switch (api) {
-  case 0:
-    TEST_ASSERT_EQUAL_UINT(TTS_DMT, tkmc_tcbs[result - 1].tskstat);
-    break;
-  case 1:
-    TEST_ASSERT_EQUAL_UINT(result, tkmc_semcbs[result - 1].semid);
-    TEST_ASSERT_EQUAL(E_OK, tk_del_sem(result));
-    break;
-  case 2:
-    TEST_ASSERT_EQUAL_UINT(result, tkmc_flgcbs[result - 1].flgid);
-    break;
-  case 3:
-    TEST_ASSERT_EQUAL_UINT(result, tkmc_mbxcbs[result - 1].mbxid);
-    TEST_ASSERT_EQUAL(E_OK, tk_del_mbx(result));
-    break;
-  case 4:
-    TEST_ASSERT_EQUAL(E_NOEXS, tk_sig_sem(s_obj.semid, 1));
-    break;
-  case 5:
-    TEST_ASSERT_EQUAL(E_NOEXS, tk_snd_mbx(s_obj.mbxid, &s_message));
-    break;
-  case 6:
-    TEST_ASSERT_EQUAL_UINT(0, tkmc_flgcbs[s_obj.flgid - 1].flgptn);
-    break;
-  default: {
-    T_MSG *received = NULL;
-    TEST_ASSERT_EQUAL(E_OK, tk_rcv_mbx(s_obj.mbxid, &received, TMO_POL));
-    TEST_ASSERT_EQUAL_PTR(&s_message, received);
-  } break;
-  }
-}
 
 static void
 test_isr_context_optional_calls_succeed_and_restore_interrupt_state(void) {
@@ -118,14 +121,14 @@ test_isr_context_optional_calls_succeed_and_restore_interrupt_state(void) {
                                                     : result == E_OK,
                                s_calls[api].name);
       host_leave(entered);
-      check_effect(api, result);
+      s_calls[api].check(result);
       host_check_kernel_queues();
     }
   }
 }
 
 static void test_tk_snd_mbx_in_isr_keeps_fifo_and_priority_order(void) {
-  s_self = host_make_task(LOW_PRIORITY);
+  s_self = host_make_task(HOST_LOW_PRIORITY);
   host_set_current(s_self);
   ID fifo = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = TA_TFIFO});
   ID priority = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = TA_TFIFO | TA_MPRI});
@@ -166,12 +169,12 @@ static void test_tk_snd_mbx_in_isr_keeps_fifo_and_priority_order(void) {
 
 static void test_tk_snd_mbx_in_isr_wakes_waiter_and_defers_its_switch(void) {
   ID mbxid = tk_cre_mbx(&(T_CMBX){.exinf = 0, .mbxatr = TA_TFIFO});
-  ID receiver = host_make_task(HIGH_PRIORITY);
+  ID receiver = host_make_task(HIGHER_PRIORITY);
   host_set_current(receiver);
   T_MSG *received = NULL;
   HOST_EXPECT_WAIT(tk_rcv_mbx(mbxid, &received, TMO_FEVR));
 
-  ID sender = host_make_task(LOW_PRIORITY);
+  ID sender = host_make_task(HOST_LOW_PRIORITY);
   host_set_current(sender);
   static T_MSG message;
   // A value no wake writes, so a wake that skips the cause fails below.

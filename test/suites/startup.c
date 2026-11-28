@@ -8,10 +8,11 @@
 // failed API result; every earlier step still uses the kernel's real API.
 #include <tk/tkernel.h>
 
-#include "../finish.h"
-#include "../putstring.h"
+#include "finish.h"
 #include "ini_tsk.h"
 #include "panic.h"
+#include "putstring.h"
+#include "runner.h"
 #include "task.h"
 
 _Static_assert(STARTUP_FAIL_STAGE >= TKMC_STARTUP_NONE &&
@@ -34,12 +35,6 @@ static __attribute__((__noreturn__)) void fail(const char *what) {
   test_fail("STARTUP :FAIL: ", what);
 }
 
-static UINT interrupt_status(void) {
-  UINT status;
-  __asm__ volatile("csrr %0, mstatus" : "=r"(status)::"memory");
-  return status;
-}
-
 static BOOL enter_step(tkmc_startup_stage stage) {
   if (injected || ++step != (UINT)stage) {
     fail("continued after failure or wrong API order");
@@ -53,7 +48,7 @@ static BOOL enter_step(tkmc_startup_stage stage) {
     __asm__ volatile("csrw mie, zero" ::: "memory");
     EI(0);
   }
-  injected_with_mie = (interrupt_status() & MSTATUS_MIE) != 0;
+  injected_with_mie = test_irq_enabled();
   return TRUE;
 }
 
@@ -116,7 +111,7 @@ void __wrap___launch_task(void **sp) {
   // Interrupts stay off from reset until the first task runs: a trap before
   // then finds no current task or, once tkmc_force_dispatch() has set it,
   // replaces the first task's start frame with the boot context.
-  if (interrupt_status() & MSTATUS_MIE) {
+  if (test_irq_enabled()) {
     fail("interrupts were on before the first task");
   }
   ++launches;
@@ -135,10 +130,9 @@ __attribute__((__noreturn__)) void tkmc_startup_panic(tkmc_startup_stage stage,
       tkmc_last_startup_failure.error != error) {
     fail("wrong startup failure record or hook arguments");
   }
-  if ((interrupt_status() & MSTATUS_MIE) ||
-      injected_with_mie != (BOOL)STARTUP_ENABLE_MIE || current != NULL ||
-      selections || timer_starts || launches || tkmc_last_trap.mcause ||
-      tkmc_last_trap.mepc || tkmc_last_trap.mtval) {
+  if (test_irq_enabled() || injected_with_mie != (BOOL)STARTUP_ENABLE_MIE ||
+      current != NULL || selections || timer_starts || launches ||
+      tkmc_last_trap.mcause || tkmc_last_trap.mepc || tkmc_last_trap.mtval) {
     fail("interrupt, scheduling or CPU trap state changed");
   }
   putstring("STARTUP FAILURE OK stage=");

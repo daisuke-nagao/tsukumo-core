@@ -45,10 +45,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (see [naming rule](docs/developer/testing.md#name-a-test))
 - Restructure the tests around shared helpers and tables, split the largest files and register CTest cases by name
 - Declare the kernel's `schedule()` once, returning the `void *` frame, so that a wrapper of another type fails to build
+- Drop include lines from the PC tests that `test/host/fakes.h` already provides or that nothing uses
+- Define the timer and PLIC register addresses of the PC tests once, in `test/host/fakes.h`
+- Share the PC tests' interrupt source numbers, a finite wait limit and the task priorities through `test/host/fakes.h`
+- Drop the arguments that every caller of the `test_wait.c` object helpers passed with the same value
+- Count creatable event flags and mailboxes with bounded fixture helpers, as semaphores already were
+- Add `HOST_TRY_WAIT` for PC tests that need to know whether a call blocked without failing on it
+- Size the PC test fixture's task stacks from `CFN_MAX_TSKID` instead of a copy of its value
+- Give each row of the PC ISR-context call table its own effect check, so reordering the rows keeps the test right
+- Merge the three PC tests that refuse waits inside `DI()`, in an ISR and without a task into one table
+- Merge the PC tests of a semaphore head waiter leaving by time-out and by `tk_rel_wai` into one table
+- Name the departure, row and interrupt state in every failure of the PC semaphore departure checks
+- Share the loop over `ClearInt` configurations between the two PC tests that walk it
+- Keep every PC test of the timer queue in `test_timer.c`
+- Check each broken `tk_cre_tsk` packet with tasks running and ready, including which task slot is allocated next
+- Put `test/` on the include path of Unity, the test runner and the QEMU suites only, not of the kernel and every
+  other target
+- Include the shared test headers by bare name in every QEMU suite
+- Read the machine interrupt-enable bit in the QEMU suites through one `test_irq_enabled()` in `test/runner.h`
+- Create the mailboxes of the mailbox QEMU suites with one `test_create_mailbox()` in the test runner
+- Run both wake-up cases of the `task-timer` QEMU suite with one child task entry
+- Drop the byte pattern seed that every caller in the `memcpy` QEMU suite passed with the same value
+- Define the exception causes and addresses of the panic QEMU suites once, in `test/panic_expect.h`
+- Reset the assembly-outer flag of the mixed nested interrupt cases before their checks, so a failed check no longer
+  leaves it set for the next case
+- Make `test/check_interrupt_completion.py` refuse a command line without `--expect=` instead of checking the
+  `interrupt` suite's set by default
+- Name the two-second spin limit of the `system-time` and `task-context` QEMU suites `SPIN_MS`, as other suites do
+- Use the public `MSTATUS_MIE` and the shared `UART_BASE` in the QEMU tests instead of local copies, and say why the
+  wake-up limit tests keep their own copy of `TK_WAKEUP_MAXCNT`
+- Arm the UART level of the `interrupt-depth` QEMU suites with the shared `test_spin_with_registers`, dropping an
+  identical copy of it
+- Share the interrupt-stack, RTC, CSR and PLIC helpers of the `interrupt` and `interrupt-depth` QEMU suites through
+  `test/isr_stack.h`, `test/qemu_virt.h` and `test/runner.h`
+- Name the literal priorities and PLIC levels of the QEMU suites, and check each child priority against the runner and
+  the case
+- Take the include directories and definitions of the `word-access-tbaa` check from the kernel library, so that a
+  setting added to the library reaches the check
 
 ### Removed
 
 - Remove `kernel/asm/rv32/launch_task.S`, an old copy of `__launch_task` that no build compiled
+- Remove six `PROVIDE` symbols from `linker.ld` that nothing referenced, so the linker never defined them
+- Remove the C++ compiler and flags from `toolchain.cmake`; the project builds only C and assembly
 
 ### Fixed
 
@@ -91,3 +130,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add documentation of the kernel's behavior, its interrupts and its conformance to the μT-Kernel 3.0 specification
   (see [docs/README.md](docs/README.md))
 - Add a license check (`reuse lint`) and a Markdown check (`markdownlint-cli2`) to the pre-commit hooks
+
+[Unreleased]: https://github.com/daisuke-nagao/tsukumo-core/compare/v0.0.1...HEAD
+[0.0.1]: https://github.com/daisuke-nagao/tsukumo-core/releases/tag/v0.0.1

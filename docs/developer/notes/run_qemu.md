@@ -84,51 +84,9 @@ gives the full rules.
 
 ### Guest clock and host-clock runs
 
-By default each test runs QEMU on an instruction-count clock:
-
-```sh
-qemu-system-riscv32 -machine virt -bios none -nographic -icount shift=5,sleep=off -kernel <suite ELF>
-```
-
-With `-icount`, guest time follows the number of instructions the guest has
-run instead of the host clock: one instruction takes 2^shift ns, so 32 ns at
-shift 5, and a 10 ms kernel tick holds 312500 instructions. With `sleep=off`,
-guest time jumps to the next timer deadline while the idle task halts in `wfi`
-(the RISC-V wait-for-interrupt instruction), instead of waiting in real time.
-The tests wait on timers, so on the host clock a stalled host stretches the
-guest's waits and runs differ. On the instruction-count clock the UART log is
-the same on every run, and a suite takes a fraction of a second.
-
-A fixed schedule can hide a race that only the host clock shows. So every suite
-that is meant to pass also runs once on the host clock, as
-`qemu-<suite>-hostclock`, with this command:
-
-```sh
-qemu-system-riscv32 -machine virt -bios none -nographic -kernel <suite ELF>
-```
-
-These tests carry the label `host-clock`: `ctest -L host-clock` runs only them,
-and `ctest -LE host-clock` skips them. They run one at a time (CTest
-`RUN_SERIAL`), because a stalled host would stretch the guest's waits.
-
-The cache variable `QEMU_ICOUNT_SHIFT` selects the clock:
-
-| `QEMU_ICOUNT_SHIFT` | Main tests run with | Main tests one at a time | `-hostclock` tests | Instruction-count suites |
-| --- | --- | --- | --- | --- |
-| A number (default `5`) | `-icount shift=<number>,sleep=off` | No | Registered | Registered only for a number of 8 or less |
-| `auto` | `-icount shift=auto`, which lets QEMU follow the host clock | Yes | Registered | Not registered |
-| Empty (`-DQEMU_ICOUNT_SHIFT=`) | The host clock | Yes | Not registered | Not registered |
-
-The instruction-count suites are `idle-halt`, `mailbox-cost`, `timer-cost` and
-`timer-cost-max`. They read `minstret`, the RISC-V counter of retired
-instructions. QEMU counts instructions in `minstret` only under `-icount`; on
-the host clock the counter returns host timer ticks, which are not comparable.
-These suites therefore have no `-hostclock` run. They also depend on how many
-instructions fit in a unit of guest time: with `auto` that ratio follows the
-host, and with a shift above 8 a spinning idle task would run too few
-instructions for `idle-halt` to tell it from a halted one. When CMake skips one
-of these suites, it warns at configure time: `<suite>: not run, it needs
-QEMU_ICOUNT_SHIFT to be a number of 8 or less`.
+[Guest clock and host-clock runs](../testing.md#guest-clock-and-host-clock-runs)
+in the testing guide explains the two clocks, the `QEMU_ICOUNT_SHIFT` options
+and the instruction-count suites.
 
 ## Terms used in the suite descriptions
 
@@ -136,14 +94,10 @@ QEMU_ICOUNT_SHIFT to be a number of 8 or less`.
 | --- | --- |
 | `minstret` | The RISC-V counter of retired instructions. |
 | `mcause`, `mepc`, `mtval` | RISC-V machine trap registers: the cause of a trap, the address of the instruction that trapped, and the value that caused it (such as the bad address or instruction word). |
-| `MIE`, `mie` | `MIE` is the global interrupt-enable bit of `mstatus`. `mie` is a separate register with one enable bit for each interrupt source. See [Kernel behavior](../../kernel/behavior.md#terms-used-on-this-page). |
-| ISR | Interrupt service routine. The kernel's trap entries count their nesting in `tkmc_isr_depth` (the ISR depth), and code runs as an ISR while that count is not 0. See [Kernel behavior](../../kernel/behavior.md#terms-used-on-this-page). |
-| PLIC | The platform-level interrupt controller of the `virt` board. It routes external interrupts, here from the UART and the RTC (real-time clock), to the CPU. |
-| TCB | Task control block, the kernel's record of a task. |
+| `MIE`, `mie`, ISR, PLIC, TCB, `tkmc_` prefix | See [Kernel behavior](../../kernel/behavior.md#terms-used-on-this-page). In these suites the PLIC routes the interrupts of the UART and the RTC (real-time clock). |
 | Tick, tick edge | The kernel's timer period of 10 ms, and the moment one tick ends. |
 | Link-time wrap | The linker option `--wrap=<function>`. Calls to `<function>` go to the suite's `__wrap_<function>`, which can call the original as `__real_<function>`. Suites use it to observe a kernel function on the real trap path. |
 | Start code | The `stacd` argument of `tk_sta_tsk()`, which the task's entry function receives. |
-| `tkmc_` prefix | Marks a name of this kernel's own interface, not part of the μT-Kernel API. |
 
 ## Test suites
 
@@ -199,7 +153,7 @@ registers them only when `QEMU_ICOUNT_SHIFT` is a number of 8 or less (see
 | `bss-clear` | The kernel clears `.bss` at boot. QEMU starts with zeroed RAM, so `test/bss_dirty_entry.S`, linked first, fills `.bss` with 0xa5 and then starts the kernel, as a board with dirty RAM would. The entry also leaves a value in `a0`, as boot code does, and `usermain()` must receive it. | No runner. Requires `BOOT ARG OK`, then `BSS OK`, which it prints if no 0xa5 is left. |
 | `startup-<case>` | Six ELFs: `success`, `initial-create`, `initial-start`, `idle-create`, `idle-start` and `idle-start-mie`. At startup the kernel creates and starts the initial task and the idle task. A link-time wrap makes one of those four calls fail, and startup must stop through `tkmc_startup_panic()` with the stage and error recorded, without reaching later steps. `success` checks normal startup through the same wraps. `idle-start-mie` injects the idle-start failure with interrupts enabled. | No runner. Requires `STARTUP SUCCESS OK` or `STARTUP FAILURE OK stage=`. |
 | `panic-illegal`, `panic-load-fault`, `panic-bad-stack` | A fatal trap stops the kernel and reports its cause: an illegal instruction, a load from an unmapped address, and an illegal instruction run with a stack pointer that points at nothing. The machine stops at the trap, so each ELF causes one trap. Its replaced `tkmc_panic()` (`test/panic_hook.c`) prints `PANIC OK` only if `mcause`, `mepc` and `mtval` are as expected. | Requires `PANIC OK`. |
-| `task-context-<case>` | Fifteen ELFs built from `test/suites/task_context.c`, one case each. `isr`: calls that an ISR may make, from the real timer trap, and the task switch that follows. `no-current-wait`: wait calls made before any task runs. `di-ext`, `di-exd`, `isr-ext`, `isr-exd`, `no-current-ext` and `no-current-exd`: `tk_ext_tsk()` or `tk_exd_tsk()` called with interrupts disabled, from an ISR, or with no current task. `ret-task`, `ret-task-di`, `ret-hlng`, `ret-timer`, `ret-software` and `ret-no-current`: `tk_ret_int()` called from a task with interrupts enabled or disabled, from a `TA_HLNG` handler, from the timer trap, from the dispatch trap, or with no current task. `ret-asm-task-di`: a `TA_ASM` task that returns from its entry with interrupts disabled, which ends in `tk_ext_tsk()`. In every case but `isr` and `no-current-wait` the kernel must stop through `tkmc_context_panic()` with `E_CTX` recorded and the task state unchanged. | All but `isr` have no runner. Requires `1 Tests 0 Failures` (`isr`), `NO CURRENT WAIT OK` (`no-current-wait`) or `CONTEXT STOP OK` (the others). |
+| `task-context-<case>` | Fifteen ELFs built from `test/suites/task_context.c`, one case each: calls made from an ISR, with interrupts disabled or with no current task. See [The task-context suites](#the-task-context-suites). | All but `isr` have no runner, and each requires a marker line. |
 
 ### Test-runner self-tests
 
@@ -227,6 +181,29 @@ passes when QEMU fails to start or the ELF is missing. The pairs have no
 | `word-access-tbaa` | Compiles `kernel/memcpy.c` and `kernel/memset.c` to LLVM IR and checks that their word loops access memory as a type that may alias any object (`test/check_word_tbaa.cmake`). | Runs no QEMU. CMake registers it only together with the QEMU suites, so a build without QEMU still has no tests and `--no-tests=error` still fails. |
 
 ## Suite details
+
+### The task-context suites
+
+Each `task-context-<case>` suite is one ELF built from
+`test/suites/task_context.c` with one case:
+
+- `isr`: calls that an ISR may make, from the real timer trap, and the task
+  switch that follows. It uses the runner and requires `1 Tests 0 Failures`.
+- `no-current-wait`: wait calls made before any task runs. It requires
+  `NO CURRENT WAIT OK`.
+- `di-ext`, `di-exd`, `isr-ext`, `isr-exd`, `no-current-ext` and
+  `no-current-exd`: `tk_ext_tsk()` or `tk_exd_tsk()` called with interrupts
+  disabled, from an ISR, or with no current task.
+- `ret-task`, `ret-task-di`, `ret-hlng`, `ret-timer`, `ret-software` and
+  `ret-no-current`: `tk_ret_int()` called from a task with interrupts enabled
+  or disabled, from a `TA_HLNG` handler, from the timer trap, from the dispatch
+  trap, or with no current task.
+- `ret-asm-task-di`: a `TA_ASM` task that returns from its entry with
+  interrupts disabled, which ends in `tk_ext_tsk()`.
+
+In every case but `isr` and `no-current-wait` the kernel must stop through
+`tkmc_context_panic()` with `E_CTX` recorded and the task state unchanged, and
+the suite requires `CONTEXT STOP OK`.
 
 ### The interrupt suite
 
@@ -293,13 +270,14 @@ long the call keeps interrupts disabled.
 
 - Three calls must cost the same with any number of queued messages:
   `tk_del_mbx()`, a `TA_MPRI` send at or behind the last queued message, and a
-  send ahead of every message. Each is measured on a mailbox that holds 256
+  send ahead of every message. Each is measured on a mailbox that holds `QUEUED`
   messages and on an empty one, and the counts may differ by at most 100
   instructions. The two sends are also measured with 1 queued message.
 - A send between two queued messages scans the queue, so its time grows with
-  the queue. With 256 queued messages it is held to a budget of 31250
-  instructions (a tenth of a tick at shift 5). Two cases check it: a send into
-  the middle, and a send before the last message, which is the worst case.
+  the queue. With `QUEUED` queued messages it is held to the budget
+  `BUDGET_INSTRUCTIONS` of `test/cost.h` (a tenth of a tick at shift 5). Two
+  cases check it: a send into the middle, and a send before the last message,
+  which is the worst case.
 - After each send, the case receives every message and checks that the sent
   one came out where the case meant it to.
 
@@ -321,8 +299,8 @@ Twenty-nine is the most the suite can reach: the kernel has 32 tasks, and the
 idle task, the runner and the case task take three of them.
 
 Each case reports the instructions of the most expensive handler call. It fails
-when that count is over the budget of 31250 instructions (a tenth of a tick at
-shift 5), when the interrupt was not as late as planned, when the waits did not
+when that count is over the budget `BUDGET_INSTRUCTIONS` of `test/cost.h` (a
+tenth of a tick at shift 5), when the interrupt was not as late as planned, when the waits did not
 end as planned or not in the order of their deadlines, or when the semaphore
 waits cost much more than the same delays (the semaphore margin). See
 [timer-delay-budget.md](timer-delay-budget.md) and

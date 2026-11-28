@@ -15,23 +15,18 @@ MEMORY
 SECTIONS
 {
   .text : {
-    PROVIDE(_text_start = .);
     *(.reset)
     *(.text .text.*)
-    PROVIDE(_text_end = .);
   } >ram AT>ram
 
   .rodata : {
     . = ALIGN(16);
-    PROVIDE(_rodata_start = .);
     *(.rodata .rodata.*)
     *(.note.* )
-    PROVIDE(_rodata_end = .);
   } >ram AT>ram
 
   .data : {
     . = ALIGN(16);
-    PROVIDE(_data_start = .);
     *(.data .data.*)
   } >ram AT>ram
 
@@ -39,7 +34,6 @@ SECTIONS
     . = ALIGN(16);
     PROVIDE( __global_pointer$ = . + 0x800 );
     *(.sdata .sdata.*)
-    PROVIDE(_data_end = .);
   } >ram AT>ram
 
   .sbss (NOLOAD) : {

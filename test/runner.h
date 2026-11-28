@@ -87,6 +87,28 @@ static inline UW test_instret(void) {
   return count;
 }
 
+/// Whether the hart takes machine interrupts (mstatus.MIE). The "memory"
+/// clobber keeps the compiler from moving the read across the kernel calls a
+/// test reads it around.
+static inline BOOL test_irq_enabled(void) {
+  UINT status;
+  __asm__ volatile("csrr %0, mstatus" : "=r"(status)::"memory");
+  return (status & MSTATUS_MIE) != 0;
+}
+
+/// The mstatus and mie CSRs as they are now.
+static inline UW test_read_mstatus(void) {
+  UW value;
+  __asm__ volatile("csrr %0, mstatus" : "=r"(value));
+  return value;
+}
+
+static inline UW test_read_mie(void) {
+  UW value;
+  __asm__ volatile("csrr %0, mie" : "=r"(value));
+  return value;
+}
+
 /// Polls cond, sleeping one tick between polls (tk_dly_tsk(1) sleeps two
 /// ticks), until it holds or limit_ms has passed. The value is whether it
 /// held. A GNU statement expression, so cond is evaluated in the caller.
@@ -110,6 +132,10 @@ static inline UW test_instret(void) {
 /// The state of a task (TTS_*), read from the kernel's task table with
 /// interrupts off.
 extern UINT test_task_state(ID id);
+
+/// Creates a mailbox with the given attributes, and fails the case if the
+/// kernel refuses.
+extern ID test_create_mailbox(ATR attributes);
 
 /// Byte copy and compare for snapshots of kernel state, which a suite may take
 /// inside a handler.

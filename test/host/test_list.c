@@ -17,7 +17,6 @@
 #include <unity.h>
 
 #include "fakes.h"
-#include "list.h"
 
 enum { NODES = 8, STEPS_PER_SEED = 300, SEEDS = 20 };
 

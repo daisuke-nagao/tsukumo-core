@@ -12,24 +12,17 @@
 #include <tk/tkernel.h>
 #include <unity.h>
 
-#include "asm/rv32/address.h"
 #include "fakes.h"
-#include "task.h"
 #include "timer.h"
 
-enum {
-  MTIMECMP_LOW = CLINT_BASE_ADDRESS + CLINT_MTIMECMP_OFFSET,
-  MTIMECMP_HIGH = MTIMECMP_LOW + 4,
-  MTIME_LOW = CLINT_BASE_ADDRESS + CLINT_MTIME_OFFSET,
-  MTIME_HIGH = MTIME_LOW + 4
-};
-
 static void check_compare(UD expected) {
-  TEST_ASSERT_EQUAL_UINT64(expected, (host_last_write(MTIMECMP_HIGH) << 32) |
-                                         host_last_write(MTIMECMP_LOW));
+  TEST_ASSERT_EQUAL_UINT64(expected,
+                           (host_last_write(HOST_MTIMECMP_HIGH) << 32) |
+                               host_last_write(HOST_MTIMECMP_LOW));
   TEST_ASSERT_GREATER_OR_EQUAL_UINT(3, host_log_count);
   const host_access_t *writes = &host_log[host_log_count - 3];
-  const INT ports[] = {MTIMECMP_LOW, MTIMECMP_HIGH, MTIMECMP_LOW};
+  const INT ports[] = {HOST_MTIMECMP_LOW, HOST_MTIMECMP_HIGH,
+                       HOST_MTIMECMP_LOW};
   const UW values[] = {0xffffffffu, (UW)(expected >> 32), (UW)expected};
   for (UINT i = 0; i < 3; ++i) {
     TEST_ASSERT_TRUE(writes[i].is_write);
@@ -40,13 +33,13 @@ static void check_compare(UD expected) {
 }
 
 static void check_mtime_read(UD expected) {
-  const INT ports[] = {MTIME_HIGH, MTIME_LOW, MTIME_HIGH};
+  const INT ports[] = {HOST_MTIME_HIGH, HOST_MTIME_LOW, HOST_MTIME_HIGH};
   const UW values[] = {(UW)(expected >> 32), (UW)expected,
                        (UW)(expected >> 32)};
   UINT reads = 0;
   for (UINT i = 0; i < host_log_count; ++i) {
     const host_access_t *access = &host_log[i];
-    if (access->port == MTIME_HIGH || access->port == MTIME_LOW) {
+    if (access->port == HOST_MTIME_HIGH || access->port == HOST_MTIME_LOW) {
       TEST_ASSERT_FALSE(access->is_write);
       TEST_ASSERT_EQUAL_UINT(4, access->width);
       if (reads < HOST_COUNT(ports)) {
@@ -64,8 +57,8 @@ static void test_timer_arms_compare_one_tick_ahead_at_boot(void) {
   host_log_count = 0; // setUp() has already booted; boot again, with a log.
   host_mtime = 3 * HOST_TICK;
   tkmc_start_timer();
-  TEST_ASSERT_EQUAL_UINT(2, host_write_count(MTIMECMP_LOW));
-  TEST_ASSERT_EQUAL_UINT(1, host_write_count(MTIMECMP_HIGH));
+  TEST_ASSERT_EQUAL_UINT(2, host_write_count(HOST_MTIMECMP_LOW));
+  TEST_ASSERT_EQUAL_UINT(1, host_write_count(HOST_MTIMECMP_HIGH));
   check_compare(4 * HOST_TICK);
 }
 
@@ -86,8 +79,8 @@ static void test_timer_late_interrupt_skips_to_next_tick_ahead(void) {
 }
 
 static void test_timer_boot_replaces_both_compare_words(void) {
-  out_w(MTIMECMP_HIGH, 0xffffffffu);
-  out_w(MTIMECMP_LOW, 0xffffffffu);
+  out_w(HOST_MTIMECMP_HIGH, 0xffffffffu);
+  out_w(HOST_MTIMECMP_LOW, 0xffffffffu);
   host_mtime = ((UD)7 << 32) + 12345;
   host_log_count = 0;
   tkmc_start_timer();
@@ -174,8 +167,8 @@ test_timer_handler_uses_sample_before_same_word_tick_boundary(void) {
   tkmc_timer_handler();
   check_wait(id, 2);
   TEST_ASSERT_EQUAL_UINT64(2 * boundary,
-                           (host_last_write(MTIMECMP_HIGH) << 32) |
-                               host_last_write(MTIMECMP_LOW));
+                           (host_last_write(HOST_MTIMECMP_HIGH) << 32) |
+                               host_last_write(HOST_MTIMECMP_LOW));
   check_mtime_read(2 * boundary - 16);
   TEST_ASSERT_EQUAL_UINT64(2 * boundary + 16, host_mtime);
 
@@ -211,13 +204,13 @@ static void test_timer_interrupt_counts_every_period_that_has_passed(void) {
       tkmc_timer_handler();
       check_wait(id, rows[r].left);
       if (rows[r].periods == 0) {
-        TEST_ASSERT_EQUAL_UINT(0, host_write_count(MTIMECMP_LOW));
+        TEST_ASSERT_EQUAL_UINT(0, host_write_count(HOST_MTIMECMP_LOW));
       } else {
         // A time-out also requests a switch, so the compare writes are not
         // the last accesses that check_compare() looks for.
         TEST_ASSERT_EQUAL_UINT64(starts[s] + (rows[r].periods + 1) * HOST_TICK,
-                                 (host_last_write(MTIMECMP_HIGH) << 32) |
-                                     host_last_write(MTIMECMP_LOW));
+                                 (host_last_write(HOST_MTIMECMP_HIGH) << 32) |
+                                     host_last_write(HOST_MTIMECMP_LOW));
       }
     }
   }
@@ -236,8 +229,8 @@ static void test_timer_repeated_interrupt_changes_nothing(void) {
   host_take_snapshot(&before);
   tkmc_timer_handler();
   host_assert_unchanged(&before, "a repeated timer interrupt");
-  TEST_ASSERT_EQUAL_UINT(0, host_write_count(MTIMECMP_LOW));
-  TEST_ASSERT_EQUAL_UINT(0, host_write_count(MTIMECMP_HIGH));
+  TEST_ASSERT_EQUAL_UINT(0, host_write_count(HOST_MTIMECMP_LOW));
+  TEST_ASSERT_EQUAL_UINT(0, host_write_count(HOST_MTIMECMP_HIGH));
 }
 
 // One late interrupt ends only the waits whose time has come, and takes the
@@ -276,6 +269,62 @@ test_timer_queue_new_wait_does_not_count_periods_before_it_began(void) {
   check_wait(earlier, 3);
 }
 
+// Several tasks can be on the timer queue at once, and each one times out on
+// its own tick: one that expires does not hold up or hurry up the others, and
+// two that expire together are both woken.
+static void test_timer_queue_times_out_each_task_on_its_own_tick(void) {
+  ID early = host_make_task(HOST_HIGH_PRIORITY);
+  ID late = host_make_task(HOST_HIGH_PRIORITY);
+  ID twin = host_make_task(HOST_HIGH_PRIORITY);
+  ID semid = host_create_semaphore();
+
+  host_set_current(early);
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, 10)); // 2 ticks
+  host_set_current(late);
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, 30)); // 4 ticks
+  host_set_current(twin);
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, 10)); // 2 ticks
+  host_check_kernel_state();
+
+  host_tick(1);
+  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(early)->tskstat);
+  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(late)->tskstat);
+  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(twin)->tskstat);
+  host_tick(1);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(early)->tskstat);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(twin)->tskstat);
+  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(late)->tskstat);
+  host_check_kernel_state();
+  host_tick(1);
+  TEST_ASSERT_EQUAL_UINT(TTS_WAI, host_tcb(late)->tskstat);
+  host_tick(1);
+  TEST_ASSERT_EQUAL_UINT(TTS_RDY, host_tcb(late)->tskstat);
+  TEST_ASSERT_TRUE(tkmc_list_empty(&tkmc_timer_queue));
+  host_check_kernel_state();
+}
+
+// A timed wait records what the task waits for (sleeping, delay, semaphore).
+// The kernel tells the waits apart by this field; what each kind lets wake the
+// task is not tested here.
+static void test_timer_queue_timed_waits_record_what_task_waits_for(void) {
+  ID sleeper = host_make_task(HOST_HIGH_PRIORITY);
+  ID delayer = host_make_task(HOST_HIGH_PRIORITY);
+  ID waiter = host_make_task(HOST_HIGH_PRIORITY);
+  ID semid = host_create_semaphore();
+
+  host_set_current(sleeper);
+  HOST_EXPECT_WAIT(tk_slp_tsk(50));
+  host_set_current(delayer);
+  HOST_EXPECT_WAIT(tk_dly_tsk(50));
+  host_set_current(waiter);
+  HOST_EXPECT_WAIT(tk_wai_sem(semid, 1, 50));
+
+  TEST_ASSERT_EQUAL_UINT(TTW_SLP, host_tcb(sleeper)->tskwait);
+  TEST_ASSERT_EQUAL_UINT(TTW_DLY, host_tcb(delayer)->tskwait);
+  TEST_ASSERT_EQUAL_UINT(TTW_SEM, host_tcb(waiter)->tskwait);
+  host_check_kernel_state();
+}
+
 void run_timer_tests(void) {
   UnitySetTestFile(__FILE__);
   RUN_TEST(test_timer_arms_compare_one_tick_ahead_at_boot);
@@ -291,4 +340,6 @@ void run_timer_tests(void) {
   RUN_TEST(test_timer_repeated_interrupt_changes_nothing);
   RUN_TEST(test_timer_queue_late_interrupt_ends_only_waits_it_reached);
   RUN_TEST(test_timer_queue_new_wait_does_not_count_periods_before_it_began);
+  RUN_TEST(test_timer_queue_times_out_each_task_on_its_own_tick);
+  RUN_TEST(test_timer_queue_timed_waits_record_what_task_waits_for);
 }
